@@ -2,6 +2,7 @@
   "name": "hajj-umrah-hotel-ops",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.4.0",
   "engines": {
     "node": ">=22.11.0"
   },
@@ -12,7 +13,10 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "lint": "eslint .",
-    "typecheck": "nuxt typecheck"
+    "typecheck": "nuxt typecheck",
+    "test": "vitest run --config vitest.config.ts",
+    "test:unit": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts"
   },
   "dependencies": {
     "nuxt": "^4.5.2",
@@ -22,6 +26,7 @@
     "@nuxt/eslint": "^1.17.0",
     "eslint": "^10.11.0",
     "typescript": "^6.0.0",
+    "vitest": "^5.0.1",
     "vue-tsc": "^3.3.11"
   }
 }
