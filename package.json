@@ -2,7 +2,6 @@
   "name": "hajj-umrah-hotel-ops",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@9.0.0",
   "engines": {
     "node": ">=22.11.0"
   },
@@ -22,7 +21,7 @@
   "devDependencies": {
     "@nuxt/eslint": "^1.17.0",
     "eslint": "^10.11.0",
-    "typescript": "6.0.0-beta",
+    "typescript": "^6.0.0",
     "vue-tsc": "^3.3.11"
   }
 }
