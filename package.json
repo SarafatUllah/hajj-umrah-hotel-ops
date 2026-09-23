@@ -19,6 +19,7 @@
     "test:watch": "vitest --config vitest.config.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx db/migrate.ts",
+    "db:seed": "tsx db/seed/index.ts",
     "test:integration": "dotenv run -f .env.test -- tsx db/migrate.ts && dotenv run -f .env.test -- vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
