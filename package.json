@@ -2,6 +2,7 @@
   "name": "hajj-umrah-hotel-ops",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@9.4.0",
   "engines": {
     "node": ">=22.11.0"
   },

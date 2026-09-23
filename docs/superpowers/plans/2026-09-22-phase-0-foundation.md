@@ -636,7 +636,7 @@ describe('getEnv', () => {
 
   beforeEach(() => {
     resetEnvCache()
-    for (const key of Object.keys(REQUIRED_VARS)) delete process.env[key]
+    for (const key of Object.keys(REQUIRED_VARS)) Reflect.deleteProperty(process.env, key)
     delete process.env.APP_ENV
   })
 
