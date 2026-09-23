@@ -1,9 +1,17 @@
-import { Algorithm, hash, verify } from '@node-rs/argon2'
+import { hash, verify } from '@node-rs/argon2'
 
 // OWASP-recommended minimum for Argon2id (also this package's defaults —
 // set explicitly so the policy is documented and stable if defaults change).
+//
+// `algorithm: 2` is `Algorithm.Argon2id` from '@node-rs/argon2'. That enum
+// is declared `export declare const enum Algorithm` in the package's
+// generated .d.ts (an *ambient* const enum), which TypeScript refuses to
+// import as a value under `verbatimModuleSyntax` (on by default in Nuxt's
+// generated tsconfig): "Cannot access ambient const enums when
+// 'verbatimModuleSyntax' is enabled." Numeric enum members accept a raw
+// number, so the literal is used directly instead of the enum reference.
 const HASH_OPTIONS = {
-  algorithm: Algorithm.Argon2id,
+  algorithm: 2,
   memoryCost: 19456, // 19 MiB
   timeCost: 2,
   parallelism: 1,

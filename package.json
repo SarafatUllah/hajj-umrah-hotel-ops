@@ -25,6 +25,7 @@
     "@node-rs/argon2": "^2.2.1",
     "drizzle-orm": "^0.45.3",
     "nuxt": "^4.5.2",
+    "nuxt-auth-utils": "^0.5.30",
     "postgres": "^3.4.9",
     "vue": "^3.5.43",
     "zod": "^3.25.0"
