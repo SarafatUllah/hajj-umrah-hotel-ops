@@ -16,16 +16,25 @@
     "typecheck": "nuxt typecheck",
     "test": "vitest run --config vitest.config.ts",
     "test:unit": "vitest run --config vitest.config.ts",
-    "test:watch": "vitest --config vitest.config.ts"
+    "test:watch": "vitest --config vitest.config.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx db/migrate.ts",
+    "test:integration": "dotenv run -f .env.test -- tsx db/migrate.ts && dotenv run -f .env.test -- vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "drizzle-orm": "^0.45.3",
     "nuxt": "^4.5.2",
+    "postgres": "^3.4.9",
     "vue": "^3.5.43",
     "zod": "^3.25.0"
   },
   "devDependencies": {
     "@nuxt/eslint": "^1.17.0",
+    "dotenv": "^18.0.3",
+    "dotenv-cli": "^11.0.0",
+    "drizzle-kit": "^0.31.11",
     "eslint": "^10.11.0",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.0",
     "vitest": "^5.0.1",
     "vue-tsc": "^3.3.11"
