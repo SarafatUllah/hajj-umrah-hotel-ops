@@ -2107,8 +2107,10 @@ jobs:
           node-version-file: '.node-version'
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 10
+        # No `version:` here — pnpm/action-setup auto-detects and installs
+        # the version pinned in package.json's "packageManager" field
+        # (pnpm@9.4.0). Setting both `version:` and a packageManager field
+        # causes the action to fail with "Multiple versions of pnpm specified".
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
