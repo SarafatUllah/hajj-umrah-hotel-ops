@@ -5,9 +5,9 @@ import { sql } from 'drizzle-orm'
 import { organization, appUser, role, permission, rolePermission, userRole } from '../../../db/schema'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
+import { requireTestDatabaseUrl } from '../support/testDatabase'
 
-const connectionString = process.env.DATABASE_URL
-if (!connectionString) throw new Error('DATABASE_URL must be set (run via `dotenv -e .env.test`)')
+const connectionString = requireTestDatabaseUrl()
 
 const client = postgres(connectionString, { max: 1 })
 const db = drizzle(client)
@@ -109,5 +109,50 @@ describe('authenticate', () => {
     // Org B's own password against org B succeeds and resolves to org B.
     const orgBResult = await authenticate('org-b-auth', 'shared@example.com', 'org-b-password')
     expect(orgBResult?.user.organizationId).toBe(orgB.id)
+  })
+
+  it('never grants permissions from a role in another organization, even if a cross-org user_role row exists', async () => {
+    const [homeOrg] = await db.insert(organization).values({ name: 'Home Org', slug: 'home-org-auth' }).returning()
+    const [otherOrg] = await db.insert(organization).values({ name: 'Other Org', slug: 'other-org-auth' }).returning()
+    await db.insert(permission).values([
+      { key: 'booking.view', description: 'View bookings' },
+      { key: 'user.manage', description: 'Manage users' },
+    ])
+    const [homeRole] = await db.insert(role).values({ organizationId: homeOrg.id, key: 'VIEWER', name: 'Viewer' }).returning()
+    const [otherAdminRole] = await db.insert(role).values({ organizationId: otherOrg.id, key: 'SUPER_ADMIN', name: 'Super Admin' }).returning()
+    await db.insert(rolePermission).values([
+      { roleId: homeRole.id, permissionKey: 'booking.view' },
+      { roleId: otherAdminRole.id, permissionKey: 'user.manage' },
+    ])
+    const [user] = await db.insert(appUser).values({
+      organizationId: homeOrg.id,
+      email: 'viewer@home.test',
+      passwordHash: await hashPassword('home-password'),
+      fullName: 'Home Viewer',
+    }).returning()
+    // The legitimate grant, plus a corrupt cross-tenant link that nothing in
+    // the schema currently prevents.
+    await db.insert(userRole).values([
+      { userId: user.id, roleId: homeRole.id },
+      { userId: user.id, roleId: otherAdminRole.id },
+    ])
+
+    const result = await authenticate('home-org-auth', 'viewer@home.test', 'home-password')
+
+    expect(result?.permissions).toEqual(['booking.view'])
+  })
+
+  it('matches email case-insensitively', async () => {
+    const [org] = await db.insert(organization).values({ name: 'Case Org', slug: 'case-org-auth' }).returning()
+    await db.insert(appUser).values({
+      organizationId: org.id,
+      email: 'mixed.case@test.com',
+      passwordHash: await hashPassword('case-password'),
+      fullName: 'Case User',
+    })
+
+    const result = await authenticate('case-org-auth', '  Mixed.Case@TEST.com ', 'case-password')
+
+    expect(result?.user.email).toBe('mixed.case@test.com')
   })
 })

@@ -10,28 +10,57 @@ export class DemoOrganizationNotFoundError extends Error {
   }
 }
 
-export async function resetDemoData(actorUserId: string): Promise<{ organizationId: string }> {
+/**
+ * Thrown when the caller is not a member of the demo organization. The
+ * `organization.resetDemo` permission alone is not enough: every
+ * organization's SUPER_ADMIN holds the full permission catalog, so without
+ * this check a Super Admin of an unrelated tenant could wipe the demo tenant.
+ */
+export class DemoResetForbiddenError extends Error {
+  constructor() {
+    super('Only members of the demo organization can reset demo data')
+    this.name = 'DemoResetForbiddenError'
+  }
+}
+
+export interface DemoResetActor {
+  userId: string
+  organizationId: string
+}
+
+export async function resetDemoData(actor: DemoResetActor): Promise<{ organizationId: string }> {
   const db = useDb()
 
-  const [demoOrg] = await db.select().from(organization).where(eq(organization.slug, DEMO_ORG_SLUG)).limit(1)
-  if (!demoOrg) throw new DemoOrganizationNotFoundError()
+  // One transaction for lookup + delete + reseed + audit (ARCHITECTURE §14):
+  // a failure anywhere rolls the whole reset back, leaving the previous demo
+  // data intact rather than a half-deleted tenant.
+  return db.transaction(async (tx) => {
+    const [demoOrg] = await tx.select().from(organization).where(eq(organization.slug, DEMO_ORG_SLUG)).limit(1)
 
-  // A single delete on the organization row cascades to every table that
-  // references it (app_user, role, role_permission, user_role, audit_log)
-  // and is scoped strictly to this one id — no other tenant's rows are
-  // reachable by this statement.
-  await db.execute(sql`DELETE FROM organization WHERE id = ${demoOrg.id}`)
+    // An organization holding the demo slug but not flagged is_demo is a
+    // real tenant — report it exactly like "no demo org" so callers can't
+    // tell the difference, and never delete it.
+    if (!demoOrg || !demoOrg.isDemo) throw new DemoOrganizationNotFoundError()
 
-  const { organizationId } = await seedDemoOrganization(db)
+    if (actor.organizationId !== demoOrg.id) throw new DemoResetForbiddenError()
 
-  await db.insert(auditLog).values({
-    organizationId,
-    actorUserId,
-    entityType: 'organization',
-    entityId: organizationId,
-    action: 'DEMO_RESET',
-    reason: 'Manual demo data reset',
+    // A single delete on the organization row cascades to every table that
+    // references it (app_user, role, role_permission, user_role, audit_log)
+    // and is scoped strictly to this one id — no other tenant's rows are
+    // reachable by this statement.
+    await tx.execute(sql`DELETE FROM organization WHERE id = ${demoOrg.id}`)
+
+    const { organizationId } = await seedDemoOrganization(tx)
+
+    await tx.insert(auditLog).values({
+      organizationId,
+      actorUserId: actor.userId,
+      entityType: 'organization',
+      entityId: organizationId,
+      action: 'DEMO_RESET',
+      reason: 'Manual demo data reset',
+    })
+
+    return { organizationId }
   })
-
-  return { organizationId }
 }

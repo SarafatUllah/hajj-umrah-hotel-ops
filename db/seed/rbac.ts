@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm'
-import type { Database } from '../client'
+import type { DbOrTx } from '../client'
 import { permission, role, rolePermission } from '../schema'
 import { PERMISSIONS, PERMISSION_DESCRIPTIONS } from '../../shared/constants/permissions'
 import { ROLE_DEFINITIONS } from '../../shared/constants/roles'
 
-export async function seedPermissionCatalog(db: Database): Promise<void> {
+export async function seedPermissionCatalog(db: DbOrTx): Promise<void> {
   for (const key of PERMISSIONS) {
     await db
       .insert(permission)
@@ -13,7 +13,7 @@ export async function seedPermissionCatalog(db: Database): Promise<void> {
   }
 }
 
-export async function seedOrganizationRoles(db: Database, organizationId: string): Promise<Record<string, string>> {
+export async function seedOrganizationRoles(db: DbOrTx, organizationId: string): Promise<Record<string, string>> {
   const roleIdByKey: Record<string, string> = {}
 
   for (const [key, definition] of Object.entries(ROLE_DEFINITIONS)) {

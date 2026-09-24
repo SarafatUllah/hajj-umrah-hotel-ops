@@ -1,7 +1,8 @@
 import { and, eq } from 'drizzle-orm'
 import { useDb } from '../utils/db'
 import { organization, appUser, role, rolePermission, userRole } from '../../db/schema'
-import { verifyPassword } from '../utils/password'
+import { verifyPassword, TIMING_SAFETY_DUMMY_HASH } from '../utils/password'
+import { normalizeEmail } from '../../shared/utils/email'
 
 export interface AuthenticatedUser {
   id: string
@@ -27,27 +28,38 @@ export async function authenticate(organizationSlug: string, email: string, pass
   const db = useDb()
 
   const [org] = await db.select().from(organization).where(eq(organization.slug, organizationSlug)).limit(1)
-  if (!org) return null
 
-  const [foundUser] = await db
-    .select()
-    .from(appUser)
-    .where(and(
-      eq(appUser.organizationId, org.id),
-      eq(appUser.email, email),
-      eq(appUser.isActive, true),
-    ))
-    .limit(1)
+  const [foundUser] = org
+    ? await db
+        .select()
+        .from(appUser)
+        .where(and(
+          eq(appUser.organizationId, org.id),
+          eq(appUser.email, normalizeEmail(email)),
+          eq(appUser.isActive, true),
+        ))
+        .limit(1)
+    : []
 
-  if (!foundUser) return null
-  if (!(await verifyPassword(password, foundUser.passwordHash))) return null
+  // Always run exactly one Argon2 verify, whether or not the organization
+  // and user exist, so "unknown organization", "unknown email", and "wrong
+  // password" are indistinguishable by response time as well as by message.
+  const passwordOk = await verifyPassword(password, foundUser?.passwordHash ?? TIMING_SAFETY_DUMMY_HASH)
+  if (!org || !foundUser || !passwordOk) return null
 
+  // role.organization_id is checked in addition to the user_role link, so a
+  // user_role row pointing at another tenant's role (which should never
+  // exist, but nothing in the schema forbids it) can never grant permissions
+  // across an organization boundary.
   const permissionRows = await db
     .select({ permissionKey: rolePermission.permissionKey })
     .from(userRole)
     .innerJoin(role, eq(role.id, userRole.roleId))
     .innerJoin(rolePermission, eq(rolePermission.roleId, role.id))
-    .where(eq(userRole.userId, foundUser.id))
+    .where(and(
+      eq(userRole.userId, foundUser.id),
+      eq(role.organizationId, foundUser.organizationId),
+    ))
 
   const permissions = Array.from(new Set(permissionRows.map(r => r.permissionKey)))
 

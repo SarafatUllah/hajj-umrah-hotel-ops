@@ -5,5 +5,7 @@ export default defineConfig({
     include: ['tests/integration/**/*.test.ts'],
     environment: 'node',
     fileParallelism: false,
+    // Refuses to run unless DATABASE_URL names a *_test database.
+    setupFiles: ['tests/integration/support/setup.ts'],
   },
 })

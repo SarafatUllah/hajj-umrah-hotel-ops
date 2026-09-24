@@ -3,14 +3,15 @@ import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { eq, sql } from 'drizzle-orm'
 import { createDb } from '../../../db/client'
-import { organization, appUser, role, permission } from '../../../db/schema'
-import { seedDemoOrganization, DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from '../../../db/seed/demo-org'
+import { organization, appUser, role, permission, rolePermission, userRole } from '../../../db/schema'
+import { seedDemoOrganization, DemoSlugConflictError, DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from '../../../db/seed/demo-org'
+import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
 import { PERMISSIONS } from '../../../shared/constants/permissions'
 import { ROLE_DEFINITIONS } from '../../../shared/constants/roles'
+import { requireTestDatabaseUrl } from '../support/testDatabase'
 
-const connectionString = process.env.DATABASE_URL
-if (!connectionString) throw new Error('DATABASE_URL must be set (run via `dotenv -e .env.test`)')
+const connectionString = requireTestDatabaseUrl()
 
 const client = postgres(connectionString, { max: 1 })
 const rawDb = drizzle(client)
@@ -65,5 +66,58 @@ describe('seedDemoOrganization', () => {
     const [stillThere] = await db.select().from(organization).where(eq(organization.id, otherOrg.id)).limit(1)
     expect(stillThere).toBeDefined()
     expect(stillThere.slug).toBe('real-customer')
+  })
+
+  it('never adopts a same-email user from another organization as the demo admin', async () => {
+    // A foreign tenant with its own user at exactly DEMO_ADMIN_EMAIL, holding
+    // only a narrow role of its own.
+    const [foreignOrg] = await db.insert(organization).values({ name: 'Foreign Org', slug: 'foreign-org' }).returning()
+    const [foreignRole] = await db.insert(role).values({ organizationId: foreignOrg.id, key: 'VIEWER', name: 'Viewer' }).returning()
+    await db.insert(permission).values({ key: 'booking.view', description: 'View bookings' }).onConflictDoNothing()
+    await db.insert(rolePermission).values({ roleId: foreignRole.id, permissionKey: 'booking.view' })
+    const [foreignUser] = await db.insert(appUser).values({
+      organizationId: foreignOrg.id,
+      email: DEMO_ADMIN_EMAIL,
+      passwordHash: await hashPassword('foreign-org-password'),
+      fullName: 'Foreign User',
+    }).returning()
+    await db.insert(userRole).values({ userId: foreignUser.id, roleId: foreignRole.id })
+
+    const { organizationId: demoOrgId } = await seedDemoOrganization(db)
+
+    // (a) The foreign user holds no role in the demo organization.
+    const foreignUserRoles = await db
+      .select({ organizationId: role.organizationId, key: role.key })
+      .from(userRole)
+      .innerJoin(role, eq(role.id, userRole.roleId))
+      .where(eq(userRole.userId, foreignUser.id))
+    expect(foreignUserRoles).toEqual([{ organizationId: foreignOrg.id, key: 'VIEWER' }])
+
+    // The demo org got its own, separate admin user.
+    const demoAdmins = await db.select().from(appUser).where(eq(appUser.organizationId, demoOrgId))
+    expect(demoAdmins.length).toBe(1)
+    expect(demoAdmins[0].id).not.toBe(foreignUser.id)
+
+    // (b) Logging into the foreign org yields only the foreign org's grants.
+    const foreignLogin = await authenticate('foreign-org', DEMO_ADMIN_EMAIL, 'foreign-org-password')
+    expect(foreignLogin?.user.organizationId).toBe(foreignOrg.id)
+    expect(foreignLogin?.permissions).toEqual(['booking.view'])
+
+    // And the demo admin login still works with the demo password.
+    const demoLogin = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)
+    expect(demoLogin?.user.organizationId).toBe(demoOrgId)
+    expect(demoLogin?.permissions.slice().sort()).toEqual([...PERMISSIONS].sort())
+  })
+
+  it('refuses to adopt a non-demo organization that occupies the demo slug', async () => {
+    const [realOrg] = await db.insert(organization).values({ name: 'Real Tenant Named Demo', slug: DEMO_ORG_SLUG, isDemo: false }).returning()
+
+    await expect(seedDemoOrganization(db)).rejects.toBeInstanceOf(DemoSlugConflictError)
+
+    // The real org was left exactly as it was: not flagged, no roles, no users.
+    const [stillThere] = await db.select().from(organization).where(eq(organization.id, realOrg.id)).limit(1)
+    expect(stillThere.isDemo).toBe(false)
+    expect(await db.select().from(role).where(eq(role.organizationId, realOrg.id))).toEqual([])
+    expect(await db.select().from(appUser).where(eq(appUser.organizationId, realOrg.id))).toEqual([])
   })
 })

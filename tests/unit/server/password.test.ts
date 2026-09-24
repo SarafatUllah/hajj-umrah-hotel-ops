@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hashPassword, verifyPassword } from '../../../server/utils/password'
+import { hashPassword, verifyPassword, TIMING_SAFETY_DUMMY_HASH } from '../../../server/utils/password'
 
 describe('password hashing', () => {
   it('verifies a correct password', async () => {
@@ -27,5 +27,12 @@ describe('password hashing', () => {
   it('produces a PHC-formatted Argon2id hash', async () => {
     const hash = await hashPassword('some password')
     expect(hash).toMatch(/^\$argon2id\$/)
+  })
+
+  it('keeps the timing-safety dummy hash on the same Argon2 parameters as real hashes', async () => {
+    const paramPrefix = (h: string) => h.split('$').slice(0, 4).join('$')
+    const real = await hashPassword('some password')
+    expect(paramPrefix(TIMING_SAFETY_DUMMY_HASH)).toBe(paramPrefix(real))
+    expect(await verifyPassword('timing-safety-dummy-password', TIMING_SAFETY_DUMMY_HASH)).toBe(true)
   })
 })

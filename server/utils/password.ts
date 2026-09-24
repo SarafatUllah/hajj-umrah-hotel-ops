@@ -32,3 +32,16 @@ export async function verifyPassword(password: string, storedHash: string): Prom
     return false
   }
 }
+
+/**
+ * A valid Argon2id hash (of a throwaway string nobody will ever submit)
+ * generated with the same parameters as HASH_OPTIONS. Login verifies the
+ * submitted password against this on the "unknown organization" and
+ * "unknown/inactive user" paths so they cost the same Argon2 work as the
+ * "wrong password" path — otherwise response timing would reveal which
+ * organizations/emails exist. A unit test asserts its parameter prefix
+ * matches freshly produced hashes, so a HASH_OPTIONS change can't silently
+ * make these paths cheaper than a real verify.
+ */
+export const TIMING_SAFETY_DUMMY_HASH
+  = '$argon2id$v=19$m=19456,t=2,p=1$MhYOCvfzKScC7QzxivDF+w$ijcjNvSLm59vOqXoYZp7/1OAxLz7PPnyW/JUotKtlv8'

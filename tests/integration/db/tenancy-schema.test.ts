@@ -3,9 +3,9 @@ import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { sql } from 'drizzle-orm'
 import { organization, appUser } from '../../../db/schema'
+import { requireTestDatabaseUrl } from '../support/testDatabase'
 
-const connectionString = process.env.DATABASE_URL
-if (!connectionString) throw new Error('DATABASE_URL must be set (run via `dotenv -e .env.test`)')
+const connectionString = requireTestDatabaseUrl()
 
 const client = postgres(connectionString, { max: 1 })
 const db = drizzle(client)
