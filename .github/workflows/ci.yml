@@ -49,17 +49,15 @@ jobs:
 
       - name: Enable btree_gist on the CI test database
         run: |
-          sudo apt-get update && sudo apt-get install -y postgresql-client
           PGPASSWORD=hajj_umrah_dev_password psql -h localhost -p 5433 -U hajj_umrah -d hajj_umrah_test -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
 
-      - name: Run migrations against the CI test database
-        env:
-          DATABASE_URL: postgres://hajj_umrah:hajj_umrah_dev_password@localhost:5433/hajj_umrah_test
-        run: pnpm db:migrate
-
-      - name: Integration tests
+      # `pnpm test:integration` is the exact script developers run locally:
+      # it applies migrations and then runs the integration suite, both via
+      # `dotenv run -f .env.test`. dotenv does not override variables that
+      # are already set, so the env block below is authoritative in CI.
+      - name: Integration tests (migrations + suite)
         env:
           DATABASE_URL: postgres://hajj_umrah:hajj_umrah_dev_password@localhost:5433/hajj_umrah_test
           NUXT_SESSION_PASSWORD: ci-test-session-password-at-least-32-characters
-          APP_ENV: staging
-        run: pnpm exec vitest run --config vitest.integration.config.ts
+          APP_ENV: development
+        run: pnpm test:integration

@@ -34,7 +34,6 @@
   "devDependencies": {
     "@nuxt/eslint": "^1.17.0",
     "dotenv": "^18.0.3",
-    "dotenv-cli": "^11.0.0",
     "drizzle-kit": "^0.31.11",
     "eslint": "^10.11.0",
     "tsx": "^4.23.15",
