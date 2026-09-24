@@ -24,7 +24,7 @@ export async function seedOrganizationRoles(db: Database, organizationId: string
       .limit(1)
 
     const roleRow = existingRole
-      ?? (await db.insert(role).values({ organizationId, key, name: definition.name }).returning())[0]
+      ?? (await db.insert(role).values({ organizationId, key, name: definition.name }).returning())[0]!
 
     roleIdByKey[key] = roleRow.id
 

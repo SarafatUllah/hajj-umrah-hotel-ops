@@ -18,7 +18,7 @@ export async function seedDemoOrganization(db: Database): Promise<{ organization
       name: 'Al Safa Hajj & Umrah Hotels (Demo)',
       slug: DEMO_ORG_SLUG,
       isDemo: true,
-    }).returning())[0]
+    }).returning())[0]!
 
   const roleIdByKey = await seedOrganizationRoles(db, org.id)
 
@@ -30,9 +30,9 @@ export async function seedDemoOrganization(db: Database): Promise<{ organization
       email: DEMO_ADMIN_EMAIL,
       passwordHash: await hashPassword(DEMO_ADMIN_PASSWORD),
       fullName: 'Demo Super Admin',
-    }).returning())[0]
+    }).returning())[0]!
 
-  await db.insert(userRole).values({ userId: admin.id, roleId: roleIdByKey.SUPER_ADMIN }).onConflictDoNothing()
+  await db.insert(userRole).values({ userId: admin.id, roleId: roleIdByKey.SUPER_ADMIN! }).onConflictDoNothing()
 
   return { organizationId: org.id }
 }
