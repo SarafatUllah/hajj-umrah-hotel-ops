@@ -55,7 +55,7 @@ export async function seedDemoOrganization(db: DbOrTx): Promise<{ organizationId
       fullName: 'Demo Super Admin',
     }).returning())[0]!
 
-  await db.insert(userRole).values({ userId: admin.id, roleId: roleIdByKey.SUPER_ADMIN! }).onConflictDoNothing()
+  await db.insert(userRole).values({ organizationId: org.id, userId: admin.id, roleId: roleIdByKey.SUPER_ADMIN! }).onConflictDoNothing()
 
   return { organizationId: org.id }
 }

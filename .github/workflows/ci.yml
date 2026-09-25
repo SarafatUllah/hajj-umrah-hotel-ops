@@ -60,10 +60,6 @@ jobs:
       - name: Unit tests
         run: pnpm test:unit
 
-      - name: Enable btree_gist on the CI test database
-        run: |
-          PGPASSWORD=hajj_umrah_dev_password psql -h localhost -p 5433 -U hajj_umrah -d hajj_umrah_test -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
-
       # `pnpm test:integration` is the exact script developers run locally:
       # it applies migrations and then runs the integration suite, both via
       # `dotenv run -f .env.test`. dotenv does not override variables that

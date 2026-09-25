@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { and, eq, sql } from 'drizzle-orm'
 import { organization, appUser, role, permission, rolePermission, userRole } from '../../../db/schema'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
@@ -32,7 +33,7 @@ describe('authenticate', () => {
       passwordHash: await hashPassword('correct-password'),
       fullName: 'Test Manager',
     }).returning()
-    await db.insert(userRole).values({ userId: user.id, roleId: managerRole.id })
+    await db.insert(userRole).values({ organizationId: org.id, userId: user.id, roleId: managerRole.id })
 
     const result = await authenticate('test-org-auth', 'manager@test.com', 'correct-password')
 
@@ -124,16 +125,31 @@ describe('authenticate', () => {
       passwordHash: await hashPassword('home-password'),
       fullName: 'Home Viewer',
     }).returning()
-    // The legitimate grant, plus a corrupt cross-tenant link that nothing in
-    // the schema currently prevents.
-    await db.insert(userRole).values([
-      { userId: user.id, roleId: homeRole.id },
-      { userId: user.id, roleId: otherAdminRole.id },
-    ])
+    // The legitimate grant.
+    await db.insert(userRole).values({ organizationId: homeOrg.id, userId: user.id, roleId: homeRole.id })
 
-    const result = await authenticate('home-org-auth', 'viewer@home.test', 'home-password')
+    // A corrupt cross-tenant link. Since migration 0001 the composite FK
+    // user_role_org_role_fk rejects it, so it is planted with FK triggers
+    // disabled for this one transaction only (SET LOCAL ends with it). It
+    // must be committed: authenticate() reads through its own connection
+    // pool and could not see an uncommitted row. It is removed right after
+    // the assertion (and afterEach truncates everything regardless).
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL session_replication_role = replica`)
+      await tx.insert(userRole).values({ organizationId: homeOrg.id, userId: user.id, roleId: otherAdminRole.id })
+    })
 
-    expect(result?.permissions).toEqual(['booking.view'])
+    try {
+      const planted = await db.select().from(userRole).where(and(eq(userRole.userId, user.id), eq(userRole.roleId, otherAdminRole.id)))
+      expect(planted.length).toBe(1)
+
+      const result = await authenticate('home-org-auth', 'viewer@home.test', 'home-password')
+
+      expect(result?.permissions).toEqual(['booking.view'])
+    }
+    finally {
+      await db.delete(userRole).where(and(eq(userRole.userId, user.id), eq(userRole.roleId, otherAdminRole.id)))
+    }
   })
 
   it('matches email case-insensitively', async () => {

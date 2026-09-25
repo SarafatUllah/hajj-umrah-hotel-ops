@@ -8,6 +8,13 @@
       "when": 1790197885223,
       "tag": "0000_famous_wallop",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790359160815,
+      "tag": "0001_tenancy_hardening",
+      "breakpoints": true
     }
   ]
 }

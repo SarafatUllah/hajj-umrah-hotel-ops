@@ -99,7 +99,7 @@ describe('resetDemoData', () => {
       passwordHash: await hashPassword('other-admin-password'),
       fullName: 'Other Super Admin',
     }).returning()
-    await db.insert(userRole).values({ userId: otherAdmin.id, roleId: otherRoles.SUPER_ADMIN! })
+    await db.insert(userRole).values({ organizationId: otherOrg.id, userId: otherAdmin.id, roleId: otherRoles.SUPER_ADMIN! })
     const otherLogin = await authenticate('other-tenant', 'admin@other-tenant.com', 'other-admin-password')
     expect(otherLogin?.permissions).toContain('organization.resetDemo')
 

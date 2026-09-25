@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, boolean, primaryKey, uniqueIndex } from 'drizzle-orm/pg-core'
+import { pgTable, uuid, text, timestamp, boolean, primaryKey, uniqueIndex, unique, foreignKey, index } from 'drizzle-orm/pg-core'
 
 export const organization = pgTable('organization', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -22,6 +22,7 @@ export const appUser = pgTable('app_user', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, table => [
   uniqueIndex('app_user_org_email_unique').on(table.organizationId, table.email),
+  unique('app_user_org_id_unique').on(table.organizationId, table.id),
 ])
 
 export const role = pgTable('role', {
@@ -32,6 +33,7 @@ export const role = pgTable('role', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, table => [
   uniqueIndex('role_org_key_unique').on(table.organizationId, table.key),
+  unique('role_org_id_unique').on(table.organizationId, table.id),
 ])
 
 export const permission = pgTable('permission', {
@@ -46,9 +48,16 @@ export const rolePermission = pgTable('role_permission', {
   primaryKey({ columns: [table.roleId, table.permissionKey] }),
 ])
 
+// organization_id is part of both foreign keys, so the database itself
+// rejects a user of one organization holding a role of another.
 export const userRole = pgTable('user_role', {
-  userId: uuid('user_id').notNull().references(() => appUser.id, { onDelete: 'cascade' }),
-  roleId: uuid('role_id').notNull().references(() => role.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id').notNull().references(() => organization.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull(),
+  roleId: uuid('role_id').notNull(),
 }, table => [
   primaryKey({ columns: [table.userId, table.roleId] }),
+  foreignKey({ columns: [table.organizationId, table.userId], foreignColumns: [appUser.organizationId, appUser.id], name: 'user_role_org_user_fk' }).onDelete('cascade'),
+  foreignKey({ columns: [table.organizationId, table.roleId], foreignColumns: [role.organizationId, role.id], name: 'user_role_org_role_fk' }).onDelete('cascade'),
+  index('user_role_user_idx').on(table.organizationId, table.userId),
+  index('user_role_role_idx').on(table.organizationId, table.roleId),
 ])

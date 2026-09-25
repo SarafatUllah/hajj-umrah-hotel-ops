@@ -74,7 +74,7 @@ describe('seedDemoOrganization', () => {
       passwordHash: await hashPassword('foreign-org-password'),
       fullName: 'Foreign User',
     }).returning()
-    await db.insert(userRole).values({ userId: foreignUser.id, roleId: foreignRole.id })
+    await db.insert(userRole).values({ organizationId: foreignOrg.id, userId: foreignUser.id, roleId: foreignRole.id })
 
     const { organizationId: demoOrgId } = await seedDemoOrganization(db)
 
