@@ -38,6 +38,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # db:check and db:drift diff files (migration history / schema vs.
+      # migrations) and never connect to a database, but drizzle.config.ts
+      # throws without a DATABASE_URL, so these steps get a placeholder.
+      - name: Check migration history
+        env:
+          DATABASE_URL: postgres://ci:ci@localhost:5433/unused_test
+        run: pnpm db:check
+
+      - name: Check for schema/migration drift
+        env:
+          DATABASE_URL: postgres://ci:ci@localhost:5433/unused_test
+        run: pnpm db:drift
+
       - name: Lint
         run: pnpm lint
 

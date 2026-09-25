@@ -47,6 +47,21 @@ describe('getEnv', () => {
     expect(() => getEnv()).toThrow()
   })
 
+  it('defaults DATABASE_POOL_MAX to 10 when unset', () => {
+    Object.assign(process.env, REQUIRED_VARS)
+    expect(getEnv().DATABASE_POOL_MAX).toBe(10)
+  })
+
+  it.each(['0', '51', 'abc'])('rejects DATABASE_POOL_MAX=%s', (value) => {
+    Object.assign(process.env, REQUIRED_VARS, { DATABASE_POOL_MAX: value })
+    expect(() => getEnv()).toThrow()
+  })
+
+  it('accepts a valid DATABASE_POOL_MAX', () => {
+    Object.assign(process.env, REQUIRED_VARS, { DATABASE_POOL_MAX: '25' })
+    expect(getEnv().DATABASE_POOL_MAX).toBe(25)
+  })
+
   it('caches the parsed result until resetEnvCache is called', () => {
     Object.assign(process.env, REQUIRED_VARS)
     const first = getEnv()

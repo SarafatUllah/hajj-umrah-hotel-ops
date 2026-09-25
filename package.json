@@ -18,6 +18,8 @@
     "test:unit": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts",
     "db:generate": "drizzle-kit generate",
+    "db:check": "drizzle-kit check",
+    "db:drift": "tsx db/scripts/checkDrift.ts",
     "db:migrate": "tsx db/migrate.ts",
     "db:seed": "tsx db/seed/index.ts",
     "db:test:reset": "dotenv run -f .env.test -- tsx db/scripts/resetTestDb.ts",

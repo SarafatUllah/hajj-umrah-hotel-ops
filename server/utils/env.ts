@@ -3,6 +3,7 @@ import { z } from 'zod'
 const envSchema = z.object({
   APP_ENV: z.enum(['development', 'demo', 'staging', 'production']).default('development'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(50).default(10),
   NUXT_SESSION_PASSWORD: z.string().min(32, 'NUXT_SESSION_PASSWORD must be at least 32 characters'),
 })
 
