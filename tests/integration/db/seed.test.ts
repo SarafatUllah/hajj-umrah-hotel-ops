@@ -1,28 +1,21 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import postgres from 'postgres'
-import { drizzle } from 'drizzle-orm/postgres-js'
-import { eq, sql } from 'drizzle-orm'
-import { createDb } from '../../../db/client'
+import { eq } from 'drizzle-orm'
 import { organization, appUser, role, permission, rolePermission, userRole } from '../../../db/schema'
 import { seedDemoOrganization, DemoSlugConflictError, DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from '../../../db/seed/demo-org'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
 import { PERMISSIONS } from '../../../shared/constants/permissions'
 import { ROLE_DEFINITIONS } from '../../../shared/constants/roles'
-import { requireTestDatabaseUrl } from '../support/testDatabase'
+import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
-const connectionString = requireTestDatabaseUrl()
-
-const client = postgres(connectionString, { max: 1 })
-const rawDb = drizzle(client)
-const db = createDb(connectionString)
+const db = getTestDb()
 
 afterEach(async () => {
-  await rawDb.execute(sql`TRUNCATE TABLE user_role, role_permission, permission, role, app_user, organization RESTART IDENTITY CASCADE`)
+  await truncateAllTables()
 })
 
 afterAll(async () => {
-  await client.end()
+  await closeTestDb()
 })
 
 describe('seedDemoOrganization', () => {

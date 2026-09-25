@@ -1,7 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import postgres from 'postgres'
-import { drizzle } from 'drizzle-orm/postgres-js'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { organization, appUser, auditLog, userRole } from '../../../db/schema'
 import { seedDemoOrganization, DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from '../../../db/seed/demo-org'
 import { seedOrganizationRoles } from '../../../db/seed/rbac'
@@ -9,20 +7,16 @@ import { resetDemoData, DemoOrganizationNotFoundError, DemoResetForbiddenError }
 import { useDb } from '../../../server/utils/db'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
-import { requireTestDatabaseUrl } from '../support/testDatabase'
+import { closeTestDb, truncateAllTables } from '../support/testDb'
 
-const connectionString = requireTestDatabaseUrl()
-
-const client = postgres(connectionString, { max: 1 })
-const rawDb = drizzle(client)
 const db = useDb()
 
 afterEach(async () => {
-  await rawDb.execute(sql`TRUNCATE TABLE audit_log, user_role, role_permission, permission, role, app_user, organization RESTART IDENTITY CASCADE`)
+  await truncateAllTables()
 })
 
 afterAll(async () => {
-  await client.end()
+  await closeTestDb()
 })
 
 async function seedDemoAndGetAdmin() {
