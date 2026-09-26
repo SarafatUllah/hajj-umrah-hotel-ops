@@ -57,6 +57,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Compile-only proofs (tests/types): the @ts-expect-error lines must be
+      # genuine errors, e.g. a tenant query cannot choose its organization.
+      - name: Type-level tests
+        run: pnpm typecheck:types
+
       - name: Unit tests
         run: pnpm test:unit
 

@@ -1,6 +1,7 @@
 import postgres from 'postgres'
-import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js'
+import { drizzle } from 'drizzle-orm/postgres-js'
 import * as schema from '../../../db/schema'
+import type { Database } from '../../../db/client'
 import { requireTestDatabaseUrl } from './testDatabase'
 
 let client: postgres.Sql | null = null
@@ -16,7 +17,9 @@ export function getTestClient(): postgres.Sql {
   return client
 }
 
-export function getTestDb(): PostgresJsDatabase<typeof schema> {
+// Typed as the application's Database so the handle can be passed to
+// repositories and seeds (which accept DbOrTx).
+export function getTestDb(): Database {
   return drizzle(getTestClient(), { schema })
 }
 

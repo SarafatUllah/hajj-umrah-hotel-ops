@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler", "strict": true,
+    "noUncheckedIndexedAccess": true, "skipLibCheck": true, "noEmit": true,
+    "verbatimModuleSyntax": true, "types": [], "lib": ["ES2023"]
+  },
+  "include": ["server/repositories/base/**/*.ts", "server/security/scope.ts", "tests/types/**/*.ts"]
+}
