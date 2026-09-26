@@ -1,6 +1,6 @@
 import type { DbOrTx } from '../client'
 import { platformRepos, tenantRepos } from '../../server/repositories'
-import { trustedOrganizationScope } from '../../server/security/scope'
+import { trustedOrganizationScope, type OrganizationScope } from '../../server/security/scope'
 import { seedPermissionCatalog, seedOrganizationRoles } from './rbac'
 import { hashPassword } from '../../server/utils/password'
 import { normalizeEmail } from '../../shared/utils/email'
@@ -21,7 +21,11 @@ export class DemoSlugConflictError extends Error {
   }
 }
 
-export async function seedDemoOrganization(db: DbOrTx): Promise<{ organizationId: string }> {
+/**
+ * Returns the demo organization's scope too: the seed is a trusted scope minter, so callers (the demo
+ * reset) can write into the freshly seeded organization without minting a scope themselves.
+ */
+export async function seedDemoOrganization(db: DbOrTx): Promise<{ organizationId: string, scope: OrganizationScope }> {
   await seedPermissionCatalog(db)
 
   const organizations = platformRepos(db).organizations
@@ -40,7 +44,8 @@ export async function seedDemoOrganization(db: DbOrTx): Promise<{ organizationId
   // scope. Email is unique only per organization, so an unscoped lookup
   // could adopt a same-email user from another tenant and link them to the
   // demo org's SUPER_ADMIN role.
-  const { users, roles } = tenantRepos(db, trustedOrganizationScope(org.id))
+  const scope = trustedOrganizationScope(org.id)
+  const { users, roles } = tenantRepos(db, scope)
   const adminEmail = normalizeEmail(DEMO_ADMIN_EMAIL)
 
   const admin = await users.findByEmail(adminEmail) ?? await users.insert({
@@ -51,5 +56,5 @@ export async function seedDemoOrganization(db: DbOrTx): Promise<{ organizationId
 
   await roles.assignToUser(admin.id, roleIdByKey.SUPER_ADMIN!)
 
-  return { organizationId: org.id }
+  return { organizationId: org.id, scope }
 }

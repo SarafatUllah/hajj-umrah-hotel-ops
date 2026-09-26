@@ -32,14 +32,7 @@ export interface IsolationCase<Ids> {
 type AnyCase = IsolationCase<unknown>
 const isolationCase = <Ids>(c: IsolationCase<Ids>): AnyCase => c as unknown as AnyCase
 
-/**
- * Barrels whose `*Repository` classes must be fully covered; `dir` is the barrel's directory, every
- * module of which must be re-exported by the barrel. Adding a barrel is one line
- * (Task 6: `{ dir: 'server/repositories/hotel', load: () => import('../../../server/repositories/hotel') },`).
- */
-export const REPOSITORY_BARRELS: ReadonlyArray<{ dir: string, load: () => Promise<Record<string, unknown>> }> = [
-  { dir: 'server/repositories/tenant', load: () => import('../../../server/repositories/tenant') },
-]
+export { REPOSITORY_BARRELS } from '../../support/repositoryBarrels'
 
 function pgCode(error: unknown): string | undefined {
   for (let e = error as { code?: unknown, cause?: unknown } | undefined; e; e = e.cause as typeof e) {

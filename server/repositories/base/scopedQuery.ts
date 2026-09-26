@@ -41,7 +41,8 @@ export class OrgQuery {
   }
 
   update<T extends OrgTable>(table: T, set: Partial<Omit<InsertOf<T>, 'organizationId' | 'id'>>, ...extra: Array<SQL | undefined>) {
-    return this.db.update(table).set(set as never).where(this.cond(table, ...extra))
+    // The scope's value is applied last, so even a cast-away `set` cannot move a row to another organization.
+    return this.db.update(table).set({ ...set, organizationId: this.scope.organizationId } as never).where(this.cond(table, ...extra))
   }
 
   delete<T extends OrgTable>(table: T, ...extra: Array<SQL | undefined>) {
@@ -66,7 +67,8 @@ export class HotelQuery {
   }
 
   update<T extends HotelTable>(table: T, set: Partial<Omit<InsertOf<T>, 'organizationId' | 'hotelId' | 'id'>>, ...extra: Array<SQL | undefined>) {
-    return this.db.update(table).set(set as never).where(this.cond(table, ...extra))
+    // The scope's values are applied last, so even a cast-away `set` cannot move a row to another organization or hotel.
+    return this.db.update(table).set({ ...set, organizationId: this.scope.organizationId, hotelId: this.scope.hotelId } as never).where(this.cond(table, ...extra))
   }
 
   delete<T extends HotelTable>(table: T, ...extra: Array<SQL | undefined>) {

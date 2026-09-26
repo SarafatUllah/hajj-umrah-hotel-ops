@@ -78,6 +78,18 @@ describe('OrgQuery', () => {
     expect(bUser!.fullName).toBe('Original')
   })
 
+  it('update ignores an organizationId smuggled into set with a cast: the row cannot move to another organization', async () => {
+    const { scopeA, scopeB } = await twoIdenticalOrgs()
+
+    const updated = await new OrgQuery(db, scopeA)
+      .update(role, { organizationId: scopeB.organizationId, name: 'Renamed' } as never, eq(role.key, 'SAME'))
+      .returning()
+
+    expect(updated.map(r => [r.organizationId, r.name])).toEqual([[scopeA.organizationId, 'Renamed']])
+    const rows = await db.select().from(role).orderBy(asc(role.name))
+    expect(rows.map(r => [r.organizationId, r.name])).toEqual([[scopeA.organizationId, 'Renamed'], [scopeB.organizationId, 'Same']])
+  })
+
   it('delete never touches another organization\'s rows', async () => {
     const { scopeA, scopeB } = await twoIdenticalOrgs()
 
@@ -152,6 +164,26 @@ describe('HotelQuery', () => {
         .insert(hotelProbe, { organizationId: orgB, hotelId: hotel2, label: 'new' } as never)
         .returning()
       expect(row).toMatchObject({ organizationId: orgA, hotelId: hotel1, label: 'new' })
+    })
+  })
+
+  it('update ignores a smuggled organizationId and hotelId: the row cannot move to another hotel or organization', async () => {
+    await withProbeTable(async (tx) => {
+      await seedProbe(tx)
+      const q = new HotelQuery(tx, scopeA1)
+
+      const toOtherHotel = await q.update(hotelProbe, { hotelId: hotel2, label: 'moved?' } as never).returning()
+      expect(toOtherHotel.map(r => [r.organizationId, r.hotelId, r.label])).toEqual([[orgA, hotel1, 'moved?']])
+
+      const toOtherOrg = await q.update(hotelProbe, { organizationId: orgB, hotelId: hotel2 } as never).returning()
+      expect(toOtherOrg.map(r => [r.organizationId, r.hotelId])).toEqual([[orgA, hotel1]])
+
+      const all = await tx.select().from(hotelProbe).orderBy(asc(hotelProbe.label))
+      expect(all.map(r => [r.organizationId, r.hotelId, r.label])).toEqual([
+        [orgA, hotel2, 'a2'],
+        [orgB, hotel1, 'b1'],
+        [orgA, hotel1, 'moved?'],
+      ])
     })
   })
 

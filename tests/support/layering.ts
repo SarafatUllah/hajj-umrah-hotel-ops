@@ -123,6 +123,7 @@ const under = (...prefixes: string[]) => (file: string) => prefixes.some(p => fi
 const isDrizzle = (t: string) => t === 'drizzle-orm' || t.startsWith('drizzle-orm/')
 const isDbSchema = (t: string) => t === 'db/schema' || t.startsWith('db/schema/')
 const isDbClient = (t: string) => t === 'db/client'
+const isSecurityModule = (t: string) => t === 'server/security' || t.startsWith('server/security/')
 
 /** Same directories (and the same single exemption) as the `no-restricted-imports` block in eslint.config.mjs. */
 export const QUERY_RESTRICTED_DIRS = ['server/services/', 'server/api/', 'server/domain/', 'server/utils/', 'shared/'] as const
@@ -138,9 +139,15 @@ export const LAYERING_RULES: readonly LayeringRule[] = [
   },
   {
     id: 'scope-minting',
-    message: 'Scopes are minted only by server/security, db/seed and tests.',
+    message: 'Scopes are minted only by server/security, db/seed and tests (trusted* from any server/security module, re-exports included).',
     appliesTo: file => !under(...SCOPE_MINTING_ALLOWED)(file),
-    forbids: ref => ref.target === 'server/security/scope' && (ref.namespace || ref.names.some(n => n.startsWith('trusted'))),
+    forbids: ref => isSecurityModule(ref.target) && (ref.namespace || ref.names.some(n => n.startsWith('trusted'))),
+  },
+  {
+    id: 'identity-scope-minting',
+    message: 'scopeFromIdentity is used only inside server/security (auth context); everything else receives a scope.',
+    appliesTo: file => !file.startsWith('server/security/'),
+    forbids: ref => isSecurityModule(ref.target) && (ref.namespace || ref.names.includes('scopeFromIdentity')),
   },
   {
     id: 'seed-through-repositories',
@@ -150,12 +157,24 @@ export const LAYERING_RULES: readonly LayeringRule[] = [
   },
 ]
 
+/** Names of the classes declared in a file (AST-based, so the word "class" in comments or strings never counts). */
+export function declaredClasses(file: string, source: string): string[] {
+  const sf = ts.createSourceFile(file, codeOf(file, source), ts.ScriptTarget.Latest, true, scriptKind(file))
+  const names: string[] = []
+  const visit = (node: ts.Node) => {
+    if ((ts.isClassDeclaration(node) || ts.isClassExpression(node)) && node.name) names.push(node.name.text)
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  return names
+}
+
 /** Names of every `Platform*Repository` class declared under server/. */
 export function platformRepositoryClasses(sources: Record<string, string>): string[] {
   const names = new Set<string>()
   for (const [file, source] of Object.entries(sources)) {
     if (!file.startsWith('server/')) continue
-    for (const m of source.matchAll(/\bclass\s+(Platform\w*Repository)\b/g)) names.add(m[1]!)
+    for (const name of declaredClasses(file, source)) if (/^Platform\w*Repository$/.test(name)) names.add(name)
   }
   return [...names].sort()
 }
@@ -165,9 +184,24 @@ export function unprefixedPlatformDirClasses(sources: Record<string, string>): s
   const names: string[] = []
   for (const [file, source] of Object.entries(sources)) {
     if (!file.startsWith('server/repositories/platform/')) continue
-    for (const m of source.matchAll(/\bclass\s+(\w+)/g)) if (!m[1]!.startsWith('Platform')) names.push(`${file}: ${m[1]}`)
+    for (const name of declaredClasses(file, source)) if (!name.startsWith('Platform')) names.push(`${file}: ${name}`)
   }
   return names
+}
+
+/**
+ * Classes under server/repositories/ that live outside base/, platform/ and the registered (barrel)
+ * directories. A class there would be covered neither by the Platform allow-list nor by the
+ * isolation-registry coverage test, so a new repository directory fails until it is registered.
+ */
+export function repositoryClassesOutsideRegisteredDirs(sources: Record<string, string>, registeredDirs: readonly string[]): string[] {
+  const allowed = new Set(['server/repositories/base', 'server/repositories/platform', ...registeredDirs])
+  const found: string[] = []
+  for (const [file, source] of Object.entries(sources)) {
+    if (!file.startsWith('server/repositories/') || allowed.has(posix.dirname(file))) continue
+    for (const name of declaredClasses(file, source)) found.push(`${file}: ${name}`)
+  }
+  return found.sort()
 }
 
 /** Every source file of the repository (repo-relative posix path → contents), skipping generated and vendored directories. */

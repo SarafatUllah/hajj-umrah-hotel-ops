@@ -11,7 +11,11 @@ export async function resolveTenantBySlug(db: DbOrTx, slug: string): Promise<{ o
   return organization ? { organization, scope: trustedOrganizationScope(organization.id) } : null
 }
 
-/** Scope for an identity the server itself established (a verified session or a server-side lookup), never raw request input. */
+/**
+ * Scope for an identity the server itself established (a verified session), never raw request input.
+ * Importable only inside server/security (ESLint + layering fitness test): everything else receives a
+ * scope from the auth context instead of minting one.
+ */
 export function scopeFromIdentity(identity: { organizationId: string }): OrganizationScope {
   return trustedOrganizationScope(identity.organizationId)
 }

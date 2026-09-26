@@ -1,6 +1,5 @@
 import { useDb } from '../utils/db'
 import { platformRepos, tenantRepos } from '../repositories'
-import { scopeFromIdentity } from '../security/tenantResolver'
 import { seedDemoOrganization, DEMO_ORG_SLUG } from '../../db/seed/demo-org'
 
 export class DemoOrganizationNotFoundError extends Error {
@@ -51,11 +50,11 @@ export async function resetDemoData(actor: DemoResetActor): Promise<{ organizati
     // reachable by this statement.
     await organizations.deleteCascade(demoOrg.id)
 
-    const { organizationId } = await seedDemoOrganization(tx)
+    // The seed (a trusted scope minter) hands back the new organization's
+    // scope, so this service never mints one itself.
+    const { organizationId, scope } = await seedDemoOrganization(tx)
 
-    // The organization id comes from the seed just run inside this
-    // transaction, never from the request.
-    await tenantRepos(tx, scopeFromIdentity({ organizationId })).audit.record({
+    await tenantRepos(tx, scope).audit.record({
       actorUserId: actor.userId,
       entityType: 'organization',
       entityId: organizationId,
