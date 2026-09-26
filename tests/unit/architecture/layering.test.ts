@@ -1,5 +1,6 @@
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { findViolations, LAYERING_RULES, parseImports, platformRepositoryClasses, unprefixedPlatformDirClasses } from '../../support/layering'
+import { findViolations, LAYERING_RULES, parseImports, platformRepositoryClasses, readRepoSources, unprefixedPlatformDirClasses } from '../../support/layering'
 
 const rulesHit = (sources: Record<string, string>) => findViolations(sources, LAYERING_RULES).map(v => v.rule)
 
@@ -62,5 +63,31 @@ describe('layering checker (meta-tests: the checker itself is tested)', () => {
     }
     expect(platformRepositoryClasses(sources)).toEqual(['PlatformElsewhereRepository', 'PlatformThingRepository'])
     expect(unprefixedPlatformDirClasses(sources)).toEqual(['server/repositories/platform/a.ts: SneakyRepository'])
+  })
+})
+
+describe('layering of this repository', () => {
+  const sources = readRepoSources(join(import.meta.dirname, '../../..'))
+  const violationsOf = (rule: string) => findViolations(sources, LAYERING_RULES.filter(r => r.id === rule))
+
+  it('reads the real source tree', () => {
+    expect(Object.keys(sources)).toEqual(expect.arrayContaining(['server/services/auth.service.ts', 'server/security/scope.ts', 'db/seed/rbac.ts']))
+  })
+
+  it('(a) services, api, domain, utils and shared never import drizzle-orm, db/schema or db/client (server/utils/db.ts excepted)', () => {
+    expect(violationsOf('no-query-building')).toEqual([])
+  })
+
+  it('(b) trusted* scope minting is imported only from server/security, db/seed and tests', () => {
+    expect(violationsOf('scope-minting')).toEqual([])
+  })
+
+  it('(c) seeds do not import db/schema (they write through repositories)', () => {
+    expect(violationsOf('seed-through-repositories')).toEqual([])
+  })
+
+  it('(d) the unscoped Platform*Repository classes are exactly the allow-list', () => {
+    expect(platformRepositoryClasses(sources)).toEqual(['PlatformOrganizationRepository', 'PlatformPermissionCatalogRepository'])
+    expect(unprefixedPlatformDirClasses(sources)).toEqual([])
   })
 })

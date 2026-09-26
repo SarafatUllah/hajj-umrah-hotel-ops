@@ -1,0 +1,5 @@
+// Organization-scoped repositories. Every *Repository exported here must have a case for each
+// of its methods in tests/integration/security/repositoryRegistry.ts (enforced by a coverage test).
+export * from './userRepository'
+export * from './roleRepository'
+export * from './auditRepository'

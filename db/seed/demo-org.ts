@@ -1,6 +1,6 @@
-import { and, eq } from 'drizzle-orm'
 import type { DbOrTx } from '../client'
-import { organization, appUser, userRole } from '../schema'
+import { platformRepos, tenantRepos } from '../../server/repositories'
+import { trustedOrganizationScope } from '../../server/security/scope'
 import { seedPermissionCatalog, seedOrganizationRoles } from './rbac'
 import { hashPassword } from '../../server/utils/password'
 import { normalizeEmail } from '../../shared/utils/email'
@@ -24,38 +24,32 @@ export class DemoSlugConflictError extends Error {
 export async function seedDemoOrganization(db: DbOrTx): Promise<{ organizationId: string }> {
   await seedPermissionCatalog(db)
 
-  const [existingOrg] = await db.select().from(organization).where(eq(organization.slug, DEMO_ORG_SLUG)).limit(1)
+  const organizations = platformRepos(db).organizations
+  const existingOrg = await organizations.findBySlug(DEMO_ORG_SLUG)
   if (existingOrg && !existingOrg.isDemo) throw new DemoSlugConflictError()
 
-  const org = existingOrg
-    ?? (await db.insert(organization).values({
-      name: 'Al Safa Hajj & Umrah Hotels (Demo)',
-      slug: DEMO_ORG_SLUG,
-      isDemo: true,
-    }).returning())[0]!
+  const org = existingOrg ?? await organizations.insert({
+    name: 'Al Safa Hajj & Umrah Hotels (Demo)',
+    slug: DEMO_ORG_SLUG,
+    isDemo: true,
+  })
 
   const roleIdByKey = await seedOrganizationRoles(db, org.id)
 
+  // Every lookup and write below is confined to the demo organization's
+  // scope. Email is unique only per organization, so an unscoped lookup
+  // could adopt a same-email user from another tenant and link them to the
+  // demo org's SUPER_ADMIN role.
+  const { users, roles } = tenantRepos(db, trustedOrganizationScope(org.id))
   const adminEmail = normalizeEmail(DEMO_ADMIN_EMAIL)
 
-  // Email is unique only per organization, so this lookup MUST be scoped to
-  // the demo org — an email-only lookup could adopt a same-email user from
-  // another tenant and link them to the demo org's SUPER_ADMIN role.
-  const [existingAdmin] = await db
-    .select()
-    .from(appUser)
-    .where(and(eq(appUser.organizationId, org.id), eq(appUser.email, adminEmail)))
-    .limit(1)
+  const admin = await users.findByEmail(adminEmail) ?? await users.insert({
+    email: adminEmail,
+    passwordHash: await hashPassword(DEMO_ADMIN_PASSWORD),
+    fullName: 'Demo Super Admin',
+  })
 
-  const admin = existingAdmin
-    ?? (await db.insert(appUser).values({
-      organizationId: org.id,
-      email: adminEmail,
-      passwordHash: await hashPassword(DEMO_ADMIN_PASSWORD),
-      fullName: 'Demo Super Admin',
-    }).returning())[0]!
-
-  await db.insert(userRole).values({ organizationId: org.id, userId: admin.id, roleId: roleIdByKey.SUPER_ADMIN! }).onConflictDoNothing()
+  await roles.assignToUser(admin.id, roleIdByKey.SUPER_ADMIN!)
 
   return { organizationId: org.id }
 }

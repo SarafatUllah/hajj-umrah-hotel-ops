@@ -1,6 +1,6 @@
-import { eq, sql } from 'drizzle-orm'
 import { useDb } from '../utils/db'
-import { organization, auditLog } from '../../db/schema'
+import { platformRepos, tenantRepos } from '../repositories'
+import { scopeFromIdentity } from '../security/tenantResolver'
 import { seedDemoOrganization, DEMO_ORG_SLUG } from '../../db/seed/demo-org'
 
 export class DemoOrganizationNotFoundError extends Error {
@@ -35,7 +35,8 @@ export async function resetDemoData(actor: DemoResetActor): Promise<{ organizati
   // a failure anywhere rolls the whole reset back, leaving the previous demo
   // data intact rather than a half-deleted tenant.
   return db.transaction(async (tx) => {
-    const [demoOrg] = await tx.select().from(organization).where(eq(organization.slug, DEMO_ORG_SLUG)).limit(1)
+    const organizations = platformRepos(tx).organizations
+    const demoOrg = await organizations.findBySlug(DEMO_ORG_SLUG)
 
     // An organization holding the demo slug but not flagged is_demo is a
     // real tenant — report it exactly like "no demo org" so callers can't
@@ -48,12 +49,13 @@ export async function resetDemoData(actor: DemoResetActor): Promise<{ organizati
     // references it (app_user, role, role_permission, user_role, audit_log)
     // and is scoped strictly to this one id — no other tenant's rows are
     // reachable by this statement.
-    await tx.execute(sql`DELETE FROM organization WHERE id = ${demoOrg.id}`)
+    await organizations.deleteCascade(demoOrg.id)
 
     const { organizationId } = await seedDemoOrganization(tx)
 
-    await tx.insert(auditLog).values({
-      organizationId,
+    // The organization id comes from the seed just run inside this
+    // transaction, never from the request.
+    await tenantRepos(tx, scopeFromIdentity({ organizationId })).audit.record({
       actorUserId: actor.userId,
       entityType: 'organization',
       entityId: organizationId,
