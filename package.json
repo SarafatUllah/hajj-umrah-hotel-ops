@@ -30,6 +30,7 @@
   "dependencies": {
     "@node-rs/argon2": "^2.2.1",
     "drizzle-orm": "^0.45.3",
+    "h3": "1.15.11",
     "nuxt": "^4.5.2",
     "nuxt-auth-utils": "^0.5.30",
     "postgres": "^3.4.9",
