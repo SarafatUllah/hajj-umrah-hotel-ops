@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { appUser, auditLog, hotel, hotelSetting, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
 import type { DbOrTx } from '../../../db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
-import { AuditRepository, HotelRepository, RoleNotInScopeError, RoleRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
+import { AuditRepository, HotelRepository, RoleNotInScopeError, RoleRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
 import { HotelSettingRepository } from '../../../server/repositories/hotel'
 import { ensurePermissions, makeHotel, makeRole, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
@@ -63,6 +63,11 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: (db, scope, ids) => new UserRepository(db, scope).findById(ids.userId),
     expect: 'null',
   }),
+  'UserRepository.findByIdForUpdate': isolationCase({
+    arrange: async (db, orgA) => ({ userId: (await makeUser(db, orgA)).id }),
+    act: (db, scope, ids) => new UserRepository(db, scope).findByIdForUpdate(ids.userId),
+    expect: 'null',
+  }),
   'UserRepository.insert': isolationCase({
     arrange: async (_db, orgA) => ({ orgAId: orgA.organizationId }),
     act: async (db, scope, ids) => {
@@ -118,6 +123,11 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
   'RoleRepository.permissionKeysForUser': isolationCase({
     arrange: async (db, orgA) => ({ userId: (await makeUserWithPermissions(db, orgA, ['probe.read'])).user.id }),
     act: (db, scope, ids) => new RoleRepository(db, scope).permissionKeysForUser(ids.userId),
+    expect: 'empty',
+  }),
+  'RoleRepository.rolesForUser': isolationCase({
+    arrange: async (db, orgA) => ({ userId: (await makeUserWithPermissions(db, orgA, ['probe.read'])).user.id }),
+    act: (db, scope, ids) => new RoleRepository(db, scope).rolesForUser(ids.userId),
     expect: 'empty',
   }),
 
@@ -282,6 +292,20 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: async (db, scope, ids) => {
       await new UserRepository(db, scope).setAllHotels(ids.userId, true)
       return db.select().from(appUser).where(and(eq(appUser.id, ids.userId), eq(appUser.allHotels, true)))
+    },
+    expect: 'empty',
+  }),
+
+  // getOwn() takes no id parameter — it can only ever return the CALLING scope's own organization
+  // row, so a leak would show up as: called with org B's scope, it returns org A's row anyway.
+  // Encoded with the existing 'empty' semantics: the returned id is wrapped in an array only when it
+  // equals org A's id, which happens in the positive control (scope IS org A) and must never happen
+  // in the isolation case (scope is org B).
+  'TenantOrganizationRepository.getOwn': isolationCase({
+    arrange: async (_db, orgA) => ({ orgAId: orgA.organizationId }),
+    act: async (db, scope, ids) => {
+      const own = await new TenantOrganizationRepository(db, scope).getOwn()
+      return own.id === ids.orgAId ? [own.id] : []
     },
     expect: 'empty',
   }),

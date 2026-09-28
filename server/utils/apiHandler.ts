@@ -3,15 +3,21 @@ import { createError, defineEventHandler, getQuery, getRouterParams, isError, re
 import { z, ZodError, type ZodIssue } from 'zod'
 import { DomainError, ValidationError } from '../errors/domainError'
 import { translateDbError } from '../errors/dbErrors'
+import type { AuthContext } from '../security/authContext'
+import { requireAuthContext } from './requireAuth'
 
-export interface ApiHandlerArgs<P, Q, B> {
+export type AuthRequirement = 'none' | 'required'
+
+export interface ApiHandlerArgs<P, Q, B, A extends AuthRequirement = 'none'> {
   event: H3Event
   params: P
   query: Q
   body: B
+  /** Only populated (and only typed as a real `AuthContext`) when `auth: 'required'`. */
+  ctx: A extends 'required' ? AuthContext : undefined
 }
 
-export interface DefineApiHandlerOptions<P, Q, B, R> {
+export interface DefineApiHandlerOptions<P, Q, B, R, A extends AuthRequirement = 'none'> {
   // The `unknown` third type argument (Input) — rather than the schema's own
   // inferred input — is deliberate (PF-9): it lets a schema whose input type
   // differs from its output (`.default(...)`, `z.coerce...`) satisfy this
@@ -22,9 +28,9 @@ export interface DefineApiHandlerOptions<P, Q, B, R> {
   params?: z.ZodType<P, z.ZodTypeDef, unknown>
   query?: z.ZodType<Q, z.ZodTypeDef, unknown>
   body?: z.ZodType<B, z.ZodTypeDef, unknown>
-  /** Task 7 adds `'required'`, which hands the handler an additional `ctx: AuthContext`. */
-  auth?: 'none'
-  handler: (args: ApiHandlerArgs<P, Q, B>) => Promise<R>
+  /** `'required'` resolves the caller's `AuthContext` (via `requireAuthContext`) before the handler runs, and hands it the result as `ctx`. */
+  auth?: A
+  handler: (args: ApiHandlerArgs<P, Q, B, A>) => Promise<R>
 }
 
 /** Renders a `DomainError` as a real h3 error, so Nitro's production error handler keeps `data` (`code`/`details`) instead of discarding it as "unhandled". */
@@ -115,7 +121,7 @@ function handleError(error: unknown): never {
  * for why h3's own `getValidatedRouterParams`/`getValidatedQuery`/
  * `readValidatedBody` are deliberately not used here.
  */
-export function defineApiHandler<P = void, Q = void, B = void, R = unknown>(opts: DefineApiHandlerOptions<P, Q, B, R>) {
+export function defineApiHandler<P = void, Q = void, B = void, R = unknown, A extends AuthRequirement = 'none'>(opts: DefineApiHandlerOptions<P, Q, B, R, A>) {
   const paramsSchema = opts.params
   const querySchema = opts.query
   const bodySchema = opts.body
@@ -125,7 +131,8 @@ export function defineApiHandler<P = void, Q = void, B = void, R = unknown>(opts
       const params = paramsSchema ? parseOrThrow(paramsSchema, getRouterParams(event)) : (undefined as P)
       const query = querySchema ? parseOrThrow(querySchema, getQuery(event)) : (undefined as Q)
       const body = bodySchema ? parseOrThrow(bodySchema, await readBody(event)) : (undefined as B)
-      return await opts.handler({ event, params, query, body })
+      const ctx = (opts.auth === 'required' ? await requireAuthContext(event) : undefined) as ApiHandlerArgs<P, Q, B, A>['ctx']
+      return await opts.handler({ event, params, query, body, ctx })
     }
     catch (error) {
       return handleError(error)

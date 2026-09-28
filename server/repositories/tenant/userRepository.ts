@@ -31,6 +31,18 @@ export class UserRepository {
     return row ?? null
   }
 
+  /**
+   * Same lookup as `findById`, but row-locking (`SELECT ... FOR UPDATE`) — for callers that read a
+   * user's mutable state (e.g. `allHotels`) and then write based on it in the same transaction, so a
+   * concurrent writer targeting the same row serializes behind this one instead of racing it on a
+   * stale read. Only valid inside a transaction: construct this repository with a `tx` handle, never
+   * a bare `Database` handle, when calling this method.
+   */
+  async findByIdForUpdate(id: string): Promise<UserRow | null> {
+    const [row] = await this.q.select(appUser, eq(appUser.id, id), { limit: 1, forUpdate: true })
+    return row ?? null
+  }
+
   async insert(values: NewUser): Promise<UserRow> {
     const [row] = await this.q.insert(appUser, values).returning()
     return row!

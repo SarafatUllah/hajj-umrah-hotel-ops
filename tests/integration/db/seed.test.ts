@@ -4,6 +4,7 @@ import { organization, appUser, role, permission, rolePermission, userRole } fro
 import { seedDemoOrganization, DemoSlugConflictError, DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from '../../../db/seed/demo-org'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
+import { resolveAuthContext } from '../../../server/security/authContext'
 import { PERMISSIONS } from '../../../shared/constants/permissions'
 import { ROLE_DEFINITIONS } from '../../../shared/constants/roles'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
@@ -34,7 +35,10 @@ describe('seedDemoOrganization', () => {
 
     const authResult = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)
     expect(authResult).not.toBeNull()
-    expect(authResult?.permissions.slice().sort()).toEqual([...PERMISSIONS].sort())
+
+    // PF-1: authenticate() no longer carries a permission snapshot — re-assert via resolveAuthContext.
+    const ctx = await resolveAuthContext(db, { userId: authResult!.user.id, organizationId: authResult!.user.organizationId })
+    expect([...ctx!.authz.permissions].sort()).toEqual([...PERMISSIONS].sort())
   })
 
   it('is idempotent: running it twice does not create duplicate rows', async () => {
@@ -94,12 +98,14 @@ describe('seedDemoOrganization', () => {
     // (b) Logging into the foreign org yields only the foreign org's grants.
     const foreignLogin = await authenticate('foreign-org', DEMO_ADMIN_EMAIL, 'foreign-org-password')
     expect(foreignLogin?.user.organizationId).toBe(foreignOrg.id)
-    expect(foreignLogin?.permissions).toEqual(['booking.view'])
+    const foreignCtx = await resolveAuthContext(db, { userId: foreignLogin!.user.id, organizationId: foreignLogin!.user.organizationId })
+    expect([...foreignCtx!.authz.permissions]).toEqual(['booking.view'])
 
     // And the demo admin login still works with the demo password.
     const demoLogin = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)
     expect(demoLogin?.user.organizationId).toBe(demoOrgId)
-    expect(demoLogin?.permissions.slice().sort()).toEqual([...PERMISSIONS].sort())
+    const demoCtx = await resolveAuthContext(db, { userId: demoLogin!.user.id, organizationId: demoLogin!.user.organizationId })
+    expect([...demoCtx!.authz.permissions].sort()).toEqual([...PERMISSIONS].sort())
   })
 
   it('refuses to adopt a non-demo organization that occupies the demo slug', async () => {

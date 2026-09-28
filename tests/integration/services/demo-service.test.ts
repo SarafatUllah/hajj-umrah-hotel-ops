@@ -7,6 +7,7 @@ import { resetDemoData, DemoOrganizationNotFoundError, DemoResetForbiddenError }
 import { useDb } from '../../../server/utils/db'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
+import { resolveAuthContext } from '../../../server/security/authContext'
 import { closeTestDb, truncateAllTables } from '../support/testDb'
 
 const db = useDb()
@@ -112,7 +113,10 @@ describe('resetDemoData', () => {
     }).returning()
     await db.insert(userRole).values({ organizationId: otherOrg.id, userId: otherAdmin.id, roleId: otherRoles.SUPER_ADMIN! })
     const otherLogin = await authenticate('other-tenant', 'admin@other-tenant.com', 'other-admin-password')
-    expect(otherLogin?.permissions).not.toContain('organization.resetDemo')
+    expect(otherLogin).not.toBeNull()
+    // PF-1: authenticate() no longer carries a permission snapshot — re-assert via resolveAuthContext.
+    const otherCtx = await resolveAuthContext(db, { userId: otherLogin!.user.id, organizationId: otherLogin!.user.organizationId })
+    expect(otherCtx?.authz.permissions.has('organization.resetDemo')).toBe(false)
 
     await expect(resetDemoData({ userId: otherAdmin.id, organizationId: otherOrg.id }))
       .rejects.toBeInstanceOf(DemoResetForbiddenError)

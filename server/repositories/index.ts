@@ -3,7 +3,7 @@ import type { HotelScope, OrganizationScope } from '../security/scope'
 import { HotelSettingRepository } from './hotel'
 import { PlatformOrganizationRepository } from './platform/organizationRepository'
 import { PlatformPermissionCatalogRepository } from './platform/permissionCatalogRepository'
-import { AuditRepository, HotelRepository, RoleRepository, UserHotelAccessRepository, UserRepository } from './tenant'
+import { AuditRepository, HotelRepository, RoleRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from './tenant'
 
 export type * from './tenant'
 export type * from './hotel'
@@ -39,6 +39,7 @@ export function tenantRepos(db: DbOrTx, scope: OrganizationScope) {
     audit: () => new AuditRepository(db, scope),
     hotels: () => new HotelRepository(db, scope),
     userHotelAccess: () => new UserHotelAccessRepository(db, scope),
+    organization: () => new TenantOrganizationRepository(db, scope),
   })
 }
 

@@ -68,4 +68,14 @@ export class RoleRepository {
       .where(and(this.q.cond(userRole, eq(userRole.userId, userId)), this.q.cond(role)))
     return Array.from(new Set(rows.map(r => r.permissionKey)))
   }
+
+  /** Role key/name pairs held by a user (S1: session context display). Same org-guard pattern as `permissionKeysForUser` — a forced cross-org `user_role` row can never surface a foreign role here either. */
+  async rolesForUser(userId: string): Promise<Array<{ key: string, name: string }>> {
+    const rows = await this.db
+      .select({ key: role.key, name: role.name })
+      .from(userRole)
+      .innerJoin(role, eq(role.id, userRole.roleId))
+      .where(and(this.q.cond(userRole, eq(userRole.userId, userId)), this.q.cond(role)))
+    return rows
+  }
 }

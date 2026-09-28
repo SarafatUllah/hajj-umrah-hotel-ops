@@ -8,7 +8,7 @@ type HotelTable = OrgTable & { hotelId: AnyPgColumn }
 
 type InsertOf<T extends PgTable> = T['$inferInsert']
 
-export interface SelectOptions { orderBy?: SQL[], limit?: number, offset?: number }
+export interface SelectOptions { orderBy?: SQL[], limit?: number, offset?: number, forUpdate?: boolean }
 
 async function run<T extends PgTable>(db: DbOrTx, table: T, where: SQL, o: SelectOptions = {}): Promise<Array<T['$inferSelect']>> {
   // Drizzle's conditional `from()` typing cannot be satisfied by a generic table, so the row type is restated here.
@@ -16,6 +16,11 @@ async function run<T extends PgTable>(db: DbOrTx, table: T, where: SQL, o: Selec
   if (o.orderBy?.length) q = q.orderBy(...o.orderBy)
   if (o.limit !== undefined) q = q.limit(o.limit)
   if (o.offset !== undefined) q = q.offset(o.offset)
+  // `FOR UPDATE` row-locks the selected rows so a concurrent transaction reading (and later writing)
+  // the same rows serializes behind this one instead of racing it on a stale read. Only meaningful
+  // inside a transaction — callers must pass a `tx`, never a bare `Database` handle (outside a
+  // transaction, Postgres either rejects it or the driver silently ignores it, depending on setup).
+  if (o.forUpdate) q = q.for('update')
   return (await q) as Array<T['$inferSelect']>
 }
 

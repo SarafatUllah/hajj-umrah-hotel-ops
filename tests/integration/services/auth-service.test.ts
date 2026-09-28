@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { organization, appUser, role, permission, rolePermission, userRole } from '../../../db/schema'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
+import { resolveAuthContext } from '../../../server/security/authContext'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
 const db = getTestDb()
@@ -16,7 +17,7 @@ afterAll(async () => {
 })
 
 describe('authenticate', () => {
-  it('returns the user with resolved permissions for correct organization, email, and password', async () => {
+  it('returns only the user\'s identity (PF-1: no permission snapshot — authorization is resolved fresh via resolveAuthContext)', async () => {
     const [org] = await db.insert(organization).values({ name: 'Test Org', slug: 'test-org-auth' }).returning()
     const [managerRole] = await db.insert(role).values({ organizationId: org.id, key: 'HOTEL_MANAGER', name: 'Hotel Manager' }).returning()
     await db.insert(permission).values([
@@ -40,7 +41,10 @@ describe('authenticate', () => {
     expect(result).not.toBeNull()
     expect(result?.user.email).toBe('manager@test.com')
     expect(result?.user.organizationId).toBe(org.id)
-    expect(result?.permissions.slice().sort()).toEqual(['booking.create', 'booking.view'])
+    expect((result as { permissions?: unknown[] }).permissions).toBeUndefined()
+
+    const ctx = await resolveAuthContext(db, { userId: result!.user.id, organizationId: result!.user.organizationId })
+    expect([...ctx!.authz.permissions].sort()).toEqual(['booking.create', 'booking.view'])
   })
 
   it('returns null for an incorrect password', async () => {
@@ -144,8 +148,10 @@ describe('authenticate', () => {
       expect(planted.length).toBe(1)
 
       const result = await authenticate('home-org-auth', 'viewer@home.test', 'home-password')
+      expect(result).not.toBeNull()
 
-      expect(result?.permissions).toEqual(['booking.view'])
+      const ctx = await resolveAuthContext(db, { userId: result!.user.id, organizationId: result!.user.organizationId })
+      expect([...ctx!.authz.permissions]).toEqual(['booking.view'])
     }
     finally {
       await db.delete(userRole).where(and(eq(userRole.userId, user.id), eq(userRole.roleId, otherAdminRole.id)))

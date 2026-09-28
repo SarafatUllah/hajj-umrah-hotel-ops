@@ -21,11 +21,10 @@ export default defineApiHandler({
       throw new UnauthenticatedError('INVALID_CREDENTIALS', 'Invalid organization, email, or password')
     }
 
+    // Identity only (Task 7): no permission/hotel-access snapshot goes into the session — those are
+    // resolved fresh from the database on every request via resolveAuthContext.
     await setUserSession(event, {
       user: result.user,
-      permissions: result.permissions,
-      allHotels: result.allHotels,
-      hotelIds: result.hotelIds,
       loggedInAt: Date.now(),
     })
 
