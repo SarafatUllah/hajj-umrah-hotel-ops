@@ -3,3 +3,5 @@
 export * from './userRepository'
 export * from './roleRepository'
 export * from './auditRepository'
+export * from './hotelRepository'
+export * from './userHotelAccessRepository'

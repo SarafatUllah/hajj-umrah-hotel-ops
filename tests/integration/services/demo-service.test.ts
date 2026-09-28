@@ -29,6 +29,14 @@ async function seedDemoAndGetAdmin() {
   return { organizationId, actor: { userId: admin.id, organizationId } }
 }
 
+describe('seedDemoOrganization', () => {
+  it('gives the demo admin all_hotels = true', async () => {
+    const { organizationId } = await seedDemoOrganization(db)
+    const [admin] = await db.select().from(appUser).where(and(eq(appUser.organizationId, organizationId), eq(appUser.email, DEMO_ADMIN_EMAIL))).limit(1)
+    expect(admin?.allHotels).toBe(true)
+  })
+})
+
 describe('resetDemoData', () => {
   it('throws when the demo organization does not exist yet', async () => {
     await expect(resetDemoData({
@@ -90,7 +98,10 @@ describe('resetDemoData', () => {
     const { organizationId: demoOrgId } = await seedDemoAndGetAdmin()
 
     // A fully legitimate Super Admin of an unrelated tenant: holds every
-    // permission (including organization.resetDemo) within their own org.
+    // permission EXCEPT the demo-only ones (organization.resetDemo) within
+    // their own org — least privilege (PF-2): that permission is granted
+    // only to the demo organization's own SUPER_ADMIN role, explicitly, by
+    // the seed. A generic Super Admin must never be able to wipe another org.
     const [otherOrg] = await db.insert(organization).values({ name: 'Other Tenant', slug: 'other-tenant' }).returning()
     const otherRoles = await seedOrganizationRoles(db, otherOrg.id)
     const [otherAdmin] = await db.insert(appUser).values({
@@ -101,7 +112,7 @@ describe('resetDemoData', () => {
     }).returning()
     await db.insert(userRole).values({ organizationId: otherOrg.id, userId: otherAdmin.id, roleId: otherRoles.SUPER_ADMIN! })
     const otherLogin = await authenticate('other-tenant', 'admin@other-tenant.com', 'other-admin-password')
-    expect(otherLogin?.permissions).toContain('organization.resetDemo')
+    expect(otherLogin?.permissions).not.toContain('organization.resetDemo')
 
     await expect(resetDemoData({ userId: otherAdmin.id, organizationId: otherOrg.id }))
       .rejects.toBeInstanceOf(DemoResetForbiddenError)

@@ -46,6 +46,21 @@ describe('OrgQuery', () => {
     expect(inB.map(r => r.organizationId)).toEqual([scopeA.organizationId])
   })
 
+  it('insertMany ignores an organizationId smuggled into any row and stores the scope organization on every row', async () => {
+    const { scopeA, scopeB } = await twoIdenticalOrgs()
+
+    const inserted = await new OrgQuery(db, scopeA)
+      .insertMany(role, [
+        { organizationId: scopeB.organizationId, key: 'M1', name: 'm1' } as never,
+        { organizationId: scopeB.organizationId, key: 'M2', name: 'm2' } as never,
+      ])
+      .returning()
+
+    expect(inserted.map(r => r.organizationId)).toEqual([scopeA.organizationId, scopeA.organizationId])
+    const inB = await db.select().from(role).where(eq(role.organizationId, scopeB.organizationId))
+    expect(inB.map(r => r.key)).toEqual(['SAME'])
+  })
+
   it('select returns only rows of the scope organization', async () => {
     const { scopeA } = await twoIdenticalOrgs()
 

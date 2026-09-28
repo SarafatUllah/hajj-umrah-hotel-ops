@@ -1,9 +1,10 @@
 import { and, eq } from 'drizzle-orm'
-import { appUser, auditLog, role, rolePermission, userRole } from '../../../db/schema'
+import { appUser, auditLog, hotel, hotelSetting, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
 import type { DbOrTx } from '../../../db/client'
-import type { OrganizationScope } from '../../../server/security/scope'
-import { AuditRepository, RoleNotInScopeError, RoleRepository, UserRepository } from '../../../server/repositories/tenant'
-import { ensurePermissions, makeRole, makeUser, makeUserWithPermissions } from '../../support/fixtures'
+import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
+import { AuditRepository, HotelRepository, RoleNotInScopeError, RoleRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
+import { HotelSettingRepository } from '../../../server/repositories/hotel'
+import { ensurePermissions, makeHotel, makeRole, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
 /**
  * Behavioral tenant-isolation registry: one entry per `ClassName.method` of every scoped repository.
@@ -125,6 +126,162 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: async (db, scope, ids) => {
       await new AuditRepository(db, scope).record({ organizationId: ids.orgAId, entityType: 'probe', entityId: 'probe', action: 'PROBE' } as never)
       return db.select().from(auditLog).where(eq(auditLog.organizationId, ids.orgAId))
+    },
+    expect: 'empty',
+  }),
+  'AuditRepository.listForHotel': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      await new AuditRepository(db, orgA).record({ hotelId: hotelRow.id, entityType: 'probe', entityId: 'probe', action: 'PROBE' })
+      return { hotelId: hotelRow.id }
+    },
+    act: async (db, scope, ids) => (await new AuditRepository(db, scope).listForHotel(ids.hotelId, { limit: 10 })).rows,
+    expect: 'empty',
+  }),
+  'AuditRepository.listOrganizationLevel': isolationCase({
+    arrange: async (db, orgA) => {
+      await new AuditRepository(db, orgA).record({ entityType: 'probe', entityId: 'probe', action: 'PROBE' })
+      return {}
+    },
+    act: async (db, scope) => (await new AuditRepository(db, scope).listOrganizationLevel({ limit: 10 })).rows,
+    expect: 'empty',
+  }),
+
+  'HotelRepository.insert': isolationCase({
+    arrange: async (_db, orgA) => ({ orgAId: orgA.organizationId }),
+    act: async (db, scope, ids) => {
+      await new HotelRepository(db, scope).insert({ organizationId: ids.orgAId, code: 'PLANTED', name: 'Planted', city: 'Makkah' } as never)
+      return db.select().from(hotel).where(and(eq(hotel.organizationId, ids.orgAId), eq(hotel.code, 'PLANTED')))
+    },
+    expect: 'empty',
+  }),
+  'HotelRepository.findById': isolationCase({
+    arrange: async (db, orgA) => ({ hotelId: (await makeHotel(db, orgA)).id }),
+    act: (db, scope, ids) => new HotelRepository(db, scope).findById(ids.hotelId),
+    expect: 'null',
+  }),
+  'HotelRepository.findByCode': isolationCase({
+    arrange: async (db, orgA) => ({ code: (await makeHotel(db, orgA)).code }),
+    act: (db, scope, ids) => new HotelRepository(db, scope).findByCode(ids.code),
+    expect: 'null',
+  }),
+  'HotelRepository.listByIds': isolationCase({
+    arrange: async (db, orgA) => ({ hotelId: (await makeHotel(db, orgA)).id }),
+    act: (db, scope, ids) => new HotelRepository(db, scope).listByIds([ids.hotelId]),
+    expect: 'empty',
+  }),
+  'HotelRepository.listAll': isolationCase({
+    arrange: async (db, orgA) => { await makeHotel(db, orgA); return {} },
+    act: (db, scope) => new HotelRepository(db, scope).listAll(),
+    expect: 'empty',
+  }),
+  'HotelRepository.update': isolationCase({
+    arrange: async (db, orgA) => ({ hotelId: (await makeHotel(db, orgA)).id }),
+    act: async (db, scope, ids) => {
+      await new HotelRepository(db, scope).update(ids.hotelId, { name: 'Hacked' })
+      return db.select().from(hotel).where(and(eq(hotel.id, ids.hotelId), eq(hotel.name, 'Hacked')))
+    },
+    expect: 'empty',
+  }),
+  'HotelRepository.setStatus': isolationCase({
+    arrange: async (db, orgA) => ({ hotelId: (await makeHotel(db, orgA)).id }),
+    act: async (db, scope, ids) => {
+      await new HotelRepository(db, scope).setStatus(ids.hotelId, 'INACTIVE')
+      return db.select().from(hotel).where(and(eq(hotel.id, ids.hotelId), eq(hotel.status, 'INACTIVE')))
+    },
+    expect: 'empty',
+  }),
+
+  'UserHotelAccessRepository.hotelIdsForUser': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const user = await makeUser(db, orgA, { hotelIds: [hotelRow.id] })
+      return { userId: user.id }
+    },
+    act: (db, scope, ids) => new UserHotelAccessRepository(db, scope).hotelIdsForUser(ids.userId),
+    expect: 'empty',
+  }),
+  'UserHotelAccessRepository.userIdsForHotel': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      await makeUser(db, orgA, { hotelIds: [hotelRow.id] })
+      return { hotelId: hotelRow.id }
+    },
+    act: (db, scope, ids) => new UserHotelAccessRepository(db, scope).userIdsForHotel(ids.hotelId),
+    expect: 'empty',
+  }),
+  // user_hotel_access rows require BOTH the user and the hotel to belong to the acting scope's
+  // organization (two independent composite FKs) — mirrors RoleRepository.assignToUser's two cases.
+  'UserHotelAccessRepository.replaceForUser': [
+    isolationCase({
+      name: 'org A\'s user granted org A\'s hotel',
+      arrange: async (db, orgA) => ({ userId: (await makeUser(db, orgA)).id, hotelId: (await makeHotel(db, orgA)).id }),
+      act: (db, scope, ids) => new UserHotelAccessRepository(db, scope).replaceForUser(ids.userId, [ids.hotelId], null),
+      expect: 'rejects',
+      rejection: foreignKeyViolation,
+      unchanged: async (db, ids) => assertNoRows(await db.select().from(userHotelAccess).where(eq(userHotelAccess.userId, ids.userId)), 'user_hotel_access of org A\'s user'),
+    }),
+    isolationCase({
+      name: 'caller\'s own user granted org A\'s hotel',
+      arrange: async (db, orgA) => ({ hotelId: (await makeHotel(db, orgA)).id }),
+      act: async (db, scope, ids) => new UserHotelAccessRepository(db, scope).replaceForUser((await makeUser(db, scope)).id, [ids.hotelId], null),
+      expect: 'rejects',
+      rejection: foreignKeyViolation,
+      unchanged: async (db, ids) => assertNoRows(await db.select().from(userHotelAccess).where(eq(userHotelAccess.hotelId, ids.hotelId)), 'user_hotel_access of org A\'s hotel'),
+    }),
+  ],
+
+  // Hotel-scoped repository: the harness only mints an OrganizationScope for "org B", so the attack
+  // simulated is org B's caller holding org A's leaked hotelId — trustedHotelScope(scope, ids.hotelId)
+  // builds exactly that (mismatched organizationId/hotelId) scope, same as a real cross-tenant guess.
+  'HotelSettingRepository.getAll': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      await new HotelSettingRepository(db, trustedHotelScope(orgA, hotelRow.id)).upsert('checkInGrace', { minutes: 15 })
+      return { hotelId: hotelRow.id }
+    },
+    act: (db, scope, ids) => new HotelSettingRepository(db, trustedHotelScope(scope, ids.hotelId)).getAll(),
+    expect: 'empty',
+  }),
+  'HotelSettingRepository.upsert': [
+    // A mismatched (org B, org A's hotel) scope fails the composite FK on INSERT itself (23503),
+    // rather than silently landing a row org A's query would never see.
+    isolationCase({
+      name: 'fresh key: insert path',
+      arrange: async (db, orgA) => ({ hotelId: (await makeHotel(db, orgA)).id }),
+      act: (db, scope, ids) => new HotelSettingRepository(db, trustedHotelScope(scope, ids.hotelId)).upsert('planted', { x: 1 }),
+      expect: 'rejects',
+      rejection: foreignKeyViolation,
+      unchanged: async (db, ids) => assertNoRows(await db.select().from(hotelSetting).where(and(eq(hotelSetting.hotelId, ids.hotelId), eq(hotelSetting.key, 'planted'))), 'hotel_setting of org A\'s hotel'),
+    }),
+    // An EXISTING key: the conflict target is (organization_id, hotel_id, key), so a mismatched
+    // (org B, org A's hotel) scope can never match org A's row on conflict — it falls through to
+    // the same INSERT path above and hits the same composite-FK rejection (23503), never a silent
+    // UPDATE of org A's row.
+    isolationCase({
+      name: 'existing key: conflict path never matches another organization\'s row',
+      arrange: async (db, orgA) => {
+        const hotelRow = await makeHotel(db, orgA)
+        await new HotelSettingRepository(db, trustedHotelScope(orgA, hotelRow.id)).upsert('checkInGrace', { minutes: 15 })
+        return { hotelId: hotelRow.id }
+      },
+      act: (db, scope, ids) => new HotelSettingRepository(db, trustedHotelScope(scope, ids.hotelId)).upsert('checkInGrace', { minutes: 999 }),
+      expect: 'rejects',
+      rejection: foreignKeyViolation,
+      unchanged: async (db, ids) => {
+        const [row] = await db.select().from(hotelSetting).where(and(eq(hotelSetting.hotelId, ids.hotelId), eq(hotelSetting.key, 'checkInGrace')))
+        if (row?.value == null || (row.value as { minutes?: number }).minutes !== 15) {
+          throw new Error(`hotel_setting of org A's hotel: expected value unchanged at {minutes: 15}, found ${JSON.stringify(row?.value)}`)
+        }
+      },
+    }),
+  ],
+
+  'UserRepository.setAllHotels': isolationCase({
+    arrange: async (db, orgA) => ({ userId: (await makeUser(db, orgA)).id }),
+    act: async (db, scope, ids) => {
+      await new UserRepository(db, scope).setAllHotels(ids.userId, true)
+      return db.select().from(appUser).where(and(eq(appUser.id, ids.userId), eq(appUser.allHotels, true)))
     },
     expect: 'empty',
   }),

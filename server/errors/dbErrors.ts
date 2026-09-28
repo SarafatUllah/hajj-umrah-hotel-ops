@@ -53,6 +53,9 @@ export function extractPgError(err: unknown): PgErrorInfo | null {
 export const CONSTRAINT_MESSAGES: Record<string, { kind: 'conflict' | 'validation', code: string, message: string }> = {
   organization_slug_unique: { kind: 'conflict', code: 'ORGANIZATION_SLUG_TAKEN', message: 'An organization with this slug already exists' },
   app_user_org_email_unique: { kind: 'conflict', code: 'USER_EMAIL_TAKEN', message: 'A user with this email already exists in this organization' },
+  // Unique violation (23505) -> kind must be 'conflict' to agree with the SQLSTATE-derived generic
+  // kind, or translateDbError rejects this entry outright (Task 5 rule).
+  hotel_org_code_unique: { kind: 'conflict', code: 'HOTEL_CODE_TAKEN', message: 'A hotel with this code already exists' },
 }
 
 /** Generic mapping by SQLSTATE, applied before the per-constraint registry above. */

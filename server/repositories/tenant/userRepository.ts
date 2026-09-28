@@ -35,4 +35,8 @@ export class UserRepository {
     const [row] = await this.q.insert(appUser, values).returning()
     return row!
   }
+
+  async setAllHotels(userId: string, value: boolean): Promise<void> {
+    await this.q.update(appUser, { allHotels: value }, eq(appUser.id, userId))
+  }
 }

@@ -4,6 +4,7 @@ import { trustedOrganizationScope, type OrganizationScope } from '../../server/s
 import { seedPermissionCatalog, seedOrganizationRoles } from './rbac'
 import { hashPassword } from '../../server/utils/password'
 import { normalizeEmail } from '../../shared/utils/email'
+import { DEMO_ONLY_PERMISSIONS } from '../../shared/constants/permissions'
 
 export const DEMO_ORG_SLUG = 'demo'
 export const DEMO_ADMIN_EMAIL = 'admin@demo.alsafahotels.test'
@@ -38,7 +39,10 @@ export async function seedDemoOrganization(db: DbOrTx): Promise<{ organizationId
     isDemo: true,
   })
 
-  const roleIdByKey = await seedOrganizationRoles(db, org.id)
+  // The demo organization's SUPER_ADMIN alone gets the demo-only permissions (organization.resetDemo)
+  // — ROLE_DEFINITIONS.SUPER_ADMIN deliberately excludes them (least privilege, PF-2) so no other
+  // organization's Super Admin can ever wipe another tenant's data.
+  const roleIdByKey = await seedOrganizationRoles(db, org.id, { extraPermissions: { SUPER_ADMIN: DEMO_ONLY_PERMISSIONS } })
 
   // Every lookup and write below is confined to the demo organization's
   // scope. Email is unique only per organization, so an unscoped lookup
@@ -52,7 +56,10 @@ export async function seedDemoOrganization(db: DbOrTx): Promise<{ organizationId
     email: adminEmail,
     passwordHash: await hashPassword(DEMO_ADMIN_PASSWORD),
     fullName: 'Demo Super Admin',
+    allHotels: true,
   })
+  // Idempotent: an adopted pre-existing admin (findByEmail above) may predate all_hotels.
+  if (!admin.allHotels) await users.setAllHotels(admin.id, true)
 
   await roles.assignToUser(admin.id, roleIdByKey.SUPER_ADMIN!)
 

@@ -8,14 +8,25 @@ export async function seedPermissionCatalog(db: DbOrTx): Promise<void> {
   await platformRepos(db).permissionCatalog.upsertAll(PERMISSIONS.map(key => ({ key, description: PERMISSION_DESCRIPTIONS[key] })))
 }
 
-export async function seedOrganizationRoles(db: DbOrTx, organizationId: string): Promise<Record<string, string>> {
+export interface SeedRolesOptions {
+  /**
+   * Extra permission keys granted on top of a role's normal ROLE_DEFINITIONS set, keyed by role
+   * key. Used only for the demo organization's SUPER_ADMIN (organization.resetDemo is demo-only,
+   * PF-2/least-privilege: it must never be part of ROLE_DEFINITIONS.SUPER_ADMIN itself, or every
+   * organization's Super Admin would hold it).
+   */
+  extraPermissions?: Partial<Record<string, readonly string[]>>
+}
+
+export async function seedOrganizationRoles(db: DbOrTx, organizationId: string, options: SeedRolesOptions = {}): Promise<Record<string, string>> {
   const { roles } = tenantRepos(db, trustedOrganizationScope(organizationId))
   const roleIdByKey: Record<string, string> = {}
 
   for (const [key, definition] of Object.entries(ROLE_DEFINITIONS)) {
     const roleRow = await roles.findByKey(key) ?? await roles.insert({ key, name: definition.name })
     roleIdByKey[key] = roleRow.id
-    await roles.grantPermissions(roleRow.id, definition.permissions)
+    const extra = options.extraPermissions?.[key] ?? []
+    await roles.grantPermissions(roleRow.id, [...definition.permissions, ...extra])
   }
 
   return roleIdByKey

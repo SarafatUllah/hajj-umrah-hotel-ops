@@ -1,10 +1,12 @@
 import type { DbOrTx } from '../../db/client'
-import type { OrganizationScope } from '../security/scope'
+import type { HotelScope, OrganizationScope } from '../security/scope'
+import { HotelSettingRepository } from './hotel'
 import { PlatformOrganizationRepository } from './platform/organizationRepository'
 import { PlatformPermissionCatalogRepository } from './platform/permissionCatalogRepository'
-import { AuditRepository, RoleRepository, UserRepository } from './tenant'
+import { AuditRepository, HotelRepository, RoleRepository, UserHotelAccessRepository, UserRepository } from './tenant'
 
 export type * from './tenant'
+export type * from './hotel'
 export type { OrganizationRow, NewOrganization } from './platform/organizationRepository'
 export type { PermissionRow } from './platform/permissionCatalogRepository'
 
@@ -35,8 +37,18 @@ export function tenantRepos(db: DbOrTx, scope: OrganizationScope) {
     users: () => new UserRepository(db, scope),
     roles: () => new RoleRepository(db, scope),
     audit: () => new AuditRepository(db, scope),
+    hotels: () => new HotelRepository(db, scope),
+    userHotelAccess: () => new UserHotelAccessRepository(db, scope),
+  })
+}
+
+/** Hotel-scoped repositories: every statement is confined to `scope.organizationId` AND `scope.hotelId`. */
+export function hotelRepos(db: DbOrTx, scope: HotelScope) {
+  return lazy({
+    settings: () => new HotelSettingRepository(db, scope),
   })
 }
 
 export type PlatformRepos = ReturnType<typeof platformRepos>
 export type TenantRepos = ReturnType<typeof tenantRepos>
+export type HotelRepos = ReturnType<typeof hotelRepos>

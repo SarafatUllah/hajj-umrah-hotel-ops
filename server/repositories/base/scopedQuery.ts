@@ -40,6 +40,11 @@ export class OrgQuery {
     return this.db.insert(table).values({ ...values, organizationId: this.scope.organizationId } as InsertOf<T>)
   }
 
+  /** Multi-row insert: the scope organization is mapped onto every row, so no row can carry a caller-supplied one. */
+  insertMany<T extends OrgTable>(table: T, valuesList: ReadonlyArray<Omit<InsertOf<T>, 'organizationId'>>) {
+    return this.db.insert(table).values(valuesList.map(values => ({ ...values, organizationId: this.scope.organizationId } as InsertOf<T>)))
+  }
+
   update<T extends OrgTable>(table: T, set: Partial<Omit<InsertOf<T>, 'organizationId' | 'id'>>, ...extra: Array<SQL | undefined>) {
     // The scope's value is applied last, so even a cast-away `set` cannot move a row to another organization.
     return this.db.update(table).set({ ...set, organizationId: this.scope.organizationId } as never).where(this.cond(table, ...extra))

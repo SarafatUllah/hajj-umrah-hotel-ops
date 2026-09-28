@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { DbOrTx } from '../../db/client'
 import { platformRepos, tenantRepos } from '../../server/repositories'
 import type { NewOrganization, OrganizationRow } from '../../server/repositories/platform/organizationRepository'
-import type { NewUser, RoleRow, UserRow } from '../../server/repositories/tenant'
+import type { HotelRow, NewHotel, NewUser, RoleRow, UserRow } from '../../server/repositories/tenant'
 import { trustedOrganizationScope, type OrganizationScope } from '../../server/security/scope'
 
 /**
@@ -19,9 +19,22 @@ export async function makeOrg(db: DbOrTx, overrides: Partial<NewOrganization> = 
   return { organization, scope: trustedOrganizationScope(organization.id) }
 }
 
-export async function makeUser(db: DbOrTx, scope: OrganizationScope, overrides: Partial<NewUser> = {}): Promise<UserRow> {
+export interface MakeUserOptions extends Partial<NewUser> {
+  /** Grants access to these hotels via user_hotel_access, after the user is created. */
+  hotelIds?: readonly string[]
+}
+
+export async function makeUser(db: DbOrTx, scope: OrganizationScope, options: MakeUserOptions = {}): Promise<UserRow> {
+  const { hotelIds, ...overrides } = options
   const n = next()
-  return tenantRepos(db, scope).users.insert({ email: `user-${n}@example.test`, passwordHash: 'not-a-real-hash', fullName: `User ${n}`, ...overrides })
+  const user = await tenantRepos(db, scope).users.insert({ email: `user-${n}@example.test`, passwordHash: 'not-a-real-hash', fullName: `User ${n}`, ...overrides })
+  if (hotelIds?.length) await tenantRepos(db, scope).userHotelAccess.replaceForUser(user.id, hotelIds, null)
+  return user
+}
+
+export async function makeHotel(db: DbOrTx, scope: OrganizationScope, overrides: Partial<NewHotel> = {}): Promise<HotelRow> {
+  const n = next()
+  return tenantRepos(db, scope).hotels.insert({ code: `HTL-${n}`, name: `Hotel ${n}`, city: 'Makkah', ...overrides })
 }
 
 /** Adds the permission keys missing from the global catalog (existing descriptions are left alone). */

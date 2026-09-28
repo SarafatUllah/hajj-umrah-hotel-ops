@@ -15,6 +15,13 @@
       "when": 1790359160815,
       "tag": "0001_tenancy_hardening",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790608734087,
+      "tag": "0002_hotel_core",
+      "breakpoints": true
     }
   ]
 }

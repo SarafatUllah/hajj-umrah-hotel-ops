@@ -7,4 +7,5 @@
  */
 export const REPOSITORY_BARRELS: ReadonlyArray<{ dir: string, load: () => Promise<Record<string, unknown>> }> = [
   { dir: 'server/repositories/tenant', load: () => import('../../server/repositories/tenant') },
+  { dir: 'server/repositories/hotel', load: () => import('../../server/repositories/hotel') },
 ]
