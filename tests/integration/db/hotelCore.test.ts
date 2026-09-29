@@ -39,7 +39,7 @@ describe('hotel: unique/check constraints and error mapping', () => {
     expect(extractPgError(caught)?.code).toBe('23505')
     const translated = translateDbError(caught)
     expect(translated).toBeInstanceOf(ConflictError)
-    expect(translated?.code).toBe('HOTEL_CODE_TAKEN')
+    expect(translated?.code).toBe('ALREADY_EXISTS')
     expect(translated?.httpStatus).toBe(409)
 
     await expect(makeHotel(db, orgB, { code: 'DUPE' })).resolves.toBeDefined()

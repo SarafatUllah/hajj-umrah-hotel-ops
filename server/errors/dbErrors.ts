@@ -54,8 +54,10 @@ export const CONSTRAINT_MESSAGES: Record<string, { kind: 'conflict' | 'validatio
   organization_slug_unique: { kind: 'conflict', code: 'ORGANIZATION_SLUG_TAKEN', message: 'An organization with this slug already exists' },
   app_user_org_email_unique: { kind: 'conflict', code: 'USER_EMAIL_TAKEN', message: 'A user with this email already exists in this organization' },
   // Unique violation (23505) -> kind must be 'conflict' to agree with the SQLSTATE-derived generic
-  // kind, or translateDbError rejects this entry outright (Task 5 rule).
-  hotel_org_code_unique: { kind: 'conflict', code: 'HOTEL_CODE_TAKEN', message: 'A hotel with this code already exists' },
+  // kind, or translateDbError rejects this entry outright (Task 5 rule). Code is the generic
+  // ALREADY_EXISTS (Task 12 ruling PF-13-adjacent) rather than a bespoke HOTEL_CODE_TAKEN, so every
+  // later aggregate's duplicate-key conflict reads the same machine code; the message stays specific.
+  hotel_org_code_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'A hotel with this code already exists' },
 }
 
 /** Generic mapping by SQLSTATE, applied before the per-constraint registry above. */
