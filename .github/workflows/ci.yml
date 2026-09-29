@@ -75,3 +75,46 @@ jobs:
           NUXT_SESSION_PASSWORD: ci-test-session-password-at-least-32-characters
           APP_ENV: development
         run: pnpm test:integration
+
+  # Separate job (Task 8): black-box HTTP tests against the built production Nitro artifact
+  # (`nuxt build` + `node .output/server/index.mjs`), the layer the "test" job's service-level tests
+  # cannot see (cookies, session lifetime, fresh per-request authorization, error shapes over real
+  # HTTP). Runs independently of "test" so the two suites' failures are reported separately.
+  http:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hajj_umrah
+          POSTGRES_PASSWORD: hajj_umrah_dev_password
+          POSTGRES_DB: hajj_umrah_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U hajj_umrah -d hajj_umrah_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `pnpm test:http` applies migrations, builds the production artifact (nuxt build), boots it as
+      # a real child process on an OS-assigned port, and runs the black-box HTTP suite against it —
+      # the exact script developers run locally. Same env-block rationale as the integration job
+      # above (dotenv never overrides an already-set variable).
+      - name: HTTP tests (build + black-box suite against the production artifact)
+        env:
+          DATABASE_URL: postgres://hajj_umrah:hajj_umrah_dev_password@localhost:5433/hajj_umrah_test
+          NUXT_SESSION_PASSWORD: ci-test-session-password-at-least-32-characters
+          APP_ENV: development
+        run: pnpm test:http

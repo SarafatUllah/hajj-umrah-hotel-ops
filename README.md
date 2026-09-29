@@ -22,3 +22,11 @@ implementation plans.
 - `pnpm test:integration` — requires `docker compose up -d` first; runs
   migrations against `hajj_umrah_test` and executes tests in
   `tests/integration/**` against a real Postgres instance.
+- `pnpm test:http` — black-box HTTP tests (`tests/http/**`) against the real
+  production artifact: builds the app (`nuxt build`), starts
+  `node .output/server/index.mjs` as a child process on a free port, waits
+  for `GET /api/health`, and runs real HTTP requests against it (cookies,
+  session freshness, error shapes) — the layer service-level tests can't
+  see. Requires `docker compose up -d` first. Set `HTTP_TEST_SKIP_BUILD=1`
+  to skip the build step when iterating locally against an artifact you
+  already built.

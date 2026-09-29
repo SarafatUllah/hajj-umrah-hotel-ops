@@ -90,12 +90,61 @@ function parseOrThrow<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, raw: unkno
   return result.data
 }
 
+/**
+ * Maps a bare framework H3Error's statusCode to a stable machine code. Only used for an error that
+ * never went through `domainErrorToHttp` (see `handleError` below) — h3's own request handling
+ * (`readBody`'s "Invalid JSON body") and nuxt-auth-utils' `requireUserSession` (missing/tampered
+ * session) both throw plain `createError({ statusCode, statusMessage })` with no `data.code` at all.
+ */
+function fallbackCodeForStatus(statusCode: number): string {
+  switch (statusCode) {
+    case 400: return 'BAD_REQUEST'
+    case 401: return 'UNAUTHENTICATED'
+    case 403: return 'FORBIDDEN'
+    case 404: return 'NOT_FOUND'
+    case 405: return 'METHOD_NOT_ALLOWED'
+    case 413: return 'PAYLOAD_TOO_LARGE'
+    case 422: return 'VALIDATION_FAILED'
+    default: return 'REQUEST_ERROR'
+  }
+}
+
+/**
+ * `error` is already an H3Error (`isError(error)` true). If it carries our own `data.code` — built
+ * by `domainErrorToHttp`, or crafted deliberately by a route itself (e.g. login's generic
+ * "invalid organization, email, or password", which never distinguishes which credential was wrong)
+ * — it is rethrown completely unchanged.
+ *
+ * Otherwise this is a FRAMEWORK error that never passed through this wrapper at all: h3's own
+ * body-parsing throws a bare `createError({ statusCode: 400, statusMessage: 'Bad Request', message:
+ * 'Invalid JSON body' })` before `readBody()` in `defineApiHandler` below even returns, and
+ * nuxt-auth-utils' `requireUserSession` (called from `requireAuthContext`, inside this same try
+ * block) throws a bare `createError({ statusCode: 401, statusMessage: 'Unauthorized' })` for a
+ * missing OR tampered session cookie. Both would otherwise reach the client with no `data.code` at
+ * all, breaking "every non-2xx response has a standard error shape" (verified end-to-end by Task 8's
+ * HTTP suite) — so they are normalized to the same shape every DomainError gets, using the error's
+ * own statusCode/statusMessage where that is safe to expose (never for 5xx, where the message is
+ * replaced exactly like the unknown-error path below, to avoid leaking internals).
+ */
+function normalizeBareFrameworkError(error: ReturnType<typeof createError>): never {
+  const data = error.data as { code?: unknown } | undefined
+  if (typeof data?.code === 'string' && data.code.length > 0) throw error
+
+  const statusCode = error.statusCode || 500
+  if (statusCode >= 500) {
+    console.error(error)
+    throw createError({ statusCode: 500, statusMessage: 'Internal server error', data: { code: 'INTERNAL_ERROR' } })
+  }
+  throw createError({ statusCode, statusMessage: error.statusMessage || 'Error', data: { code: fallbackCodeForStatus(statusCode) } })
+}
+
 function handleError(error: unknown): never {
   // A route (or a lower layer) may already have built a full H3Error — e.g.
   // login's deliberately generic "invalid organization, email, or password"
-  // (never distinguishing which one failed). Pass it through unchanged
-  // rather than reclassifying it as an internal error.
-  if (isError(error)) throw error
+  // (never distinguishing which one failed). Passed through unchanged by
+  // normalizeBareFrameworkError when it already carries data.code; otherwise
+  // normalized there (see its docstring).
+  if (isError(error)) normalizeBareFrameworkError(error)
 
   if (error instanceof DomainError) domainErrorToHttp(error)
   if (error instanceof ZodError) domainErrorToHttp(zodErrorToValidationError(error))
