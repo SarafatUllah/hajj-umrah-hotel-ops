@@ -4,9 +4,9 @@ import { appUser, auditLog, hotel } from '../../../db/schema'
 import type { Database } from '../../../db/client'
 import { ForbiddenError, NotFoundError } from '../../../server/errors/domainError'
 import { tenantRepos } from '../../../server/repositories'
-import { AuditRepository } from '../../../server/repositories/tenant'
+import { AuditRepository, HotelRepository } from '../../../server/repositories/tenant'
 import type { AuthContext } from '../../../server/security/authContext'
-import type { OrganizationScope } from '../../../server/security/scope'
+import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import type { Permission } from '../../../shared/constants/permissions'
 import {
   activateHotel,
@@ -20,7 +20,7 @@ import {
   updateSettings,
 } from '../../../server/services/hotelService'
 import { auditCursorSchema } from '../../../shared/schemas/hotel'
-import { makeHotel, makeOrg, makeUser } from '../../support/fixtures'
+import { makeFloor, makeHotel, makeOrg, makeUser } from '../../support/fixtures'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
 const db = getTestDb()
@@ -570,17 +570,58 @@ describe('DTO shape and timezone', () => {
     expect((await getHotel(ctx, utcHotel.id)).today).toBe('2027-05-01')
   })
 
-  it('floorCount/roomCount are null in this task regardless of room.view', async () => {
+  it('floorCount is the active-floor count when the caller has room.view, and null otherwise; roomCount stays null regardless (Task 14 wires it)', async () => {
     const { scope } = await makeOrg(db)
     const target = await makeHotel(db, scope)
+    await makeFloor(db, trustedHotelScope(scope, target.id), { level: 1, isActive: true })
+    await makeFloor(db, trustedHotelScope(scope, target.id), { level: 2, isActive: false })
     const withRoomView = makeCtx(scope, { permissions: ['hotel.view', 'room.view'], hotelIds: [target.id] })
     const withoutRoomView = makeCtx(scope, { permissions: ['hotel.view'], hotelIds: [target.id] })
 
     const a = await getHotel(withRoomView, target.id)
     const b = await getHotel(withoutRoomView, target.id)
-    expect(a.floorCount).toBeNull()
+    expect(a.floorCount).toBe(1)
     expect(a.roomCount).toBeNull()
     expect(b.floorCount).toBeNull()
     expect(b.roomCount).toBeNull()
+  })
+})
+
+describe('listHotels — floorCount is batched (N+1-free)', () => {
+  it('counts ACTIVE floors only, and issues exactly ONE call to HotelRepository.activeFloorCounts for the whole list (not one per hotel)', async () => {
+    const { scope } = await makeOrg(db)
+    const hotelA = await makeHotel(db, scope, { code: 'FA' })
+    const hotelB = await makeHotel(db, scope, { code: 'FB' })
+    await makeHotel(db, scope, { code: 'FC' }) // no floors at all
+
+    await makeFloor(db, trustedHotelScope(scope, hotelA.id), { level: 1, isActive: true })
+    await makeFloor(db, trustedHotelScope(scope, hotelA.id), { level: 2, isActive: true })
+    await makeFloor(db, trustedHotelScope(scope, hotelA.id), { level: 3, isActive: false })
+    await makeFloor(db, trustedHotelScope(scope, hotelB.id), { level: 1, isActive: true })
+
+    const spy = vi.spyOn(HotelRepository.prototype, 'activeFloorCounts')
+    const ctx = makeCtx(scope, { permissions: ['hotel.view', 'room.view'], allHotels: true })
+
+    const result = await listHotels(ctx)
+
+    expect(spy).toHaveBeenCalledTimes(1)
+
+    const byCode = new Map(result.map(h => [h.code, h.floorCount]))
+    expect(byCode.get('FA')).toBe(2)
+    expect(byCode.get('FB')).toBe(1)
+    expect(byCode.get('FC')).toBe(0)
+  })
+
+  it('never calls activeFloorCounts at all when the caller lacks room.view', async () => {
+    const { scope } = await makeOrg(db)
+    await makeHotel(db, scope)
+
+    const spy = vi.spyOn(HotelRepository.prototype, 'activeFloorCounts')
+    const ctx = makeCtx(scope, { permissions: ['hotel.view'], allHotels: true })
+
+    const result = await listHotels(ctx)
+
+    expect(spy).not.toHaveBeenCalled()
+    expect(result.every(h => h.floorCount === null)).toBe(true)
   })
 })

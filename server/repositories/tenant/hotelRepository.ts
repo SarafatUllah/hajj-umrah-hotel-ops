@@ -1,6 +1,6 @@
-import { eq, inArray } from 'drizzle-orm'
+import { and, count, eq, inArray } from 'drizzle-orm'
 import type { DbOrTx } from '../../../db/client'
-import { hotel } from '../../../db/schema'
+import { floor, hotel } from '../../../db/schema'
 import type { OrganizationScope } from '../../security/scope'
 import { OrgQuery } from '../base/scopedQuery'
 
@@ -12,7 +12,7 @@ export type HotelPatch = Partial<Omit<typeof hotel.$inferInsert, 'id' | 'organiz
 export class HotelRepository {
   private readonly q: OrgQuery
 
-  constructor(db: DbOrTx, scope: OrganizationScope) {
+  constructor(private readonly db: DbOrTx, private readonly scope: OrganizationScope) {
     this.q = new OrgQuery(db, scope)
   }
 
@@ -46,5 +46,22 @@ export class HotelRepository {
 
   async setStatus(id: string, status: string): Promise<void> {
     await this.q.update(hotel, { status }, eq(hotel.id, id))
+  }
+
+  /**
+   * PF-13: active-floor counts for every id in `hotelIds`, grouped in ONE query (not one per hotel) —
+   * lives here rather than on `FloorRepository` because it must aggregate across multiple hotels for
+   * the `GET /api/hotels` list endpoint, which `FloorRepository`'s single-`HotelScope` construction
+   * cannot express. A hotel with zero active floors (or one this scope's organization does not own)
+   * is simply absent from the returned map — callers default to 0, never throw.
+   */
+  async activeFloorCounts(hotelIds: readonly string[]): Promise<Map<string, number>> {
+    if (hotelIds.length === 0) return new Map()
+    const rows = await this.db
+      .select({ hotelId: floor.hotelId, value: count() })
+      .from(floor)
+      .where(and(eq(floor.organizationId, this.scope.organizationId), inArray(floor.hotelId, hotelIds as string[]), eq(floor.isActive, true)))
+      .groupBy(floor.hotelId)
+    return new Map(rows.map(r => [r.hotelId, Number(r.value)]))
   }
 }

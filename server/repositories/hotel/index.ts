@@ -2,3 +2,4 @@
 // have a case for each of its methods in tests/integration/security/repositoryRegistry.ts (enforced
 // by a coverage test, which walks this barrel the same way it walks server/repositories/tenant).
 export * from './hotelSettingRepository'
+export * from './floorRepository'

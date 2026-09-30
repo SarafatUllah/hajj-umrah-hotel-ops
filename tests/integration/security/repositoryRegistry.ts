@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm'
-import { appUser, auditLog, hotel, hotelSetting, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
+import { appUser, auditLog, floor, hotel, hotelSetting, roomType, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
 import type { DbOrTx } from '../../../db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
-import { AuditRepository, HotelRepository, RoleNotInScopeError, RoleRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
-import { HotelSettingRepository } from '../../../server/repositories/hotel'
-import { ensurePermissions, makeHotel, makeRole, makeUser, makeUserWithPermissions } from '../../support/fixtures'
+import { AuditRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
+import { FloorRepository, HotelSettingRepository } from '../../../server/repositories/hotel'
+import { ensurePermissions, makeFloor, makeHotel, makeRole, makeRoomType, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
 /**
  * Behavioral tenant-isolation registry: one entry per `ClassName.method` of every scoped repository.
@@ -306,6 +306,143 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: async (db, scope, ids) => {
       const own = await new TenantOrganizationRepository(db, scope).getOwn()
       return own.id === ids.orgAId ? [own.id] : []
+    },
+    expect: 'empty',
+  }),
+
+  // Task 13: PF-13's batched floor-count method — org-scoped, org B's scope must never see org A's
+  // hotel's counts even when org B's caller holds the leaked hotelId. Map -> array (via entries()) so
+  // the shared 'empty' expectation (array-length based) applies the same way it does everywhere else.
+  'HotelRepository.activeFloorCounts': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      await makeFloor(db, trustedHotelScope(orgA, hotelRow.id), { isActive: true })
+      return { hotelId: hotelRow.id }
+    },
+    act: async (db, scope, ids) => [...(await new HotelRepository(db, scope).activeFloorCounts([ids.hotelId])).entries()],
+    expect: 'empty',
+  }),
+
+  // Hotel-scoped repository (same construction as HotelSettingRepository's cases above): the attack
+  // simulated is org B's caller holding org A's leaked hotelId.
+  'FloorRepository.insert': isolationCase({
+    arrange: async (db, orgA) => ({ hotelId: (await makeHotel(db, orgA)).id }),
+    act: async (db, scope, ids) => {
+      await new FloorRepository(db, trustedHotelScope(scope, ids.hotelId)).insert({ level: 1, label: 'Floor 1' })
+      return db.select().from(floor).where(eq(floor.hotelId, ids.hotelId))
+    },
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+    unchanged: async (db, ids) => assertNoRows(await db.select().from(floor).where(eq(floor.hotelId, ids.hotelId)), 'floor of org A\'s hotel'),
+  }),
+  'FloorRepository.insertMany': isolationCase({
+    arrange: async (db, orgA) => ({ hotelId: (await makeHotel(db, orgA)).id }),
+    act: async (db, scope, ids) => {
+      await new FloorRepository(db, trustedHotelScope(scope, ids.hotelId)).insertMany([{ level: 1, label: 'Floor 1' }, { level: 2, label: 'Floor 2' }])
+      return db.select().from(floor).where(eq(floor.hotelId, ids.hotelId))
+    },
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+    unchanged: async (db, ids) => assertNoRows(await db.select().from(floor).where(eq(floor.hotelId, ids.hotelId)), 'floor of org A\'s hotel'),
+  }),
+  'FloorRepository.findById': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      return { hotelId: hotelRow.id, floorId: floorRow.id }
+    },
+    act: (db, scope, ids) => new FloorRepository(db, trustedHotelScope(scope, ids.hotelId)).findById(ids.floorId),
+    expect: 'null',
+  }),
+  'FloorRepository.findByLevel': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id), { level: 3 })
+      return { hotelId: hotelRow.id, level: floorRow.level }
+    },
+    act: (db, scope, ids) => new FloorRepository(db, trustedHotelScope(scope, ids.hotelId)).findByLevel(ids.level),
+    expect: 'null',
+  }),
+  'FloorRepository.list': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      return { hotelId: hotelRow.id }
+    },
+    act: (db, scope, ids) => new FloorRepository(db, trustedHotelScope(scope, ids.hotelId)).list({ includeInactive: true }),
+    expect: 'empty',
+  }),
+  'FloorRepository.update': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      return { hotelId: hotelRow.id, floorId: floorRow.id }
+    },
+    act: async (db, scope, ids) => {
+      await new FloorRepository(db, trustedHotelScope(scope, ids.hotelId)).update(ids.floorId, { label: 'Hacked' })
+      return db.select().from(floor).where(and(eq(floor.id, ids.floorId), eq(floor.label, 'Hacked')))
+    },
+    expect: 'empty',
+  }),
+  'FloorRepository.setActive': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id), { isActive: true })
+      return { hotelId: hotelRow.id, floorId: floorRow.id }
+    },
+    act: async (db, scope, ids) => {
+      await new FloorRepository(db, trustedHotelScope(scope, ids.hotelId)).setActive(ids.floorId, false)
+      return db.select().from(floor).where(and(eq(floor.id, ids.floorId), eq(floor.isActive, false)))
+    },
+    expect: 'empty',
+  }),
+  'FloorRepository.countByHotel': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      return { hotelId: hotelRow.id }
+    },
+    act: (db, scope, ids) => new FloorRepository(db, trustedHotelScope(scope, ids.hotelId)).countByHotel(true),
+    expect: 'zero-affected',
+  }),
+
+  // Organization-scoped repository (same construction as HotelRepository's cases above).
+  'RoomTypeRepository.insert': isolationCase({
+    arrange: async (_db, orgA) => ({ orgAId: orgA.organizationId }),
+    act: async (db, scope, ids) => {
+      await new RoomTypeRepository(db, scope).insert({ organizationId: ids.orgAId, code: 'PLANTED', name: 'Planted', defaultPhysicalBeds: 4, defaultSellableCapacity: 4 } as never)
+      return db.select().from(roomType).where(and(eq(roomType.organizationId, ids.orgAId), eq(roomType.code, 'PLANTED')))
+    },
+    expect: 'empty',
+  }),
+  'RoomTypeRepository.findById': isolationCase({
+    arrange: async (db, orgA) => ({ roomTypeId: (await makeRoomType(db, orgA)).id }),
+    act: (db, scope, ids) => new RoomTypeRepository(db, scope).findById(ids.roomTypeId),
+    expect: 'null',
+  }),
+  'RoomTypeRepository.findByCode': isolationCase({
+    arrange: async (db, orgA) => ({ code: (await makeRoomType(db, orgA)).code }),
+    act: (db, scope, ids) => new RoomTypeRepository(db, scope).findByCode(ids.code),
+    expect: 'null',
+  }),
+  'RoomTypeRepository.list': isolationCase({
+    arrange: async (db, orgA) => { await makeRoomType(db, orgA); return {} },
+    act: (db, scope) => new RoomTypeRepository(db, scope).list({ includeInactive: true }),
+    expect: 'empty',
+  }),
+  'RoomTypeRepository.update': isolationCase({
+    arrange: async (db, orgA) => ({ roomTypeId: (await makeRoomType(db, orgA)).id }),
+    act: async (db, scope, ids) => {
+      await new RoomTypeRepository(db, scope).update(ids.roomTypeId, { name: 'Hacked' })
+      return db.select().from(roomType).where(and(eq(roomType.id, ids.roomTypeId), eq(roomType.name, 'Hacked')))
+    },
+    expect: 'empty',
+  }),
+  'RoomTypeRepository.setActive': isolationCase({
+    arrange: async (db, orgA) => ({ roomTypeId: (await makeRoomType(db, orgA)).id }),
+    act: async (db, scope, ids) => {
+      await new RoomTypeRepository(db, scope).setActive(ids.roomTypeId, false)
+      return db.select().from(roomType).where(and(eq(roomType.id, ids.roomTypeId), eq(roomType.isActive, false)))
     },
     expect: 'empty',
   }),

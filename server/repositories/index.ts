@@ -1,9 +1,9 @@
 import type { DbOrTx } from '../../db/client'
 import type { HotelScope, OrganizationScope } from '../security/scope'
-import { HotelSettingRepository } from './hotel'
+import { FloorRepository, HotelSettingRepository } from './hotel'
 import { PlatformOrganizationRepository } from './platform/organizationRepository'
 import { PlatformPermissionCatalogRepository } from './platform/permissionCatalogRepository'
-import { AuditRepository, HotelRepository, RoleRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from './tenant'
+import { AuditRepository, HotelRepository, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from './tenant'
 
 export type * from './tenant'
 export type * from './hotel'
@@ -40,6 +40,7 @@ export function tenantRepos(db: DbOrTx, scope: OrganizationScope) {
     hotels: () => new HotelRepository(db, scope),
     userHotelAccess: () => new UserHotelAccessRepository(db, scope),
     organization: () => new TenantOrganizationRepository(db, scope),
+    roomTypes: () => new RoomTypeRepository(db, scope),
   })
 }
 
@@ -47,6 +48,7 @@ export function tenantRepos(db: DbOrTx, scope: OrganizationScope) {
 export function hotelRepos(db: DbOrTx, scope: HotelScope) {
   return lazy({
     settings: () => new HotelSettingRepository(db, scope),
+    floors: () => new FloorRepository(db, scope),
   })
 }
 

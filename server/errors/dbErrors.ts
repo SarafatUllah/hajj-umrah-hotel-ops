@@ -58,6 +58,9 @@ export const CONSTRAINT_MESSAGES: Record<string, { kind: 'conflict' | 'validatio
   // ALREADY_EXISTS (Task 12 ruling PF-13-adjacent) rather than a bespoke HOTEL_CODE_TAKEN, so every
   // later aggregate's duplicate-key conflict reads the same machine code; the message stays specific.
   hotel_org_code_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'A hotel with this code already exists' },
+  // Task 13: same rule — the constraint's SQLSTATE is 23505 (unique_violation), so kind must be 'conflict'.
+  floor_hotel_level_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'A floor with this level already exists in this hotel' },
+  room_type_org_code_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'A room type with this code already exists' },
 }
 
 /** Generic mapping by SQLSTATE, applied before the per-constraint registry above. */

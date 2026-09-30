@@ -13,16 +13,32 @@ import { toHotelDetail, toHotelSummary, type HotelDetail, type HotelDtoExtras, t
 
 /**
  * `today` is always computed from the hotel's own timezone and the injected clock — never the
- * server/browser's local date. `floorCount`/`roomCount` are wired in Tasks 13/14; until then — and
- * always when the caller lacks `room.view` — both stay `null` (PF-13). The permission is evaluated
- * here now (even though it does not yet change the result) so the later tasks only have to swap the
- * `null` branch for a real count, never retrofit the gate itself.
+ * server/browser's local date.
+ *
+ * `floorCount` (PF-13, Task 13): the number of ACTIVE floors, only populated when the caller has
+ * `room.view` — otherwise `null`. `floorCounts` is a precomputed map (built by the caller via ONE
+ * batched `HotelRepository.activeFloorCounts` call for the whole result set — see `computeFloorCounts`
+ * below) so this function itself never issues a query; `undefined` means "not computed for this call
+ * site" (createHotel/updateHotel/activateHotel/deactivateHotel, which are out of Task 13's wiring
+ * scope — only `GET /api/hotels` and `GET /api/hotels/:hotelId` wire real counts) and always yields
+ * `null`, regardless of `room.view`.
+ *
+ * `roomCount` stays `null` until Task 14.
  */
-function hotelExtras(ctx: AuthContext, hotel: HotelRow): HotelDtoExtras {
+function hotelExtras(ctx: AuthContext, hotel: HotelRow, floorCounts?: ReadonlyMap<string, number>): HotelDtoExtras {
   const canViewRooms = orgCan(ctx.authz, 'room.view')
-  const floorCount = canViewRooms ? null : null
-  const roomCount = canViewRooms ? null : null
+  const floorCount = canViewRooms && floorCounts ? (floorCounts.get(hotel.id) ?? 0) : null
+  const roomCount = null
   return { today: todayInTimezone(hotel.timezone, ctx.now()), floorCount, roomCount }
+}
+
+/**
+ * Builds the batched floor-count map for `hotelIds` in ONE query (`HotelRepository.activeFloorCounts`)
+ * — skipped entirely (no query at all) when the caller lacks `room.view` or the id list is empty.
+ */
+async function computeFloorCounts(ctx: AuthContext, hotelIds: readonly string[]): Promise<ReadonlyMap<string, number> | undefined> {
+  if (!orgCan(ctx.authz, 'room.view') || hotelIds.length === 0) return undefined
+  return tenantRepos(ctx.db, ctx.scope).hotels.activeFloorCounts(hotelIds)
 }
 
 function byName(a: HotelSummary, b: HotelSummary): number {
@@ -35,15 +51,20 @@ export async function listHotels(ctx: AuthContext): Promise<HotelSummary[]> {
   requireOrgPermission(ctx, 'hotel.view')
 
   const all = await tenantRepos(ctx.db, ctx.scope).hotels.listAll()
-  return all
-    .filter(hotel => hasHotelAccess(ctx.authz, hotel.id))
-    .map(hotel => toHotelSummary(hotel, hotelExtras(ctx, hotel)))
+  const accessible = all.filter(hotel => hasHotelAccess(ctx.authz, hotel.id))
+
+  // ONE batched query for the whole list's floor counts (never one per hotel) — see computeFloorCounts.
+  const floorCounts = await computeFloorCounts(ctx, accessible.map(hotel => hotel.id))
+
+  return accessible
+    .map(hotel => toHotelSummary(hotel, hotelExtras(ctx, hotel, floorCounts)))
     .sort(byName)
 }
 
 export async function getHotel(ctx: AuthContext, hotelId: string): Promise<HotelDetail> {
   const { hotel } = await authorizeHotel(ctx, 'hotel.view', hotelId, { allowInactive: true })
-  return toHotelDetail(hotel, hotelExtras(ctx, hotel))
+  const floorCounts = await computeFloorCounts(ctx, [hotel.id])
+  return toHotelDetail(hotel, hotelExtras(ctx, hotel, floorCounts))
 }
 
 export async function createHotel(ctx: AuthContext, input: CreateHotelInput): Promise<HotelDetail> {

@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type { DbOrTx } from '../../db/client'
-import { platformRepos, tenantRepos } from '../../server/repositories'
+import { hotelRepos, platformRepos, tenantRepos } from '../../server/repositories'
+import type { FloorRow, NewFloor } from '../../server/repositories/hotel'
 import type { NewOrganization, OrganizationRow } from '../../server/repositories/platform/organizationRepository'
-import type { HotelRow, NewHotel, NewUser, RoleRow, UserRow } from '../../server/repositories/tenant'
-import { trustedOrganizationScope, type OrganizationScope } from '../../server/security/scope'
+import type { HotelRow, NewHotel, NewRoomType, NewUser, RoleRow, RoomTypeRow, UserRow } from '../../server/repositories/tenant'
+import { trustedOrganizationScope, type HotelScope, type OrganizationScope } from '../../server/security/scope'
 
 /**
  * Test fixtures, created through the same repositories production code uses (extended by later
@@ -35,6 +36,28 @@ export async function makeUser(db: DbOrTx, scope: OrganizationScope, options: Ma
 export async function makeHotel(db: DbOrTx, scope: OrganizationScope, overrides: Partial<NewHotel> = {}): Promise<HotelRow> {
   const n = next()
   return tenantRepos(db, scope).hotels.insert({ code: `HTL-${n}`, name: `Hotel ${n}`, city: 'Makkah', ...overrides })
+}
+
+/**
+ * Caller mints the `HotelScope` itself (e.g. `trustedHotelScope(orgScope, hotel.id)`), matching the
+ * existing `HotelSettingRepository` fixture pattern. Default `level` cycles through -5..184 (bounded,
+ * so it always satisfies the -5..200 check constraint even after many fixture calls in one test file).
+ */
+export async function makeFloor(db: DbOrTx, hotelScope: HotelScope, overrides: Partial<NewFloor> = {}): Promise<FloorRow> {
+  const n = sequence++
+  const level = overrides.level ?? (n % 190) - 5
+  return hotelRepos(db, hotelScope).floors.insert({ level, label: `Floor ${level}`, ...overrides })
+}
+
+export async function makeRoomType(db: DbOrTx, scope: OrganizationScope, overrides: Partial<NewRoomType> = {}): Promise<RoomTypeRow> {
+  const n = next()
+  return tenantRepos(db, scope).roomTypes.insert({
+    code: `RT-${n.replace(/-/g, '').slice(0, 15).toUpperCase()}`,
+    name: `Room Type ${n}`,
+    defaultPhysicalBeds: 4,
+    defaultSellableCapacity: 4,
+    ...overrides,
+  })
 }
 
 /** Adds the permission keys missing from the global catalog (existing descriptions are left alone). */

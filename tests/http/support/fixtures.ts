@@ -8,7 +8,7 @@ import { hashPassword } from '../../../server/utils/password'
 import { DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, DEMO_ORG_SLUG, seedDemoOrganization } from '../../../db/seed/demo-org'
 import { seedOrganizationRoles, seedPermissionCatalog } from '../../../db/seed/rbac'
 import { closeTestDb, getTestDb, truncateAllTables } from '../../integration/support/testDb'
-import { ensurePermissions, makeHotel, makeOrg, makeRole, makeUser, makeUserWithPermissions, type MakeUserOptions } from '../../support/fixtures'
+import { ensurePermissions, makeHotel, makeOrg, makeRole, makeRoomType, makeUser, makeUserWithPermissions, type MakeUserOptions } from '../../support/fixtures'
 
 /**
  * HTTP-suite test data, built through the same repositories/seed modules the rest of the codebase
@@ -27,6 +27,7 @@ export {
   makeHotel,
   makeOrg,
   makeRole,
+  makeRoomType,
   makeUser,
   makeUserWithPermissions,
   seedDemoOrganization,

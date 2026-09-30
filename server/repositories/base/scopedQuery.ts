@@ -76,6 +76,11 @@ export class HotelQuery {
     return this.db.insert(table).values({ ...values, organizationId: this.scope.organizationId, hotelId: this.scope.hotelId } as InsertOf<T>)
   }
 
+  /** Multi-row insert: the scope organization AND hotel are mapped onto every row, so no row can carry a caller-supplied one. */
+  insertMany<T extends HotelTable>(table: T, valuesList: ReadonlyArray<Omit<InsertOf<T>, 'organizationId' | 'hotelId'>>) {
+    return this.db.insert(table).values(valuesList.map(values => ({ ...values, organizationId: this.scope.organizationId, hotelId: this.scope.hotelId } as InsertOf<T>)))
+  }
+
   update<T extends HotelTable>(table: T, set: Partial<Omit<InsertOf<T>, 'organizationId' | 'hotelId' | 'id'>>, ...extra: Array<SQL | undefined>) {
     // The scope's values are applied last, so even a cast-away `set` cannot move a row to another organization or hotel.
     return this.db.update(table).set({ ...set, organizationId: this.scope.organizationId, hotelId: this.scope.hotelId } as never).where(this.cond(table, ...extra))

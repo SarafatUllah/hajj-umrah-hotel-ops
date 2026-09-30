@@ -4,9 +4,11 @@ import type { HotelRow } from '../repositories/tenant'
 
 /**
  * `HotelSummary` — the hotel switcher's data (also every item of `GET /api/hotels`).
- * `floorCount`/`roomCount` are `null` in this task (Task 13/14 fill them in) and are also `null`
- * whenever the caller lacks `room.view` (PF-13) — the service computes both via `hotelExtras` and
- * hands them in already resolved, so this mapper never has to know about permissions itself.
+ * `floorCount` (Task 13) is the number of ACTIVE floors for `GET /api/hotels` and
+ * `GET /api/hotels/:hotelId`, computed via one batched `HotelRepository.activeFloorCounts` call;
+ * `roomCount` stays `null` until Task 14. Both are `null` whenever the caller lacks `room.view`
+ * (PF-13) — the service computes both via `hotelExtras` and hands them in already resolved, so this
+ * mapper never has to know about permissions itself.
  */
 export interface HotelSummary {
   id: string
