@@ -23,12 +23,13 @@ import { toHotelDetail, toHotelSummary, type HotelDetail, type HotelDtoExtras, t
  * scope — only `GET /api/hotels` and `GET /api/hotels/:hotelId` wire real counts) and always yields
  * `null`, regardless of `room.view`.
  *
- * `roomCount` stays `null` until Task 14.
+ * `roomCount` (Task 14): rooms in inventory on the hotel's own today, same `room.view` gating and the
+ * same "`undefined` map -> `null`, regardless of permission" convention as `floorCount` above.
  */
-function hotelExtras(ctx: AuthContext, hotel: HotelRow, floorCounts?: ReadonlyMap<string, number>): HotelDtoExtras {
+function hotelExtras(ctx: AuthContext, hotel: HotelRow, floorCounts?: ReadonlyMap<string, number>, roomCounts?: ReadonlyMap<string, number>): HotelDtoExtras {
   const canViewRooms = orgCan(ctx.authz, 'room.view')
   const floorCount = canViewRooms && floorCounts ? (floorCounts.get(hotel.id) ?? 0) : null
-  const roomCount = null
+  const roomCount = canViewRooms && roomCounts ? (roomCounts.get(hotel.id) ?? 0) : null
   return { today: todayInTimezone(hotel.timezone, ctx.now()), floorCount, roomCount }
 }
 
@@ -39,6 +40,19 @@ function hotelExtras(ctx: AuthContext, hotel: HotelRow, floorCounts?: ReadonlyMa
 async function computeFloorCounts(ctx: AuthContext, hotelIds: readonly string[]): Promise<ReadonlyMap<string, number> | undefined> {
   if (!orgCan(ctx.authz, 'room.view') || hotelIds.length === 0) return undefined
   return tenantRepos(ctx.db, ctx.scope).hotels.activeFloorCounts(hotelIds)
+}
+
+/**
+ * Task 14: builds the batched room-count map for `hotels` in ONE query (`HotelRepository.roomCounts`)
+ * — skipped entirely when the caller lacks `room.view` or the list is empty. Takes full `HotelRow`s
+ * (not just ids), because each hotel's own local "today" (its own IANA timezone) must be computed
+ * before the query runs — a single shared `asOf` would be wrong for any hotel whose local date has
+ * already rolled over relative to another hotel's.
+ */
+async function computeRoomCounts(ctx: AuthContext, hotels: readonly HotelRow[]): Promise<ReadonlyMap<string, number> | undefined> {
+  if (!orgCan(ctx.authz, 'room.view') || hotels.length === 0) return undefined
+  const hotelTodays = hotels.map(h => ({ hotelId: h.id, asOf: todayInTimezone(h.timezone, ctx.now()) }))
+  return tenantRepos(ctx.db, ctx.scope).hotels.roomCounts(hotelTodays)
 }
 
 function byName(a: HotelSummary, b: HotelSummary): number {
@@ -53,18 +67,21 @@ export async function listHotels(ctx: AuthContext): Promise<HotelSummary[]> {
   const all = await tenantRepos(ctx.db, ctx.scope).hotels.listAll()
   const accessible = all.filter(hotel => hasHotelAccess(ctx.authz, hotel.id))
 
-  // ONE batched query for the whole list's floor counts (never one per hotel) — see computeFloorCounts.
+  // ONE batched query for the whole list's floor counts, and ONE more for room counts (never one
+  // per hotel either way) — see computeFloorCounts / computeRoomCounts.
   const floorCounts = await computeFloorCounts(ctx, accessible.map(hotel => hotel.id))
+  const roomCounts = await computeRoomCounts(ctx, accessible)
 
   return accessible
-    .map(hotel => toHotelSummary(hotel, hotelExtras(ctx, hotel, floorCounts)))
+    .map(hotel => toHotelSummary(hotel, hotelExtras(ctx, hotel, floorCounts, roomCounts)))
     .sort(byName)
 }
 
 export async function getHotel(ctx: AuthContext, hotelId: string): Promise<HotelDetail> {
   const { hotel } = await authorizeHotel(ctx, 'hotel.view', hotelId, { allowInactive: true })
   const floorCounts = await computeFloorCounts(ctx, [hotel.id])
-  return toHotelDetail(hotel, hotelExtras(ctx, hotel, floorCounts))
+  const roomCounts = await computeRoomCounts(ctx, [hotel])
+  return toHotelDetail(hotel, hotelExtras(ctx, hotel, floorCounts, roomCounts))
 }
 
 export async function createHotel(ctx: AuthContext, input: CreateHotelInput): Promise<HotelDetail> {

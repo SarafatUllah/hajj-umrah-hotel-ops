@@ -5,7 +5,7 @@ import type { Database } from '../../../db/client'
 import { ForbiddenError, NotFoundError } from '../../../server/errors/domainError'
 import { AuditRepository, RoomTypeRepository } from '../../../server/repositories/tenant'
 import type { AuthContext } from '../../../server/security/authContext'
-import type { OrganizationScope } from '../../../server/security/scope'
+import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import type { Permission } from '../../../shared/constants/permissions'
 import {
   activateRoomType,
@@ -14,7 +14,7 @@ import {
   listRoomTypes,
   updateRoomType,
 } from '../../../server/services/roomTypeService'
-import { makeOrg, makeRoomType, makeUser } from '../../support/fixtures'
+import { makeFloor, makeHotel, makeOrg, makeRoomType, makeRoomWithVersion, makeUser } from '../../support/fixtures'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
 const db = getTestDb()
@@ -195,6 +195,89 @@ describe('createRoomType — validation boundaries surfaced at the service (real
     const { scope } = await makeOrg(db)
     await expect(new RoomTypeRepository(db, scope).insert({ code: 'BAD-01', name: 'Bad', defaultPhysicalBeds: 0, defaultSellableCapacity: 4 })).rejects.toBeDefined()
     await expect(new RoomTypeRepository(db, scope).insert({ code: 'BAD-02', name: 'Bad', defaultPhysicalBeds: 31, defaultSellableCapacity: 4 })).rejects.toBeDefined()
+  })
+})
+
+describe('listRoomTypes — usageCount (Task 14)', () => {
+  it('is null for a hotel-scoped (non-allHotels) caller, even one with rooms in inventory', async () => {
+    const { scope } = await makeOrg(db)
+    const target = await makeHotel(db, scope)
+    const floorRow = await makeFloor(db, trustedHotelScope(scope, target.id))
+    const roomTypeRow = await makeRoomType(db, scope)
+    await makeRoomWithVersion(db, trustedHotelScope(scope, target.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2020-01-01', validTo: null })
+
+    const ctx = makeCtx(scope, { permissions: ['room.view'], allHotels: false, hotelIds: [target.id] })
+    const items = await listRoomTypes(ctx, {})
+    expect(items.find(i => i.id === roomTypeRow.id)?.usageCount).toBeNull()
+  })
+
+  it('counts rooms in inventory across the WHOLE organization for an allHotels caller, in ONE batched query', async () => {
+    const { scope } = await makeOrg(db)
+    const hotelA = await makeHotel(db, scope, { timezone: 'UTC' })
+    const hotelB = await makeHotel(db, scope, { timezone: 'UTC' })
+    const floorA = await makeFloor(db, trustedHotelScope(scope, hotelA.id))
+    const floorB = await makeFloor(db, trustedHotelScope(scope, hotelB.id))
+    const roomTypeRow = await makeRoomType(db, scope)
+    const otherType = await makeRoomType(db, scope)
+
+    await makeRoomWithVersion(db, trustedHotelScope(scope, hotelA.id), floorA.id, roomTypeRow.id, {}, { validFrom: '2020-01-01', validTo: null })
+    await makeRoomWithVersion(db, trustedHotelScope(scope, hotelB.id), floorB.id, roomTypeRow.id, {}, { validFrom: '2020-01-01', validTo: null })
+    // Retired long ago -> excluded from the count.
+    await makeRoomWithVersion(db, trustedHotelScope(scope, hotelA.id), floorA.id, roomTypeRow.id, {}, { validFrom: '2019-01-01', validTo: '2019-06-01' })
+    await makeRoomWithVersion(db, trustedHotelScope(scope, hotelA.id), floorA.id, otherType.id, {}, { validFrom: '2020-01-01', validTo: null })
+
+    const spy = vi.spyOn(RoomTypeRepository.prototype, 'usageCounts')
+    const ctx = makeCtx(scope, { permissions: ['room.view'], allHotels: true })
+
+    const items = await listRoomTypes(ctx, {})
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(items.find(i => i.id === roomTypeRow.id)?.usageCount).toBe(2)
+    expect(items.find(i => i.id === otherType.id)?.usageCount).toBe(1)
+  })
+
+  it('never calls usageCounts at all for a non-allHotels caller', async () => {
+    const { scope } = await makeOrg(db)
+    await makeRoomType(db, scope)
+
+    const spy = vi.spyOn(RoomTypeRepository.prototype, 'usageCounts')
+    const ctx = makeCtx(scope, { permissions: ['room.view'], allHotels: false, hotelIds: [] })
+
+    await listRoomTypes(ctx, {})
+    expect(spy).not.toHaveBeenCalled()
+  })
+
+  // Fix round 1 (Finding 2): usageCounts must reflect each hotel's OWN local "today", not a single
+  // org-wide UTC reference date -- otherwise a room whose base version starts "today" hotel-local is
+  // invisible in usageCount for the ~3-hour daily window where UTC's "today" is still "yesterday"
+  // relative to that hotel (guaranteed daily for this product's real Asia/Riyadh hotels).
+  it('reflects each hotel\'s own local "today", not a shared UTC reference date', async () => {
+    const { scope } = await makeOrg(db)
+    // Two hotels in DIFFERENT timezones so their "today" can differ for the same instant -- same
+    // extreme-timezone technique already used for HotelRepository.roomCounts in hotelService.test.ts.
+    const hotelA = await makeHotel(db, scope, { timezone: 'Pacific/Kiritimati' }) // UTC+14
+    const hotelB = await makeHotel(db, scope, { timezone: 'Pacific/Niue' }) // UTC-11
+    const floorA = await makeFloor(db, trustedHotelScope(scope, hotelA.id))
+    const floorB = await makeFloor(db, trustedHotelScope(scope, hotelB.id))
+    const roomTypeRow = await makeRoomType(db, scope)
+
+    // An instant where Kiritimati's calendar date (2027-05-02) is already one day ahead of Niue's
+    // (still 2027-05-01) -- and also one day ahead of a naive UTC "today" (also 2027-05-01).
+    const clock = () => new Date('2027-05-01T20:00:00Z')
+
+    // A base version starting on hotel A's local today (2027-05-02) -- "yesterday" in UTC. A UTC-
+    // reference-date bug would miss this room entirely.
+    await makeRoomWithVersion(db, trustedHotelScope(scope, hotelA.id), floorA.id, roomTypeRow.id, {}, { validFrom: '2027-05-02', validTo: null })
+    // A base version starting on hotel B's local today (2027-05-01) -- correctly counted either way,
+    // included to prove hotel A's inclusion isn't a fluke of counting everything indiscriminately.
+    await makeRoomWithVersion(db, trustedHotelScope(scope, hotelB.id), floorB.id, roomTypeRow.id, {}, { validFrom: '2027-05-01', validTo: null })
+
+    const ctx = makeCtx(scope, { permissions: ['room.view'], allHotels: true, now: clock })
+    const items = await listRoomTypes(ctx, {})
+
+    // Both rooms are in inventory on their OWN hotel's local today -> usageCount = 2. A UTC-anchored
+    // bug would report 1 (missing hotel A's room, whose base version hasn't "started" yet in UTC).
+    expect(items.find(i => i.id === roomTypeRow.id)?.usageCount).toBe(2)
   })
 })
 

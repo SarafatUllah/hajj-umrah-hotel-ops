@@ -29,6 +29,13 @@
       "when": 1790698229370,
       "tag": "0003_floors_room_types",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790779959185,
+      "tag": "0004_rooms_base_config",
+      "breakpoints": true
     }
   ]
 }

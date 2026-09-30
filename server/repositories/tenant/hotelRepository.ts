@@ -1,7 +1,8 @@
-import { and, count, eq, inArray } from 'drizzle-orm'
+import { and, count, eq, inArray, sql } from 'drizzle-orm'
 import type { DbOrTx } from '../../../db/client'
-import { floor, hotel } from '../../../db/schema'
+import { floor, hotel, room, roomBaseConfig } from '../../../db/schema'
 import type { OrganizationScope } from '../../security/scope'
+import type { IsoDate } from '../../../shared/utils/dates'
 import { OrgQuery } from '../base/scopedQuery'
 
 export type HotelRow = typeof hotel.$inferSelect
@@ -63,5 +64,29 @@ export class HotelRepository {
       .where(and(eq(floor.organizationId, this.scope.organizationId), inArray(floor.hotelId, hotelIds as string[]), eq(floor.isActive, true)))
       .groupBy(floor.hotelId)
     return new Map(rows.map(r => [r.hotelId, Number(r.value)]))
+  }
+
+  /**
+   * Task 14: rooms in inventory per hotel, ONE query for the whole `hotelTodays` list (not one per
+   * hotel) — despite each hotel needing its OWN local "today" (different hotels can be in different
+   * IANA timezones, so a single shared `asOf` would be wrong for at least one of them whenever two
+   * hotels' local dates diverge, e.g. near midnight). The per-hotel `asOf` values are joined in via a
+   * `VALUES` table and correlated against `room`/`room_base_config` in one statement, rather than
+   * grouping hotels by timezone and issuing one query per group. A hotel with zero rooms in inventory
+   * (or one this scope's organization does not own) is simply absent from the returned map.
+   */
+  async roomCounts(hotelTodays: ReadonlyArray<{ hotelId: string, asOf: IsoDate }>): Promise<Map<string, number>> {
+    if (hotelTodays.length === 0) return new Map()
+    const valuesSql = sql.join(hotelTodays.map(h => sql`(${h.hotelId}::uuid, ${h.asOf}::date)`), sql`, `)
+    const rows = await this.db.execute<{ hotel_id: string, value: number }>(sql`
+      SELECT v.hotel_id AS hotel_id, count(*)::int AS value
+      FROM (VALUES ${valuesSql}) AS v(hotel_id, as_of)
+      JOIN ${room} ON ${room.hotelId} = v.hotel_id AND ${room.organizationId} = ${this.scope.organizationId}
+      JOIN ${roomBaseConfig} ON ${roomBaseConfig.roomId} = ${room.id}
+        AND ${roomBaseConfig.validFrom} <= v.as_of
+        AND (${roomBaseConfig.validTo} IS NULL OR ${roomBaseConfig.validTo} >= v.as_of)
+      GROUP BY v.hotel_id
+    `)
+    return new Map([...rows].map(r => [r.hotel_id, Number(r.value)]))
   }
 }

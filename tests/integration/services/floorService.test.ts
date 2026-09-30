@@ -4,6 +4,7 @@ import { auditLog, floor } from '../../../db/schema'
 import type { Database } from '../../../db/client'
 import { ForbiddenError, NotFoundError } from '../../../server/errors/domainError'
 import { AuditRepository } from '../../../server/repositories/tenant'
+import { RoomRepository } from '../../../server/repositories/hotel'
 import type { AuthContext } from '../../../server/security/authContext'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import type { Permission } from '../../../shared/constants/permissions'
@@ -15,7 +16,7 @@ import {
   listFloors,
   updateFloor,
 } from '../../../server/services/floorService'
-import { makeFloor, makeHotel, makeOrg, makeUser } from '../../support/fixtures'
+import { makeFloor, makeHotel, makeOrg, makeRoomType, makeRoomWithVersion, makeUser } from '../../support/fixtures'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
 const db = getTestDb()
@@ -309,5 +310,82 @@ describe('listFloors', () => {
 
     const all = await listFloors(ctx, target.id, { includeInactive: true })
     expect(all.map(f => f.level).sort((a, b) => a - b)).toEqual([1, 2])
+  })
+})
+
+describe('listFloors — roomCount is batched (N+1-free)', () => {
+  it('counts rooms in inventory on the hotel\'s own today, per floor, in ONE call to countInInventoryByFloor', async () => {
+    const { scope } = await makeOrg(db)
+    const target = await makeHotel(db, scope, { timezone: 'UTC' })
+    const floorA = await makeFloor(db, trustedHotelScope(scope, target.id), { level: 1 })
+    const floorB = await makeFloor(db, trustedHotelScope(scope, target.id), { level: 2 })
+    const roomTypeRow = await makeRoomType(db, scope)
+    const hotelScope = trustedHotelScope(scope, target.id)
+
+    await makeRoomWithVersion(db, hotelScope, floorA.id, roomTypeRow.id, {}, { validFrom: '2020-01-01', validTo: null })
+    await makeRoomWithVersion(db, hotelScope, floorA.id, roomTypeRow.id, {}, { validFrom: '2020-01-01', validTo: null })
+    await makeRoomWithVersion(db, hotelScope, floorB.id, roomTypeRow.id, {}, { validFrom: '2019-01-01', validTo: '2019-06-01' }) // retired long ago
+
+    const spy = vi.spyOn(RoomRepository.prototype, 'countInInventoryByFloor')
+    const ctx = makeCtx(scope, { permissions: ['room.view'], hotelIds: [target.id] })
+
+    const result = await listFloors(ctx, target.id, {})
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    const byLevel = new Map(result.map(f => [f.level, f.roomCount]))
+    expect(byLevel.get(1)).toBe(2)
+    expect(byLevel.get(2)).toBe(0)
+  })
+})
+
+describe('deactivateFloor — floor-has-rooms guard (Task 14)', () => {
+  it('rejects 409 FLOOR_HAS_ROOMS when a room on the floor is open-ended in inventory', async () => {
+    const { scope } = await makeOrg(db)
+    const target = await makeHotel(db, scope, { timezone: 'UTC' })
+    const targetFloor = await makeFloor(db, trustedHotelScope(scope, target.id))
+    const roomTypeRow = await makeRoomType(db, scope)
+    await makeRoomWithVersion(db, trustedHotelScope(scope, target.id), targetFloor.id, roomTypeRow.id, {}, { validFrom: '2020-01-01', validTo: null })
+    const ctx = makeCtx(scope, { permissions: ['room.manage'], hotelIds: [target.id] })
+
+    await expect(deactivateFloor(ctx, target.id, targetFloor.id)).rejects.toMatchObject({ code: 'FLOOR_HAS_ROOMS', httpStatus: 409 })
+    const [unchanged] = await db.select().from(floor).where(eq(floor.id, targetFloor.id))
+    expect(unchanged!.isActive).toBe(true)
+  })
+
+  it('rejects 409 FLOOR_HAS_ROOMS when the room\'s latest version ends on/after today (even if not yet started)', async () => {
+    const { scope } = await makeOrg(db)
+    const clock = () => new Date('2027-05-01T12:00:00Z')
+    const target = await makeHotel(db, scope, { timezone: 'UTC' })
+    const targetFloor = await makeFloor(db, trustedHotelScope(scope, target.id))
+    const roomTypeRow = await makeRoomType(db, scope)
+    // Latest version ends AFTER today -> still blocks, even though it started before today too.
+    await makeRoomWithVersion(db, trustedHotelScope(scope, target.id), targetFloor.id, roomTypeRow.id, {}, { validFrom: '2027-01-01', validTo: '2027-06-01' })
+    const ctx = makeCtx(scope, { permissions: ['room.manage'], hotelIds: [target.id], now: clock })
+
+    await expect(deactivateFloor(ctx, target.id, targetFloor.id)).rejects.toMatchObject({ code: 'FLOOR_HAS_ROOMS', httpStatus: 409 })
+  })
+
+  it('allows deactivation once every room on the floor has a last night strictly before today', async () => {
+    const { scope } = await makeOrg(db)
+    const clock = () => new Date('2027-05-01T12:00:00Z')
+    const target = await makeHotel(db, scope, { timezone: 'UTC' })
+    const targetFloor = await makeFloor(db, trustedHotelScope(scope, target.id))
+    const roomTypeRow = await makeRoomType(db, scope)
+    // Last night (validTo) is YESTERDAY relative to the clock's today (2027-05-01) -> allowed.
+    await makeRoomWithVersion(db, trustedHotelScope(scope, target.id), targetFloor.id, roomTypeRow.id, {}, { validFrom: '2027-01-01', validTo: '2027-04-30' })
+    const ctx = makeCtx(scope, { permissions: ['room.manage'], hotelIds: [target.id], now: clock })
+
+    const deactivated = await deactivateFloor(ctx, target.id, targetFloor.id)
+    expect(deactivated.isActive).toBe(false)
+  })
+
+  it('a floor with no rooms at all deactivates normally', async () => {
+    const { scope } = await makeOrg(db)
+    const target = await makeHotel(db, scope)
+    const targetFloor = await makeFloor(db, trustedHotelScope(scope, target.id))
+    const ctx = makeCtx(scope, { permissions: ['room.manage'], hotelIds: [target.id] })
+
+    const deactivated = await deactivateFloor(ctx, target.id, targetFloor.id)
+    expect(deactivated.isActive).toBe(false)
   })
 })

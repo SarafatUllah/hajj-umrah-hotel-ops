@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DbOrTx } from '../../db/client'
 import { hotelRepos, platformRepos, tenantRepos } from '../../server/repositories'
-import type { FloorRow, NewFloor } from '../../server/repositories/hotel'
+import type { FloorRow, NewFloor, NewRoom, NewRoomBaseConfig, RoomBaseConfigRow, RoomRow } from '../../server/repositories/hotel'
 import type { NewOrganization, OrganizationRow } from '../../server/repositories/platform/organizationRepository'
 import type { HotelRow, NewHotel, NewRoomType, NewUser, RoleRow, RoomTypeRow, UserRow } from '../../server/repositories/tenant'
 import { trustedOrganizationScope, type HotelScope, type OrganizationScope } from '../../server/security/scope'
@@ -58,6 +58,39 @@ export async function makeRoomType(db: DbOrTx, scope: OrganizationScope, overrid
     defaultSellableCapacity: 4,
     ...overrides,
   })
+}
+
+/** Room number defaults to a fresh unique value per call (never colliding within a test's hotel). */
+export async function makeRoom(db: DbOrTx, hotelScope: HotelScope, floorId: string, roomTypeId: string, overrides: Partial<NewRoom> = {}): Promise<RoomRow> {
+  const n = sequence++
+  return hotelRepos(db, hotelScope).rooms.insert({
+    floorId,
+    roomTypeId,
+    roomNumber: `R${n}`,
+    features: [],
+    notes: null,
+    ...overrides,
+  })
+}
+
+/** A room's initial (or any additional) base-config version — `origin` defaults to `'SEED'` (test data, not created through the create-room service). */
+export async function makeRoomBaseConfig(db: DbOrTx, hotelScope: HotelScope, roomId: string, overrides: Partial<NewRoomBaseConfig> = {}): Promise<RoomBaseConfigRow> {
+  return hotelRepos(db, hotelScope).roomBaseConfigs.insert({
+    roomId,
+    validFrom: '2025-01-01',
+    validTo: null,
+    physicalBeds: 4,
+    sellableCapacity: 4,
+    origin: 'SEED',
+    ...overrides,
+  })
+}
+
+/** A room WITH its initial base version in one call — the common case for tests that don't care about the two-step insert itself. */
+export async function makeRoomWithVersion(db: DbOrTx, hotelScope: HotelScope, floorId: string, roomTypeId: string, overrides: Partial<NewRoom> = {}, versionOverrides: Partial<NewRoomBaseConfig> = {}): Promise<{ room: RoomRow, baseVersion: RoomBaseConfigRow }> {
+  const room = await makeRoom(db, hotelScope, floorId, roomTypeId, overrides)
+  const baseVersion = await makeRoomBaseConfig(db, hotelScope, room.id, versionOverrides)
+  return { room, baseVersion }
 }
 
 /** Adds the permission keys missing from the global catalog (existing descriptions are left alone). */

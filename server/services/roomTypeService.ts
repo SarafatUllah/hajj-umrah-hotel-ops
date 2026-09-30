@@ -1,4 +1,5 @@
 import type { CreateRoomTypeInput, ListRoomTypesQuery, UpdateRoomTypeInput } from '../../shared/schemas/roomType'
+import { todayInTimezone } from '../../shared/utils/dates'
 import { translateDbError } from '../errors/dbErrors'
 import { ConflictError, NotFoundError } from '../errors/domainError'
 import { tenantRepos } from '../repositories'
@@ -8,9 +9,13 @@ import { requireAllHotels, requireOrgPermission } from '../security/authorize'
 import { recordAudit } from './audit'
 
 /**
- * `usageCount` is `null` in this task (Task 14 wires it) and stays `null` forever for a hotel-scoped
- * (non-`allHotels`) caller by design — they never learn organization-wide room usage of a catalog
- * entry. The shape is declared now so Task 14 only has to swap the `null` branch, never retrofit it.
+ * `usageCount` (Task 14): rooms in inventory across the ENTIRE organization for this room type, for
+ * an `allHotels` caller only — `null` forever for a hotel-scoped (non-`allHotels`) caller, a
+ * deliberate information-hiding rule (they must never learn organization-wide room usage of a
+ * catalog entry they can otherwise see). Only `listRoomTypes` wires the real map (`usageCounts`
+ * below); every other call site here (create/update/activate/deactivate) passes no map, which yields
+ * `null` regardless of the caller's `allHotels` bit — mirroring `floorCount`/`roomCount`'s
+ * "`undefined` map -> `null`" convention in `hotelService.ts`/`floorService.ts`.
  */
 export interface RoomTypeListItem {
   id: string
@@ -24,7 +29,7 @@ export interface RoomTypeListItem {
   usageCount: number | null
 }
 
-function toRoomTypeListItem(row: RoomTypeRow): RoomTypeListItem {
+function toRoomTypeListItem(row: RoomTypeRow, usageCounts?: ReadonlyMap<string, number>): RoomTypeListItem {
   return {
     id: row.id,
     code: row.code,
@@ -34,15 +39,37 @@ function toRoomTypeListItem(row: RoomTypeRow): RoomTypeListItem {
     description: row.description,
     sortOrder: row.sortOrder,
     isActive: row.isActive,
-    usageCount: null,
+    usageCount: usageCounts ? (usageCounts.get(row.id) ?? 0) : null,
   }
 }
 
-/** Reading the catalog is org-level and intentionally NOT gated by `allHotels` — a hotel-scoped user with `room.view` may list room types. */
+/**
+ * Reading the catalog is org-level and intentionally NOT gated by `allHotels` — a hotel-scoped user
+ * with `room.view` may list room types; only `usageCount` itself is further gated by `allHotels`
+ * (see the `RoomTypeListItem` docstring). `usageCounts` spans every hotel in the organization, each
+ * potentially in a different timezone (fix round 1: a single shared reference date, e.g. UTC, is
+ * WRONG for any hotel whose local date has already rolled over relative to another — this product's
+ * real hotels are all `Asia/Riyadh`, so a UTC reference date would be a day behind for ~3 hours every
+ * single day) — so each hotel's own local `today` (`todayInTimezone(hotel.timezone, ctx.now())`) is
+ * computed here and passed into `RoomTypeRepository.usageCounts`, mirroring exactly how
+ * `hotelService.ts`'s `computeRoomCounts` builds `HotelRepository.roomCounts`' per-hotel `asOf` list.
+ */
+async function computeUsageCounts(ctx: AuthContext): Promise<Map<string, number>> {
+  const repos = tenantRepos(ctx.db, ctx.scope)
+  const hotels = await repos.hotels.listAll()
+  const hotelTodays = hotels.map(h => ({ hotelId: h.id, asOf: todayInTimezone(h.timezone, ctx.now()) }))
+  return repos.roomTypes.usageCounts(hotelTodays)
+}
+
 export async function listRoomTypes(ctx: AuthContext, query: ListRoomTypesQuery): Promise<RoomTypeListItem[]> {
   requireOrgPermission(ctx, 'room.view')
   const rows = await tenantRepos(ctx.db, ctx.scope).roomTypes.list({ includeInactive: query.includeInactive })
-  return rows.map(toRoomTypeListItem)
+
+  // ONE batched query for the whole list's usage counts (never one per room type or per hotel) —
+  // skipped entirely for a non-allHotels caller, who must never learn this even indirectly via timing.
+  const usageCounts = ctx.authz.allHotels ? await computeUsageCounts(ctx) : undefined
+
+  return rows.map(row => toRoomTypeListItem(row, usageCounts))
 }
 
 export async function createRoomType(ctx: AuthContext, input: CreateRoomTypeInput): Promise<RoomTypeListItem> {

@@ -14,6 +14,11 @@ export type HotelStatus = typeof HOTEL_STATUSES[number]
 export const OWNERSHIP_TYPES = ['OWNED', 'LEASED', 'CONTRACTED'] as const
 export type OwnershipType = typeof OWNERSHIP_TYPES[number]
 export const BASE_CONFIG_ORIGINS = ['ROOM_TYPE_DEFAULT', 'MANUAL', 'BULK', 'SEED'] as const
+export type BaseConfigOrigin = typeof BASE_CONFIG_ORIGINS[number]
+
+/** Room feature tags (Task 14). */
+export const ROOM_FEATURES = ['ACCESSIBLE', 'CONNECTING', 'CITY_VIEW', 'HARAM_VIEW'] as const
+export type RoomFeature = typeof ROOM_FEATURES[number]
 
 /** Hard limits that bound every list/range endpoint (DoS guards). */
 export const MAX_CALENDAR_DAYS = 400

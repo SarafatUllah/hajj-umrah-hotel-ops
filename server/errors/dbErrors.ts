@@ -61,6 +61,16 @@ export const CONSTRAINT_MESSAGES: Record<string, { kind: 'conflict' | 'validatio
   // Task 13: same rule — the constraint's SQLSTATE is 23505 (unique_violation), so kind must be 'conflict'.
   floor_hotel_level_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'A floor with this level already exists in this hotel' },
   room_type_org_code_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'A room type with this code already exists' },
+  // Task 14: room numbers are unique per hotel for the room's entire lifetime (a retired room's
+  // number stays reserved), so this fires both on true duplicate-create races AND on reusing a
+  // retired room's number — both are the same generic ALREADY_EXISTS conflict.
+  room_hotel_number_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'A room with this number already exists in this hotel' },
+  // Task 14: exclusion_violation (23P01), not unique_violation — kind must be 'conflict' to agree
+  // with the SQLSTATE-derived generic kind for 23P01 (see SQLSTATE_MAP below), or translateDbError
+  // rejects this entry outright (Task 5 rule). Fires when a base-config version would overlap an
+  // existing one for the same room (the DB's exclusion constraint is the final arbiter against
+  // concurrent base changes).
+  room_base_config_no_overlap: { kind: 'conflict', code: 'RANGE_OVERLAP', message: 'This base-configuration change overlaps an existing version for this room' },
 }
 
 /** Generic mapping by SQLSTATE, applied before the per-constraint registry above. */

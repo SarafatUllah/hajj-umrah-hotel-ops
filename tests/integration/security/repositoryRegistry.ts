@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm'
-import { appUser, auditLog, floor, hotel, hotelSetting, roomType, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
+import { appUser, auditLog, floor, hotel, hotelSetting, room, roomBaseConfig, roomType, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
 import type { DbOrTx } from '../../../db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
-import { FloorRepository, HotelSettingRepository } from '../../../server/repositories/hotel'
-import { ensurePermissions, makeFloor, makeHotel, makeRole, makeRoomType, makeUser, makeUserWithPermissions } from '../../support/fixtures'
+import { FloorRepository, HotelSettingRepository, RoomBaseConfigRepository, RoomRepository } from '../../../server/repositories/hotel'
+import { ensurePermissions, makeFloor, makeHotel, makeRole, makeRoom, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
 /**
  * Behavioral tenant-isolation registry: one entry per `ClassName.method` of every scoped repository.
@@ -443,6 +443,241 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: async (db, scope, ids) => {
       await new RoomTypeRepository(db, scope).setActive(ids.roomTypeId, false)
       return db.select().from(roomType).where(and(eq(roomType.id, ids.roomTypeId), eq(roomType.isActive, false)))
+    },
+    expect: 'empty',
+  }),
+  // Task 14: org-wide, one grouped query across every hotel of the organization — org B's scope must
+  // never see org A's usage even when it holds the leaked hotel/room-type ids.
+  'RoomTypeRepository.usageCounts': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      return { hotelId: hotelRow.id, roomTypeId: roomTypeRow.id }
+    },
+    act: async (db, scope, ids) => [...(await new RoomTypeRepository(db, scope).usageCounts([{ hotelId: ids.hotelId, asOf: '2025-06-01' }])).entries()],
+    expect: 'empty',
+  }),
+
+  // Task 14: PF-13-style batched room-count method — org-scoped, spans every hotel of the org.
+  'HotelRepository.roomCounts': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      return { hotelId: hotelRow.id }
+    },
+    act: async (db, scope, ids) => [...(await new HotelRepository(db, scope).roomCounts([{ hotelId: ids.hotelId, asOf: '2025-06-01' }])).entries()],
+    expect: 'empty',
+  }),
+
+  // Hotel-scoped repository (same construction as FloorRepository's cases above): the attack
+  // simulated is org B's caller holding org A's leaked hotelId/floorId/roomTypeId.
+  'RoomRepository.insert': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      return { hotelId: hotelRow.id, floorId: floorRow.id, roomTypeId: roomTypeRow.id }
+    },
+    act: async (db, scope, ids) => {
+      await new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).insert({ floorId: ids.floorId, roomTypeId: ids.roomTypeId, roomNumber: 'PLANTED-1', features: [], notes: null })
+      return db.select().from(room).where(eq(room.hotelId, ids.hotelId))
+    },
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+    unchanged: async (db, ids) => assertNoRows(await db.select().from(room).where(eq(room.hotelId, ids.hotelId)), 'room of org A\'s hotel'),
+  }),
+  'RoomRepository.insertMany': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      return { hotelId: hotelRow.id, floorId: floorRow.id, roomTypeId: roomTypeRow.id }
+    },
+    act: async (db, scope, ids) => {
+      await new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).insertMany([
+        { floorId: ids.floorId, roomTypeId: ids.roomTypeId, roomNumber: 'PLANTED-1', features: [], notes: null },
+        { floorId: ids.floorId, roomTypeId: ids.roomTypeId, roomNumber: 'PLANTED-2', features: [], notes: null },
+      ])
+      return db.select().from(room).where(eq(room.hotelId, ids.hotelId))
+    },
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+    unchanged: async (db, ids) => assertNoRows(await db.select().from(room).where(eq(room.hotelId, ids.hotelId)), 'room of org A\'s hotel'),
+  }),
+  'RoomRepository.findById': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const roomRow = await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).findById(ids.roomId),
+    expect: 'null',
+  }),
+  'RoomRepository.findByNumber': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const roomRow = await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, { roomNumber: '777' })
+      return { hotelId: hotelRow.id, roomNumber: roomRow.roomNumber }
+    },
+    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).findByNumber(ids.roomNumber),
+    expect: 'null',
+  }),
+  'RoomRepository.findByNumbers': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const roomRow = await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, { roomNumber: '778' })
+      return { hotelId: hotelRow.id, roomNumber: roomRow.roomNumber }
+    },
+    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).findByNumbers([ids.roomNumber]),
+    expect: 'empty',
+  }),
+  'RoomRepository.listPage': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id }
+    },
+    act: async (db, scope, ids) => (await new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).listPage({ asOf: '2025-06-01', page: 1, pageSize: 20 })).rows,
+    expect: 'empty',
+  }),
+  'RoomRepository.update': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const roomRow = await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: async (db, scope, ids) => {
+      await new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).update(ids.roomId, { notes: 'Hacked' })
+      return db.select().from(room).where(and(eq(room.id, ids.roomId), eq(room.notes, 'Hacked')))
+    },
+    expect: 'empty',
+  }),
+  'RoomRepository.listAllOnFloor': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, floorId: floorRow.id }
+    },
+    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).listAllOnFloor(ids.floorId),
+    expect: 'empty',
+  }),
+  'RoomRepository.countInInventory': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      return { hotelId: hotelRow.id }
+    },
+    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).countInInventory('2025-06-01'),
+    expect: 'zero-affected',
+  }),
+  'RoomRepository.countInInventoryOnFloor': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      return { hotelId: hotelRow.id, floorId: floorRow.id }
+    },
+    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).countInInventoryOnFloor(ids.floorId, '2025-06-01'),
+    expect: 'zero-affected',
+  }),
+  'RoomRepository.countInInventoryByFloor': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      return { hotelId: hotelRow.id }
+    },
+    act: async (db, scope, ids) => [...(await new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).countInInventoryByFloor('2025-06-01')).entries()],
+    expect: 'empty',
+  }),
+
+  'RoomBaseConfigRepository.insert': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const roomRow = await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: async (db, scope, ids) => {
+      await new RoomBaseConfigRepository(db, trustedHotelScope(scope, ids.hotelId)).insert({ roomId: ids.roomId, validFrom: '2025-01-01', validTo: null, physicalBeds: 4, sellableCapacity: 4, origin: 'MANUAL' })
+      return db.select().from(roomBaseConfig).where(eq(roomBaseConfig.roomId, ids.roomId))
+    },
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+    unchanged: async (db, ids) => assertNoRows(await db.select().from(roomBaseConfig).where(eq(roomBaseConfig.roomId, ids.roomId)), 'room_base_config of org A\'s room'),
+  }),
+  'RoomBaseConfigRepository.insertMany': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const roomRow = await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: async (db, scope, ids) => {
+      await new RoomBaseConfigRepository(db, trustedHotelScope(scope, ids.hotelId)).insertMany([
+        { roomId: ids.roomId, validFrom: '2025-01-01', validTo: null, physicalBeds: 4, sellableCapacity: 4, origin: 'MANUAL' },
+      ])
+      return db.select().from(roomBaseConfig).where(eq(roomBaseConfig.roomId, ids.roomId))
+    },
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+    unchanged: async (db, ids) => assertNoRows(await db.select().from(roomBaseConfig).where(eq(roomBaseConfig.roomId, ids.roomId)), 'room_base_config of org A\'s room'),
+  }),
+  'RoomBaseConfigRepository.versionsForRoom': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: (db, scope, ids) => new RoomBaseConfigRepository(db, trustedHotelScope(scope, ids.hotelId)).versionsForRoom(ids.roomId),
+    expect: 'empty',
+  }),
+  'RoomBaseConfigRepository.versionsForRooms': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: (db, scope, ids) => new RoomBaseConfigRepository(db, trustedHotelScope(scope, ids.hotelId)).versionsForRooms([ids.roomId]),
+    expect: 'empty',
+  }),
+  'RoomBaseConfigRepository.closeVersion': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { baseVersion } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, versionId: baseVersion.id }
+    },
+    act: async (db, scope, ids) => {
+      await new RoomBaseConfigRepository(db, trustedHotelScope(scope, ids.hotelId)).closeVersion(ids.versionId, '2025-06-01')
+      return db.select().from(roomBaseConfig).where(and(eq(roomBaseConfig.id, ids.versionId), eq(roomBaseConfig.validTo, '2025-06-01')))
     },
     expect: 'empty',
   }),

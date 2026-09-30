@@ -20,7 +20,7 @@ import {
   updateSettings,
 } from '../../../server/services/hotelService'
 import { auditCursorSchema } from '../../../shared/schemas/hotel'
-import { makeFloor, makeHotel, makeOrg, makeUser } from '../../support/fixtures'
+import { makeFloor, makeHotel, makeOrg, makeRoomType, makeRoomWithVersion, makeUser } from '../../support/fixtures'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
 const db = getTestDb()
@@ -570,7 +570,7 @@ describe('DTO shape and timezone', () => {
     expect((await getHotel(ctx, utcHotel.id)).today).toBe('2027-05-01')
   })
 
-  it('floorCount is the active-floor count when the caller has room.view, and null otherwise; roomCount stays null regardless (Task 14 wires it)', async () => {
+  it('floorCount is the active-floor count when the caller has room.view, and null otherwise; roomCount (Task 14) follows the same gating', async () => {
     const { scope } = await makeOrg(db)
     const target = await makeHotel(db, scope)
     await makeFloor(db, trustedHotelScope(scope, target.id), { level: 1, isActive: true })
@@ -581,9 +581,26 @@ describe('DTO shape and timezone', () => {
     const a = await getHotel(withRoomView, target.id)
     const b = await getHotel(withoutRoomView, target.id)
     expect(a.floorCount).toBe(1)
-    expect(a.roomCount).toBeNull()
+    expect(a.roomCount).toBe(0) // no rooms created in this test -> real count, not null
     expect(b.floorCount).toBeNull()
     expect(b.roomCount).toBeNull()
+  })
+
+  it('roomCount is the count of rooms in inventory on the hotel\'s own today, for a caller with room.view', async () => {
+    const { scope } = await makeOrg(db)
+    const target = await makeHotel(db, scope, { timezone: 'UTC' })
+    const floorRow = await makeFloor(db, trustedHotelScope(scope, target.id))
+    const roomTypeRow = await makeRoomType(db, scope)
+    const hotelScope = trustedHotelScope(scope, target.id)
+    // In inventory on the clock's date:
+    await makeRoomWithVersion(db, hotelScope, floorRow.id, roomTypeRow.id, {}, { validFrom: '2027-01-01', validTo: null })
+    // Retired before the clock's date -> excluded:
+    await makeRoomWithVersion(db, hotelScope, floorRow.id, roomTypeRow.id, {}, { validFrom: '2026-01-01', validTo: '2026-12-31' })
+
+    const clock = () => new Date('2027-05-01T12:00:00Z')
+    const ctx = makeCtx(scope, { permissions: ['hotel.view', 'room.view'], hotelIds: [target.id], now: clock })
+
+    expect((await getHotel(ctx, target.id)).roomCount).toBe(1)
   })
 })
 
@@ -612,16 +629,48 @@ describe('listHotels — floorCount is batched (N+1-free)', () => {
     expect(byCode.get('FC')).toBe(0)
   })
 
-  it('never calls activeFloorCounts at all when the caller lacks room.view', async () => {
+  it('never calls activeFloorCounts or roomCounts at all when the caller lacks room.view', async () => {
     const { scope } = await makeOrg(db)
     await makeHotel(db, scope)
 
-    const spy = vi.spyOn(HotelRepository.prototype, 'activeFloorCounts')
+    const floorSpy = vi.spyOn(HotelRepository.prototype, 'activeFloorCounts')
+    const roomSpy = vi.spyOn(HotelRepository.prototype, 'roomCounts')
     const ctx = makeCtx(scope, { permissions: ['hotel.view'], allHotels: true })
 
     const result = await listHotels(ctx)
 
-    expect(spy).not.toHaveBeenCalled()
-    expect(result.every(h => h.floorCount === null)).toBe(true)
+    expect(floorSpy).not.toHaveBeenCalled()
+    expect(roomSpy).not.toHaveBeenCalled()
+    expect(result.every(h => h.floorCount === null && h.roomCount === null)).toBe(true)
+  })
+})
+
+describe('listHotels — roomCount is batched (N+1-free) and respects each hotel\'s own timezone', () => {
+  it('issues exactly ONE call to HotelRepository.roomCounts for the whole list (not one per hotel), using each hotel\'s own local today', async () => {
+    const { scope } = await makeOrg(db)
+    // Two hotels in DIFFERENT timezones so their "today" can differ for the same instant.
+    const hotelA = await makeHotel(db, scope, { code: 'RA', timezone: 'Pacific/Kiritimati' }) // UTC+14
+    const hotelB = await makeHotel(db, scope, { code: 'RB', timezone: 'Pacific/Niue' }) // UTC-11
+    const floorA = await makeFloor(db, trustedHotelScope(scope, hotelA.id))
+    const floorB = await makeFloor(db, trustedHotelScope(scope, hotelB.id))
+    const roomType = await makeRoomType(db, scope)
+
+    // An instant where Kiritimati's calendar date is already one day ahead of Niue's.
+    const clock = () => new Date('2027-05-01T20:00:00Z')
+
+    // In inventory on hotel A's local today (2027-05-02) but NOT on hotel B's (still 2027-05-01
+    // there at this instant) -- proves the count uses EACH hotel's own today, not one shared date.
+    await makeRoomWithVersion(db, trustedHotelScope(scope, hotelA.id), floorA.id, roomType.id, {}, { validFrom: '2027-05-02', validTo: null })
+    await makeRoomWithVersion(db, trustedHotelScope(scope, hotelB.id), floorB.id, roomType.id, {}, { validFrom: '2027-05-02', validTo: null })
+
+    const spy = vi.spyOn(HotelRepository.prototype, 'roomCounts')
+    const ctx = makeCtx(scope, { permissions: ['hotel.view', 'room.view'], allHotels: true, now: clock })
+
+    const result = await listHotels(ctx)
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    const byCode = new Map(result.map(h => [h.code, h.roomCount]))
+    expect(byCode.get('RA')).toBe(1) // hotel A's room started exactly on hotel A's local today
+    expect(byCode.get('RB')).toBe(0) // hotel B's room does not start until hotel B's tomorrow
   })
 })

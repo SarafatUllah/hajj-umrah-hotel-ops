@@ -1,4 +1,5 @@
 import type { BulkCreateFloorsInput, CreateFloorInput, ListFloorsQuery, UpdateFloorInput } from '../../shared/schemas/floor'
+import { type IsoDate, toEpochDay, todayInTimezone } from '../../shared/utils/dates'
 import { translateDbError } from '../errors/dbErrors'
 import { ConflictError, NotFoundError } from '../errors/domainError'
 import { hotelRepos, tenantRepos } from '../repositories'
@@ -12,23 +13,30 @@ function defaultFloorLabel(level: number): string {
   return level === 0 ? 'Ground' : `Floor ${level}`
 }
 
-/** `roomCount` is `0` in this task — Task 14 wires the real count once rooms exist. */
 export interface FloorListItem {
   id: string
   level: number
   label: string
   isActive: boolean
+  /** Rooms in inventory (a base-config version covering the hotel's own local today) on this floor. */
   roomCount: number
 }
 
-function toFloorListItem(row: FloorRow): FloorListItem {
-  return { id: row.id, level: row.level, label: row.label, isActive: row.isActive, roomCount: 0 }
+function toFloorListItem(row: FloorRow, roomCount: number): FloorListItem {
+  return { id: row.id, level: row.level, label: row.label, isActive: row.isActive, roomCount }
 }
 
 export async function listFloors(ctx: AuthContext, hotelId: string, query: ListFloorsQuery): Promise<FloorListItem[]> {
-  const { scope } = await authorizeHotel(ctx, 'room.view', hotelId, { allowInactive: true })
-  const rows = await hotelRepos(ctx.db, scope).floors.list({ includeInactive: query.includeInactive })
-  return rows.map(toFloorListItem)
+  const { hotel, scope } = await authorizeHotel(ctx, 'room.view', hotelId, { allowInactive: true })
+  const hotelScoped = hotelRepos(ctx.db, scope)
+  const rows = await hotelScoped.floors.list({ includeInactive: query.includeInactive })
+
+  // ONE batched query for the whole list's room counts (never one per floor) — mirrors PF-13's
+  // activeFloorCounts pattern for HotelSummary/HotelDetail.
+  const today = todayInTimezone(hotel.timezone, ctx.now())
+  const roomCounts = await hotelScoped.rooms.countInInventoryByFloor(today)
+
+  return rows.map(row => toFloorListItem(row, roomCounts.get(row.id) ?? 0))
 }
 
 export async function createFloor(ctx: AuthContext, hotelId: string, input: CreateFloorInput): Promise<FloorListItem> {
@@ -60,7 +68,8 @@ export async function createFloor(ctx: AuthContext, hotelId: string, input: Crea
       after: created,
     })
 
-    return toFloorListItem(created)
+    // A brand-new floor structurally has zero rooms yet — no query needed.
+    return toFloorListItem(created, 0)
   })
 }
 
@@ -99,7 +108,8 @@ export async function bulkCreateFloors(ctx: AuthContext, hotelId: string, input:
       })
     }
 
-    return created.map(toFloorListItem)
+    // Every bulk-created floor structurally has zero rooms yet — no query needed.
+    return created.map(row => toFloorListItem(row, 0))
   })
 }
 
@@ -135,6 +145,31 @@ async function loadFloorInScope(repos: ReturnType<typeof hotelRepos>, floorId: s
   return row
 }
 
+/**
+ * Task 14 floor-deactivation guard: a floor cannot be deactivated while ANY room on it has its
+ * LATEST base-config version open-ended (`validTo IS NULL`) OR ending on/after `today` — regardless
+ * of when that latest version actually STARTS (a not-yet-commissioned room with a future,
+ * open-ended first version still blocks deactivation). Once every room on the floor has been retired
+ * with a last night strictly BEFORE `today`, the floor may deactivate. Two queries total (never one
+ * per room): all rooms on the floor, then all of their base-config versions in one batched call.
+ */
+async function assertFloorHasNoRoomsInInventory(repos: ReturnType<typeof hotelRepos>, floorId: string, today: IsoDate): Promise<void> {
+  const roomsOnFloor = await repos.rooms.listAllOnFloor(floorId)
+  if (roomsOnFloor.length === 0) return
+
+  const versions = await repos.roomBaseConfigs.versionsForRooms(roomsOnFloor.map(r => r.id))
+  const todayEpoch = toEpochDay(today)
+
+  for (const room of roomsOnFloor) {
+    const roomVersions = versions.filter(v => v.roomId === room.id)
+    if (roomVersions.length === 0) continue
+    const latest = roomVersions.reduce((a, b) => (toEpochDay(a.validFrom) > toEpochDay(b.validFrom) ? a : b))
+    if (latest.validTo === null || toEpochDay(latest.validTo) >= todayEpoch) {
+      throw new ConflictError('FLOOR_HAS_ROOMS', 'This floor has rooms in inventory today or scheduled to remain so; retire them first')
+    }
+  }
+}
+
 export async function updateFloor(ctx: AuthContext, hotelId: string, floorId: string, patch: UpdateFloorInput): Promise<FloorListItem> {
   const { hotel, scope } = await authorizeHotel(ctx, 'room.manage', hotelId)
 
@@ -144,9 +179,10 @@ export async function updateFloor(ctx: AuthContext, hotelId: string, floorId: st
     const current = await loadFloorInScope(hotelScoped, floorId)
 
     const { before, after, changed } = diffFloorFields(current, patch)
+    const today = todayInTimezone(hotel.timezone, ctx.now())
 
     // No-op patch: zero writes, zero audit rows, updated_at untouched.
-    if (Object.keys(changed).length === 0) return toFloorListItem(current)
+    if (Object.keys(changed).length === 0) return toFloorListItem(current, await hotelScoped.rooms.countInInventoryOnFloor(current.id, today))
 
     try {
       await hotelScoped.floors.update(current.id, { ...changed, updatedAt: ctx.now() })
@@ -167,7 +203,7 @@ export async function updateFloor(ctx: AuthContext, hotelId: string, floorId: st
       after,
     })
 
-    return toFloorListItem(updated)
+    return toFloorListItem(updated, await hotelScoped.rooms.countInInventoryOnFloor(updated.id, today))
   })
 }
 
@@ -193,7 +229,8 @@ export async function activateFloor(ctx: AuthContext, hotelId: string, floorId: 
       after: { isActive: true },
     })
 
-    return toFloorListItem(updated)
+    const today = todayInTimezone(hotel.timezone, ctx.now())
+    return toFloorListItem(updated, await hotelScoped.rooms.countInInventoryOnFloor(updated.id, today))
   })
 }
 
@@ -205,6 +242,9 @@ export async function deactivateFloor(ctx: AuthContext, hotelId: string, floorId
     const tenant = tenantRepos(tx, ctx.scope)
     const current = await loadFloorInScope(hotelScoped, floorId)
     if (!current.isActive) throw new ConflictError('FLOOR_ALREADY_INACTIVE')
+
+    const today = todayInTimezone(hotel.timezone, ctx.now())
+    await assertFloorHasNoRoomsInInventory(hotelScoped, current.id, today)
 
     await hotelScoped.floors.setActive(current.id, false)
     const updated = await hotelScoped.floors.findById(current.id)
@@ -219,6 +259,6 @@ export async function deactivateFloor(ctx: AuthContext, hotelId: string, floorId
       after: { isActive: false },
     })
 
-    return toFloorListItem(updated)
+    return toFloorListItem(updated, await hotelScoped.rooms.countInInventoryOnFloor(updated.id, today))
   })
 }

@@ -3,3 +3,5 @@
 // by a coverage test, which walks this barrel the same way it walks server/repositories/tenant).
 export * from './hotelSettingRepository'
 export * from './floorRepository'
+export * from './roomRepository'
+export * from './roomBaseConfigRepository'
