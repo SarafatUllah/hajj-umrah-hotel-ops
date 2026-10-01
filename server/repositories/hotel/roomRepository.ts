@@ -161,4 +161,41 @@ export class RoomRepository {
       .groupBy(room.floorId)
     return new Map(rows.map(r => [r.floorId, Number(r.value)]))
   }
+
+  /** Ids of every room in inventory (a base-config version covering `date`) — Task 15's preview `hotelTotals` (S6), one query. */
+  async idsInInventoryOn(date: IsoDate): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: room.id })
+      .from(room)
+      .innerJoin(roomBaseConfig, coveringVersion(date))
+      .where(and(eq(room.organizationId, this.scope.organizationId), eq(room.hotelId, this.scope.hotelId)))
+    return rows.map(r => r.id)
+  }
+
+  /**
+   * Bulk id lookup, hotel-scoped — Task 15's `roomIds` override selector resolves and validates in
+   * ONE query: any requested id that doesn't come back does not belong to this hotel (422
+   * `INVALID_REFERENCE`), exactly like `findByNumbers`' bulk-create pattern.
+   */
+  async findByIds(ids: readonly string[]): Promise<RoomRow[]> {
+    if (ids.length === 0) return []
+    return this.q.select(room, inArray(room.id, ids as string[]))
+  }
+
+  /** Every room on any of `floorIds` — Task 15's `floorIds` override selector, one query. */
+  async listByFloorIds(floorIds: readonly string[]): Promise<RoomRow[]> {
+    if (floorIds.length === 0) return []
+    return this.q.select(room, inArray(room.floorId, floorIds as string[]))
+  }
+
+  /** Every room of any of `roomTypeIds` — Task 15's `roomTypeIds` override selector, one query. */
+  async listByRoomTypeIds(roomTypeIds: readonly string[]): Promise<RoomRow[]> {
+    if (roomTypeIds.length === 0) return []
+    return this.q.select(room, inArray(room.roomTypeId, roomTypeIds as string[]))
+  }
+
+  /** Every room of this hotel, unpaginated — Task 15's `{ all: true }` override selector. */
+  async listAll(): Promise<RoomRow[]> {
+    return this.q.select(room)
+  }
 }

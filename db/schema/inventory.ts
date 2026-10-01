@@ -105,3 +105,64 @@ export const roomBaseConfig = pgTable('room_base_config', {
   check('room_base_config_sellable_check', sql`${t.sellableCapacity} between 0 and 30`),
   check('room_base_config_origin_check', sql`${t.origin} in ('ROOM_TYPE_DEFAULT', 'MANUAL', 'BULK', 'SEED')`),
 ])
+
+/**
+ * Task 15: seasonal capacity — date-effective overrides layered on top of `room_base_config`'s
+ * immutable history. `kind` is a pure label (HAJJ/RAMADAN/SPECIAL) with no behavioral difference in
+ * any rule (Q4). Dates live ONLY in rows here — never hard-coded in server/shared/db code.
+ */
+export const capacityPeriod = pgTable('capacity_period', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: orgCol(),
+  hotelId: uuid('hotel_id').notNull(),
+  name: text('name').notNull(),
+  kind: text('kind').notNull(),
+  startDate: date('start_date', { mode: 'string' }).notNull(),
+  endDate: date('end_date', { mode: 'string' }).notNull(),
+  notes: text('notes'),
+  ...stamps(),
+}, t => [
+  unique('capacity_period_org_hotel_id_unique').on(t.organizationId, t.hotelId, t.id),
+  unique('capacity_period_dates_unique').on(t.id, t.startDate, t.endDate),
+  unique('capacity_period_hotel_name_unique').on(t.hotelId, t.name),
+  foreignKey({ columns: [t.organizationId, t.hotelId], foreignColumns: [hotel.organizationId, hotel.id], name: 'capacity_period_hotel_fk' }),
+  check('capacity_period_range_check', sql`${t.startDate} <= ${t.endDate}`),
+  check('capacity_period_kind_check', sql`${t.kind} in ('HAJJ', 'RAMADAN', 'SPECIAL')`),
+])
+
+/**
+ * Task 15: a room's seasonal override for one capacity period. `validFrom`/`validTo` are kept equal
+ * to the period's own dates by the composite FK below (`ON UPDATE CASCADE`) — editing a period's
+ * dates cascades here automatically; an override can never drift from its period's range. The
+ * temporal-integrity exclusion constraint (no two overrides of the same room may cover overlapping
+ * nights, across DIFFERENT periods too) is appended by hand to migration 0005 after `drizzle-kit
+ * generate`, exactly like `room_base_config_no_overlap` in migration 0004.
+ */
+export const roomCapacityOverride = pgTable('room_capacity_override', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: orgCol(),
+  hotelId: uuid('hotel_id').notNull(),
+  roomId: uuid('room_id').notNull(),
+  periodId: uuid('period_id').notNull(),
+  validFrom: date('valid_from', { mode: 'string' }).notNull(),
+  validTo: date('valid_to', { mode: 'string' }).notNull(),
+  physicalBeds: integer('physical_beds').notNull(),
+  sellableCapacity: integer('sellable_capacity').notNull(),
+  reason: text('reason'),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  unique('room_override_period_room_unique').on(t.periodId, t.roomId),
+  foreignKey({ columns: [t.organizationId, t.hotelId, t.roomId], foreignColumns: [room.organizationId, room.hotelId, room.id], name: 'room_override_room_fk' }),
+  foreignKey({ columns: [t.organizationId, t.hotelId, t.periodId], foreignColumns: [capacityPeriod.organizationId, capacityPeriod.hotelId, capacityPeriod.id], name: 'room_override_period_fk' }),
+  foreignKey({ columns: [t.periodId, t.validFrom, t.validTo], foreignColumns: [capacityPeriod.id, capacityPeriod.startDate, capacityPeriod.endDate], name: 'room_override_period_dates_fk' }).onUpdate('cascade'),
+  index('room_override_org_hotel_idx').on(t.organizationId, t.hotelId),
+  // The brief's verbatim block only indexes (organization_id, hotel_id) — added here (same as
+  // room_base_config_room_idx, PF-6) so EVERY composite-FK column set is covered by an index's leading
+  // columns (the global "every FK column set gets an index" rule): room, period, and period-dates FKs.
+  index('room_override_room_idx').on(t.organizationId, t.hotelId, t.roomId),
+  index('room_override_period_idx').on(t.organizationId, t.hotelId, t.periodId),
+  index('room_override_period_dates_idx').on(t.periodId, t.validFrom, t.validTo),
+  check('room_override_beds_check', sql`${t.physicalBeds} between 1 and 30`),
+  check('room_override_sellable_check', sql`${t.sellableCapacity} between 0 and 30`),
+])

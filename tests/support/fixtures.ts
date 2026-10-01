@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DbOrTx } from '../../db/client'
 import { hotelRepos, platformRepos, tenantRepos } from '../../server/repositories'
-import type { FloorRow, NewFloor, NewRoom, NewRoomBaseConfig, RoomBaseConfigRow, RoomRow } from '../../server/repositories/hotel'
+import type { CapacityPeriodRow, FloorRow, NewCapacityPeriod, NewFloor, NewRoom, NewRoomBaseConfig, NewRoomCapacityOverride, RoomBaseConfigRow, RoomCapacityOverrideRow, RoomRow } from '../../server/repositories/hotel'
 import type { NewOrganization, OrganizationRow } from '../../server/repositories/platform/organizationRepository'
 import type { HotelRow, NewHotel, NewRoomType, NewUser, RoleRow, RoomTypeRow, UserRow } from '../../server/repositories/tenant'
 import { trustedOrganizationScope, type HotelScope, type OrganizationScope } from '../../server/security/scope'
@@ -91,6 +91,34 @@ export async function makeRoomWithVersion(db: DbOrTx, hotelScope: HotelScope, fl
   const room = await makeRoom(db, hotelScope, floorId, roomTypeId, overrides)
   const baseVersion = await makeRoomBaseConfig(db, hotelScope, room.id, versionOverrides)
   return { room, baseVersion }
+}
+
+/** A capacity period — `startDate`/`endDate` default to a far-future Hajj-shaped window so it starts out FUTURE (overrides addable) unless overridden. */
+export async function makeCapacityPeriod(db: DbOrTx, hotelScope: HotelScope, overrides: Partial<NewCapacityPeriod> = {}): Promise<CapacityPeriodRow> {
+  const n = next()
+  return hotelRepos(db, hotelScope).capacityPeriods.insert({
+    name: `Period ${n}`,
+    kind: 'HAJJ',
+    startDate: '2027-05-01',
+    endDate: '2027-07-31',
+    notes: null,
+    ...overrides,
+  })
+}
+
+/** A room's override for one capacity period — dates default to the whole `2027-05-01..2027-07-31` Hajj window (matching `makeCapacityPeriod`'s default); pass the SAME dates as the period when the FK matters. */
+export async function makeRoomCapacityOverride(db: DbOrTx, hotelScope: HotelScope, roomId: string, periodId: string, overrides: Partial<NewRoomCapacityOverride> = {}): Promise<RoomCapacityOverrideRow> {
+  const [row] = await hotelRepos(db, hotelScope).roomCapacityOverrides.insertMany([{
+    roomId,
+    periodId,
+    validFrom: '2027-05-01',
+    validTo: '2027-07-31',
+    physicalBeds: 6,
+    sellableCapacity: 6,
+    reason: null,
+    ...overrides,
+  }])
+  return row!
 }
 
 /** Adds the permission keys missing from the global catalog (existing descriptions are left alone). */

@@ -71,6 +71,16 @@ export const CONSTRAINT_MESSAGES: Record<string, { kind: 'conflict' | 'validatio
   // existing one for the same room (the DB's exclusion constraint is the final arbiter against
   // concurrent base changes).
   room_base_config_no_overlap: { kind: 'conflict', code: 'RANGE_OVERLAP', message: 'This base-configuration change overlaps an existing version for this room' },
+  // Task 15: a capacity period's name must be unique per hotel (23505 unique_violation -> kind 'conflict').
+  capacity_period_hotel_name_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'A capacity period with this name already exists in this hotel' },
+  // Task 15: exclusion_violation (23P01), same technique as room_base_config_no_overlap — fires when
+  // a room override would overlap another override of the same room (same period being extended into
+  // another period's override, or two overlapping periods applied to the same room).
+  room_override_no_overlap: { kind: 'conflict', code: 'RANGE_OVERLAP', message: 'This change would give a room two capacity overrides on the same night' },
+  // Task 15: foreign_key_violation (23503) — an override whose dates have drifted from its period's
+  // own (organization_id, hotel_id, period_id, valid_from, valid_to) is structurally impossible to
+  // insert/update without violating this composite FK first.
+  room_override_period_dates_fk: { kind: 'validation', code: 'INVALID_REFERENCE', message: 'An override\'s dates must match its capacity period\'s dates' },
 }
 
 /** Generic mapping by SQLSTATE, applied before the per-constraint registry above. */

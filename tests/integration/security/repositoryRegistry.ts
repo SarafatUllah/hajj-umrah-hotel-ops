@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm'
-import { appUser, auditLog, floor, hotel, hotelSetting, room, roomBaseConfig, roomType, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
+import { appUser, auditLog, capacityPeriod, floor, hotel, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomType, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
 import type { DbOrTx } from '../../../db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
-import { FloorRepository, HotelSettingRepository, RoomBaseConfigRepository, RoomRepository } from '../../../server/repositories/hotel'
-import { ensurePermissions, makeFloor, makeHotel, makeRole, makeRoom, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
+import { CapacityPeriodRepository, FloorRepository, HotelSettingRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
+import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeRole, makeRoom, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
 /**
  * Behavioral tenant-isolation registry: one entry per `ClassName.method` of every scoped repository.
@@ -680,6 +680,316 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
       return db.select().from(roomBaseConfig).where(and(eq(roomBaseConfig.id, ids.versionId), eq(roomBaseConfig.validTo, '2025-06-01')))
     },
     expect: 'empty',
+  }),
+
+  // Task 15: RoomRepository's override-selector-resolution extensions (same construction as the
+  // existing RoomRepository cases above).
+  'RoomRepository.idsInInventoryOn': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      return { hotelId: hotelRow.id }
+    },
+    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).idsInInventoryOn('2025-06-01'),
+    expect: 'empty',
+  }),
+  'RoomRepository.findByIds': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const roomRow = await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).findByIds([ids.roomId]),
+    expect: 'empty',
+  }),
+  'RoomRepository.listByFloorIds': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, floorId: floorRow.id }
+    },
+    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).listByFloorIds([ids.floorId]),
+    expect: 'empty',
+  }),
+  'RoomRepository.listByRoomTypeIds': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, roomTypeId: roomTypeRow.id }
+    },
+    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).listByRoomTypeIds([ids.roomTypeId]),
+    expect: 'empty',
+  }),
+  'RoomRepository.listAll': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id }
+    },
+    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).listAll(),
+    expect: 'empty',
+  }),
+
+  // Task 15: CapacityPeriodRepository (Hotel scope, same construction as FloorRepository's cases above).
+  'CapacityPeriodRepository.insert': isolationCase({
+    arrange: async (db, orgA) => ({ hotelId: (await makeHotel(db, orgA)).id }),
+    act: async (db, scope, ids) => {
+      await new CapacityPeriodRepository(db, trustedHotelScope(scope, ids.hotelId)).insert({ name: 'Planted', kind: 'HAJJ', startDate: '2027-01-01', endDate: '2027-01-05', notes: null })
+      return db.select().from(capacityPeriod).where(eq(capacityPeriod.hotelId, ids.hotelId))
+    },
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+    unchanged: async (db, ids) => assertNoRows(await db.select().from(capacityPeriod).where(eq(capacityPeriod.hotelId, ids.hotelId)), 'capacity_period of org A\'s hotel'),
+  }),
+  'CapacityPeriodRepository.findById': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      return { hotelId: hotelRow.id, periodId: period.id }
+    },
+    act: (db, scope, ids) => new CapacityPeriodRepository(db, trustedHotelScope(scope, ids.hotelId)).findById(ids.periodId),
+    expect: 'null',
+  }),
+  'CapacityPeriodRepository.list': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      return { hotelId: hotelRow.id }
+    },
+    act: (db, scope, ids) => new CapacityPeriodRepository(db, trustedHotelScope(scope, ids.hotelId)).list({ includePast: true, today: '2027-01-01' }),
+    expect: 'empty',
+  }),
+  'CapacityPeriodRepository.findByIds': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      return { hotelId: hotelRow.id, periodId: period.id }
+    },
+    act: (db, scope, ids) => new CapacityPeriodRepository(db, trustedHotelScope(scope, ids.hotelId)).findByIds([ids.periodId]),
+    expect: 'empty',
+  }),
+  'CapacityPeriodRepository.update': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      return { hotelId: hotelRow.id, periodId: period.id }
+    },
+    act: async (db, scope, ids) => {
+      await new CapacityPeriodRepository(db, trustedHotelScope(scope, ids.hotelId)).update(ids.periodId, { name: 'Hacked' })
+      return db.select().from(capacityPeriod).where(and(eq(capacityPeriod.id, ids.periodId), eq(capacityPeriod.name, 'Hacked')))
+    },
+    expect: 'empty',
+  }),
+  // The first hard-delete method registered in this file: `act` inverts the usual "query for the
+  // hacked evidence" idiom into "query for the row's continued EXISTENCE" — isolated (org B) means
+  // delete() affected 0 rows so the row survives (act returns [], matching 'empty'); the positive
+  // control (org A) actually deletes it (act returns a non-empty marker array).
+  'CapacityPeriodRepository.delete': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      return { hotelId: hotelRow.id, periodId: period.id }
+    },
+    act: async (db, scope, ids) => {
+      await new CapacityPeriodRepository(db, trustedHotelScope(scope, ids.hotelId)).delete(ids.periodId)
+      const remaining = await db.select().from(capacityPeriod).where(eq(capacityPeriod.id, ids.periodId))
+      return remaining.length === 0 ? [{ deleted: true }] : []
+    },
+    expect: 'empty',
+    unchanged: async (db, ids) => {
+      const [row] = await db.select().from(capacityPeriod).where(eq(capacityPeriod.id, ids.periodId))
+      if (!row) throw new Error('capacity_period of org A\'s period: expected the row to still exist, but it was deleted')
+    },
+  }),
+  'CapacityPeriodRepository.countOverrides': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      await makeRoomCapacityOverride(db, trustedHotelScope(orgA, hotelRow.id), roomRow.id, period.id)
+      return { hotelId: hotelRow.id, periodId: period.id }
+    },
+    act: (db, scope, ids) => new CapacityPeriodRepository(db, trustedHotelScope(scope, ids.hotelId)).countOverrides(ids.periodId),
+    expect: 'zero-affected',
+  }),
+  'CapacityPeriodRepository.overrideCountsByPeriod': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      await makeRoomCapacityOverride(db, trustedHotelScope(orgA, hotelRow.id), roomRow.id, period.id)
+      return { hotelId: hotelRow.id }
+    },
+    act: async (db, scope, ids) => [...(await new CapacityPeriodRepository(db, trustedHotelScope(scope, ids.hotelId)).overrideCountsByPeriod()).entries()],
+    expect: 'empty',
+  }),
+
+  // Task 15: RoomCapacityOverrideRepository (Hotel scope).
+  'RoomCapacityOverrideRepository.insertMany': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      return { hotelId: hotelRow.id, roomId: roomRow.id, periodId: period.id }
+    },
+    act: async (db, scope, ids) => {
+      await new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, ids.hotelId)).insertMany([
+        { roomId: ids.roomId, periodId: ids.periodId, validFrom: '2027-05-01', validTo: '2027-07-31', physicalBeds: 6, sellableCapacity: 6, reason: null },
+      ])
+      return db.select().from(roomCapacityOverride).where(eq(roomCapacityOverride.roomId, ids.roomId))
+    },
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+    unchanged: async (db, ids) => assertNoRows(await db.select().from(roomCapacityOverride).where(eq(roomCapacityOverride.roomId, ids.roomId)), 'room_capacity_override of org A\'s room'),
+  }),
+  'RoomCapacityOverrideRepository.findByPeriod': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      await makeRoomCapacityOverride(db, trustedHotelScope(orgA, hotelRow.id), roomRow.id, period.id)
+      return { hotelId: hotelRow.id, periodId: period.id }
+    },
+    act: (db, scope, ids) => new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, ids.hotelId)).findByPeriod(ids.periodId),
+    expect: 'empty',
+  }),
+  'RoomCapacityOverrideRepository.listAll': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      await makeRoomCapacityOverride(db, trustedHotelScope(orgA, hotelRow.id), roomRow.id, period.id)
+      return { hotelId: hotelRow.id }
+    },
+    act: (db, scope, ids) => new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, ids.hotelId)).listAll(),
+    expect: 'empty',
+  }),
+  'RoomCapacityOverrideRepository.findByRoomIds': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      await makeRoomCapacityOverride(db, trustedHotelScope(orgA, hotelRow.id), roomRow.id, period.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: (db, scope, ids) => new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, ids.hotelId)).findByRoomIds([ids.roomId], { from: '2027-05-01', to: '2027-07-31' }),
+    expect: 'empty',
+  }),
+  'RoomCapacityOverrideRepository.findAllForRoom': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      await makeRoomCapacityOverride(db, trustedHotelScope(orgA, hotelRow.id), roomRow.id, period.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: (db, scope, ids) => new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, ids.hotelId)).findAllForRoom(ids.roomId),
+    expect: 'empty',
+  }),
+  'RoomCapacityOverrideRepository.findOverlapping': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      await makeRoomCapacityOverride(db, trustedHotelScope(orgA, hotelRow.id), roomRow.id, period.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: (db, scope, ids) => new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, ids.hotelId)).findOverlapping([ids.roomId], { from: '2027-05-01', to: '2027-07-31' }),
+    expect: 'empty',
+  }),
+  'RoomCapacityOverrideRepository.findByIdsInPeriod': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      const override = await makeRoomCapacityOverride(db, trustedHotelScope(orgA, hotelRow.id), roomRow.id, period.id)
+      return { hotelId: hotelRow.id, periodId: period.id, overrideId: override.id }
+    },
+    act: (db, scope, ids) => new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, ids.hotelId)).findByIdsInPeriod(ids.periodId, [ids.overrideId]),
+    expect: 'empty',
+  }),
+  'RoomCapacityOverrideRepository.deleteById': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      const override = await makeRoomCapacityOverride(db, trustedHotelScope(orgA, hotelRow.id), roomRow.id, period.id)
+      return { hotelId: hotelRow.id, overrideId: override.id }
+    },
+    act: async (db, scope, ids) => {
+      await new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, ids.hotelId)).deleteById(ids.overrideId)
+      const remaining = await db.select().from(roomCapacityOverride).where(eq(roomCapacityOverride.id, ids.overrideId))
+      return remaining.length === 0 ? [{ deleted: true }] : []
+    },
+    expect: 'empty',
+    unchanged: async (db, ids) => {
+      const [row] = await db.select().from(roomCapacityOverride).where(eq(roomCapacityOverride.id, ids.overrideId))
+      if (!row) throw new Error('room_capacity_override of org A\'s override: expected the row to still exist, but it was deleted')
+    },
+  }),
+  'RoomCapacityOverrideRepository.deleteByIds': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      const override = await makeRoomCapacityOverride(db, trustedHotelScope(orgA, hotelRow.id), roomRow.id, period.id)
+      return { hotelId: hotelRow.id, overrideId: override.id }
+    },
+    act: async (db, scope, ids) => {
+      await new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, ids.hotelId)).deleteByIds([ids.overrideId])
+      const remaining = await db.select().from(roomCapacityOverride).where(eq(roomCapacityOverride.id, ids.overrideId))
+      return remaining.length === 0 ? [{ deleted: true }] : []
+    },
+    expect: 'empty',
+    unchanged: async (db, ids) => {
+      const [row] = await db.select().from(roomCapacityOverride).where(eq(roomCapacityOverride.id, ids.overrideId))
+      if (!row) throw new Error('room_capacity_override of org A\'s override: expected the row to still exist, but it was deleted')
+    },
+  }),
+  'RoomCapacityOverrideRepository.existsEndingOnOrAfter': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const { room: roomRow } = await makeRoomWithVersion(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+      await makeRoomCapacityOverride(db, trustedHotelScope(orgA, hotelRow.id), roomRow.id, period.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: async (db, scope, ids) => (await new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, ids.hotelId)).existsEndingOnOrAfter(ids.roomId, '2027-01-01')) ? 1 : 0,
+    expect: 'zero-affected',
   }),
 }
 

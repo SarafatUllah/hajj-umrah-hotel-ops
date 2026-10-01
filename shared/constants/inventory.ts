@@ -26,3 +26,5 @@ export const MAX_ROOMS_PER_PAGE = 200
 export const MAX_BEDS_PER_ROOM = 30
 export const MAX_CAPACITY_PERIOD_DAYS = 366
 export const MAX_BULK_ROOMS = 200
+/** Cap on a `roomIds` override selector, after de-duplication (S9, Task 15). */
+export const MAX_OVERRIDE_SELECTOR_ROOMS = 1000

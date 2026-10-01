@@ -36,6 +36,13 @@
       "when": 1790779959185,
       "tag": "0004_rooms_base_config",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790804552998,
+      "tag": "0005_capacity_periods",
+      "breakpoints": true
     }
   ]
 }
