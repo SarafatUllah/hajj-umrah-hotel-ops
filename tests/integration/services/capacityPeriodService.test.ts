@@ -3,8 +3,8 @@ import { and, eq } from 'drizzle-orm'
 import { auditLog, capacityPeriod as capacityPeriodTable } from '../../../db/schema'
 import type { Database } from '../../../db/client'
 import { ForbiddenError, NotFoundError } from '../../../server/errors/domainError'
-import { AuditRepository } from '../../../server/repositories/tenant'
-import { CapacityPeriodRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository } from '../../../server/repositories/hotel'
+import { AuditRepository, RoomTypeRepository } from '../../../server/repositories/tenant'
+import { CapacityPeriodRepository, FloorRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
 import type { AuthContext } from '../../../server/security/authContext'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import type { Permission } from '../../../shared/constants/permissions'
@@ -334,6 +334,36 @@ describe('selectors (test group 6)', () => {
     const overrides = await new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, hotel.id)).findByPeriod(period.id)
     expect(overrides.map(o => o.roomId)).toEqual([roomA.id])
   })
+
+  it('floorIds / roomTypeIds are validated in ONE batched query each (never one per id); one foreign id among valid ones -> 422 INVALID_REFERENCE; duplicates from a direct caller are fine', async () => {
+    const { scope } = await makeOrg(db)
+    const { scope: otherOrg } = await makeOrg(db)
+    const { hotel, floor, roomType } = await setupHotel(scope)
+    const { floor: otherHotelFloor } = await setupHotel(scope) // same org, other hotel
+    const foreignType = await makeRoomType(db, otherOrg)
+    const secondFloor = await makeFloor(db, trustedHotelScope(scope, hotel.id))
+    const ctx = fullCtx(scope, hotel.id)
+    await makeRoom401(ctx, scope, hotel, floor, roomType)
+    const period = await createCapacityPeriod(ctx, hotel.id, { name: 'Batched Selector', kind: 'HAJJ', startDate: '2027-05-01', endDate: '2027-07-31' })
+    const spec = { mode: 'ABSOLUTE' as const, physicalBeds: 6, sellableCapacity: 6 }
+
+    const floorFindById = vi.spyOn(FloorRepository.prototype, 'findById')
+    const floorFindByIds = vi.spyOn(FloorRepository.prototype, 'findByIds')
+    const typeFindById = vi.spyOn(RoomTypeRepository.prototype, 'findById')
+    const typeFindByIds = vi.spyOn(RoomTypeRepository.prototype, 'findByIds')
+
+    await expect(preview(ctx, hotel.id, period.id, { selector: { floorIds: [floor.id, secondFloor.id, otherHotelFloor.id] }, spec }))
+      .rejects.toMatchObject({ code: 'INVALID_REFERENCE', httpStatus: 422 })
+    await expect(apply(ctx, hotel.id, period.id, { selector: { roomTypeIds: [roomType.id, foreignType.id] }, spec }))
+      .rejects.toMatchObject({ code: 'INVALID_REFERENCE', httpStatus: 422 })
+    expect(floorFindByIds).toHaveBeenCalledTimes(1)
+    expect(typeFindByIds).toHaveBeenCalledTimes(1)
+    expect(floorFindById).not.toHaveBeenCalled()
+    expect(typeFindById).not.toHaveBeenCalled()
+
+    await expect(preview(ctx, hotel.id, period.id, { selector: { floorIds: [floor.id, secondFloor.id, floor.id] }, spec })).resolves.toMatchObject({ totals: { rooms: 1 } })
+    await expect(apply(ctx, hotel.id, period.id, { selector: { roomTypeIds: [roomType.id, roomType.id] }, spec })).resolves.toEqual({ applied: 1, skipped: [] })
+  })
 })
 
 describe('DELTA mode uses base at period start (test group 7)', () => {
@@ -418,8 +448,22 @@ describe('FAIL vs SKIP (test group 8)', () => {
   })
 })
 
+/**
+ * Task 16 fix round: `applyOverrides` now row-locks its rooms before planning (proved in
+ * roomInventoryLocking.test.ts), so two applies on one room serialize and the second sees the first's
+ * override (ALREADY_OVERRIDDEN). The database exclusion constraint stays the backstop for any writer
+ * that does NOT take that lock (e.g. a period date edit cascading into override rows) — the races
+ * below bypass the lock (same scoped read, no FOR UPDATE) to keep proving that backstop.
+ */
+function bypassRoomLock() {
+  vi.spyOn(RoomRepository.prototype, 'lockByIds').mockImplementation(function (this: RoomRepository, ids: readonly string[]) {
+    return this.findByIds(ids)
+  })
+}
+
 describe('concurrency (test group 10, real PostgreSQL)', () => {
-  it('two simultaneous applications of overlapping periods to the same room: exactly one override lands, the other 409s (real-error translation: room_override_no_overlap -> RANGE_OVERLAP), whole-transaction atomicity', async () => {
+  it('two simultaneous applications of overlapping periods to the same room (room lock bypassed): exactly one override lands, the other 409s (real-error translation: room_override_no_overlap -> RANGE_OVERLAP), whole-transaction atomicity', async () => {
+    bypassRoomLock()
     const { scope } = await makeOrg(db)
     const { hotel, floor, roomType } = await setupHotel(scope)
     const ctxA = fullCtx(scope, hotel.id)
@@ -473,7 +517,8 @@ describe('concurrency (test group 10, real PostgreSQL)', () => {
     expect(applyAudits.map(a => a.entityId)).toEqual([winnerPeriodId])
   })
 
-  it('INSERTs fired at the same instant: the loser still gets 409 RANGE_OVERLAP (PostgreSQL resolves this race with 23P01 or a 40P01 deadlock), exactly one override and one audit row', async () => {
+  it('INSERTs fired at the same instant (room lock bypassed): the loser still gets 409 RANGE_OVERLAP (PostgreSQL resolves this race with 23P01 or a 40P01 deadlock), exactly one override and one audit row', async () => {
+    bypassRoomLock()
     // Reproduced on PostgreSQL 16: when both conflicting inserts reach the exclusion check together,
     // each waits on the other's in-progress row and PostgreSQL aborts one with 40P01 (deadlock), not
     // 23P01. Repeated a few times so the deadlock path is exercised in practice; the outcome must be
@@ -905,7 +950,7 @@ describe('room DTOs show real season data (test group 19, S5 integration)', () =
     expect(Object.keys(timeline.refs.periods)).toEqual([periodA.id]) // periodB is outside the queried range
   })
 
-  it('an override tail on nights the room is NOT in inventory (period extended past the room\'s last night) yields no segment and no period ref', async () => {
+  it('an override tail on nights the room is NOT in inventory (period extended past the room\'s last night, planted directly in the DB) yields no segment and no period ref', async () => {
     const { scope } = await makeOrg(db)
     const { hotel, floor, roomType } = await setupHotel(scope)
     const ctx = fullCtx(scope, hotel.id)
@@ -914,8 +959,11 @@ describe('room DTOs show real season data (test group 19, S5 integration)', () =
     const period = await createCapacityPeriod(ctx, hotel.id, { name: 'Hajj Tail', kind: 'HAJJ', startDate: '2027-05-01', endDate: '2027-07-31' })
     await apply(ctx, hotel.id, period.id, { selector: { roomIds: [room401.id] }, spec: { mode: 'ABSOLUTE', physicalBeds: 6, sellableCapacity: 6 } })
 
-    // Extending a FUTURE period is a plain date edit (spec rule 2); the override row cascades with it.
-    await updateCapacityPeriod(ctx, hotel.id, period.id, { endDate: '2027-08-20' })
+    // The service refuses to create this state (N1: a date edit must keep every override covered) ...
+    await expect(updateCapacityPeriod(ctx, hotel.id, period.id, { endDate: '2027-08-20' })).rejects.toMatchObject({ code: 'NOT_IN_INVENTORY_FOR_PERIOD', httpStatus: 409 })
+    // ... so it is planted directly (the FK cascade moves the override row with the period) to prove
+    // the timeline read stays defensive about such a tail anyway.
+    await db.update(capacityPeriodTable).set({ endDate: '2027-08-20' }).where(eq(capacityPeriodTable.id, period.id))
     const [overrideRow] = await new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, hotel.id)).findByPeriod(period.id)
     expect(overrideRow?.validTo).toBe('2027-08-20')
 
@@ -1042,5 +1090,147 @@ describe('final-review additions: audit rollback for every write, service-level 
     const ctx = fullCtx(scope, hotel.id)
     await expect(createCapacityPeriod(ctx, hotel.id, { name: 'Nope', kind: 'HAJJ', startDate: '2027-05-01', endDate: '2027-07-31' })).rejects.toMatchObject({ code: 'HOTEL_INACTIVE', httpStatus: 409 })
     await expect(listCapacityPeriods(ctx, hotel.id, { includePast: true })).resolves.toEqual([])
+  })
+})
+
+describe('period date edits keep every override covered by base inventory (N1)', () => {
+  const ABS6 = { mode: 'ABSOLUTE' as const, physicalBeds: 6, sellableCapacity: 6 }
+
+  async function seededPeriod() {
+    const { scope } = await makeOrg(db)
+    const { hotel, floor, roomType } = await setupHotel(scope)
+    const ctx = fullCtx(scope, hotel.id)
+    const room401 = await makeRoom401(ctx, scope, hotel, floor, roomType)
+    const period = await createCapacityPeriod(ctx, hotel.id, { name: 'Hajj 2027', kind: 'HAJJ', startDate: '2027-05-01', endDate: '2027-07-31' })
+    const overrideRepo = new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, hotel.id))
+    return { scope, hotel, floor, roomType, ctx, room401, period, overrideRepo }
+  }
+
+  async function periodRow(periodId: string) {
+    const [row] = await db.select().from(capacityPeriodTable).where(eq(capacityPeriodTable.id, periodId))
+    return row!
+  }
+
+  async function periodUpdateAudits(periodId: string) {
+    return db.select().from(auditLog).where(and(eq(auditLog.entityId, periodId), eq(auditLog.action, 'CAPACITY_PERIOD_UPDATED')))
+  }
+
+  it('the reproduced N1 scenario: override applied, room retired effective 08-01 (allowed), extending the period to 08-20 -> 409 NOT_IN_INVENTORY_FOR_PERIOD; period, override and audit log unchanged', async () => {
+    const { ctx, hotel, room401, period, overrideRepo } = await seededPeriod()
+    await apply(ctx, hotel.id, period.id, { selector: { roomIds: [room401.id] }, spec: ABS6 })
+    await retireRoom(ctx, hotel.id, room401.id, { effectiveFrom: '2027-08-01' }) // the override still ends 07-31: allowed
+
+    await expect(updateCapacityPeriod(ctx, hotel.id, period.id, { endDate: '2027-08-20' })).rejects.toMatchObject({
+      code: 'NOT_IN_INVENTORY_FOR_PERIOD',
+      httpStatus: 409,
+      details: { conflicts: [{ roomId: room401.id, roomNumber: '401', reason: 'NOT_IN_INVENTORY_FOR_PERIOD' }] },
+    })
+
+    expect(await periodRow(period.id)).toMatchObject({ startDate: '2027-05-01', endDate: '2027-07-31' })
+    const overrides = await overrideRepo.findByPeriod(period.id)
+    expect(overrides.map(o => ({ validFrom: o.validFrom, validTo: o.validTo }))).toEqual([{ validFrom: '2027-05-01', validTo: '2027-07-31' }])
+    expect(await periodUpdateAudits(period.id)).toEqual([])
+
+    // A name-only edit of the same period is unaffected (no date change, no coverage check).
+    await expect(updateCapacityPeriod(ctx, hotel.id, period.id, { name: 'Hajj 2027 (renamed)' })).resolves.toMatchObject({ name: 'Hajj 2027 (renamed)', endDate: '2027-07-31' })
+  })
+
+  it('moving the start before an overridden room was commissioned -> 409 NOT_IN_INVENTORY_FOR_PERIOD (the candidate START is checked too), nothing changed', async () => {
+    const { ctx, hotel, floor, roomType, period, overrideRepo } = await seededPeriod()
+    const late = await createRoom(ctx, hotel.id, { floorId: floor.id, roomTypeId: roomType.id, roomNumber: '402', inServiceFrom: '2027-05-01', features: [] })
+    await apply(ctx, hotel.id, period.id, { selector: { roomIds: [late.id] }, spec: ABS6 })
+
+    await expect(updateCapacityPeriod(ctx, hotel.id, period.id, { startDate: '2027-04-20' })).rejects.toMatchObject({
+      code: 'NOT_IN_INVENTORY_FOR_PERIOD',
+      httpStatus: 409,
+      details: { conflicts: [{ roomId: late.id, roomNumber: '402', reason: 'NOT_IN_INVENTORY_FOR_PERIOD' }] },
+    })
+    expect(await periodRow(period.id)).toMatchObject({ startDate: '2027-05-01', endDate: '2027-07-31' })
+    expect((await overrideRepo.findByPeriod(period.id)).map(o => o.validFrom)).toEqual(['2027-05-01'])
+    expect(await periodUpdateAudits(period.id)).toEqual([])
+  })
+
+  it('a valid extension still works: the room stays in inventory through 08-31, extending to 08-20 succeeds and cascades the override; extending to 09-05 (past 08-31) is refused', async () => {
+    const { ctx, hotel, room401, period, overrideRepo } = await seededPeriod()
+    await apply(ctx, hotel.id, period.id, { selector: { roomIds: [room401.id] }, spec: ABS6 })
+    await retireRoom(ctx, hotel.id, room401.id, { effectiveFrom: '2027-09-01' }) // last night in inventory: 2027-08-31
+
+    const updated = await updateCapacityPeriod(ctx, hotel.id, period.id, { endDate: '2027-08-20' })
+    expect(updated).toMatchObject({ endDate: '2027-08-20', overrideCount: 1 })
+    expect(await periodRow(period.id)).toMatchObject({ endDate: '2027-08-20' })
+    expect((await overrideRepo.findByPeriod(period.id)).map(o => ({ validFrom: o.validFrom, validTo: o.validTo }))).toEqual([{ validFrom: '2027-05-01', validTo: '2027-08-20' }])
+    expect(await periodUpdateAudits(period.id)).toHaveLength(1)
+
+    await expect(updateCapacityPeriod(ctx, hotel.id, period.id, { endDate: '2027-09-05' })).rejects.toMatchObject({ code: 'NOT_IN_INVENTORY_FOR_PERIOD', httpStatus: 409 })
+    expect(await periodRow(period.id)).toMatchObject({ endDate: '2027-08-20' })
+    expect((await overrideRepo.findByPeriod(period.id))[0]?.validTo).toBe('2027-08-20')
+    expect(await periodUpdateAudits(period.id)).toHaveLength(1)
+  })
+
+  it('multi-room atomicity: one of three overridden rooms cannot cover the new range -> the WHOLE edit is refused before any write; no period change, no override moved (not even the covered rooms\'), no audit row', async () => {
+    const { ctx, hotel, floor, roomType, room401, period, overrideRepo } = await seededPeriod()
+    const room402 = await createRoom(ctx, hotel.id, { floorId: floor.id, roomTypeId: roomType.id, roomNumber: '402', inServiceFrom: '2025-01-01', features: [] })
+    const room403 = await createRoom(ctx, hotel.id, { floorId: floor.id, roomTypeId: roomType.id, roomNumber: '403', inServiceFrom: '2025-01-01', features: [] })
+    await apply(ctx, hotel.id, period.id, { selector: { roomIds: [room401.id, room402.id, room403.id] }, spec: ABS6 })
+    await retireRoom(ctx, hotel.id, room402.id, { effectiveFrom: '2027-08-01' })
+
+    const periodUpdate = vi.spyOn(CapacityPeriodRepository.prototype, 'update')
+    await expect(updateCapacityPeriod(ctx, hotel.id, period.id, { name: 'Extended', endDate: '2027-08-20' })).rejects.toMatchObject({
+      code: 'NOT_IN_INVENTORY_FOR_PERIOD',
+      httpStatus: 409,
+      details: { conflicts: [{ roomId: room402.id, roomNumber: '402', reason: 'NOT_IN_INVENTORY_FOR_PERIOD' }] },
+    })
+    expect(periodUpdate).not.toHaveBeenCalled() // validated for every room before any write statement
+
+    expect(await periodRow(period.id)).toMatchObject({ name: 'Hajj 2027', startDate: '2027-05-01', endDate: '2027-07-31' })
+    const overrides = await overrideRepo.findByPeriod(period.id)
+    expect(overrides).toHaveLength(3)
+    for (const o of overrides) expect({ validFrom: o.validFrom, validTo: o.validTo }).toEqual({ validFrom: '2027-05-01', validTo: '2027-07-31' })
+    expect(await periodUpdateAudits(period.id)).toEqual([])
+  })
+
+  it('a date edit of a period with NO overrides takes no room lock and needs no coverage check', async () => {
+    const { ctx, hotel, room401, period } = await seededPeriod()
+    await retireRoom(ctx, hotel.id, room401.id, { effectiveFrom: '2027-08-01' }) // irrelevant: the room has no override in this period
+    const lockSpy = vi.spyOn(RoomRepository.prototype, 'lockByIds')
+    const versionsSpy = vi.spyOn(RoomBaseConfigRepository.prototype, 'versionsForRooms')
+
+    await expect(updateCapacityPeriod(ctx, hotel.id, period.id, { endDate: '2027-08-20' })).resolves.toMatchObject({ endDate: '2027-08-20', overrideCount: 0 })
+    expect(lockSpy).not.toHaveBeenCalled()
+    expect(versionsSpy).toHaveBeenCalledTimes(1) // only the response DTO's impact computation (unchanged)
+    expect(await periodUpdateAudits(period.id)).toHaveLength(1)
+  })
+
+  it('an audit-write failure on a covered extension rolls back the period dates AND the cascaded override dates; no audit row', async () => {
+    const { ctx, hotel, room401, period, overrideRepo } = await seededPeriod()
+    await apply(ctx, hotel.id, period.id, { selector: { roomIds: [room401.id] }, spec: ABS6 })
+    const lockSpy = vi.spyOn(RoomRepository.prototype, 'lockByIds')
+    vi.spyOn(AuditRepository.prototype, 'record').mockRejectedValue(new Error('simulated audit failure'))
+
+    await expect(updateCapacityPeriod(ctx, hotel.id, period.id, { endDate: '2027-08-20' })).rejects.toThrow('simulated audit failure')
+    expect(lockSpy).toHaveBeenCalledTimes(1) // the coverage check (room lock) ran and passed — the AUDIT write is what failed
+    vi.restoreAllMocks()
+
+    expect(await periodRow(period.id)).toMatchObject({ startDate: '2027-05-01', endDate: '2027-07-31' })
+    expect((await overrideRepo.findByPeriod(period.id)).map(o => ({ validFrom: o.validFrom, validTo: o.validTo }))).toEqual([{ validFrom: '2027-05-01', validTo: '2027-07-31' }])
+    expect(await periodUpdateAudits(period.id)).toEqual([])
+  })
+
+  it('the period row is locked by updateCapacityPeriod and applyOverrides, but NOT by previewOverrides (still a non-locking read with the same calls)', async () => {
+    const { ctx, hotel, room401, period } = await seededPeriod()
+    const findSpy = vi.spyOn(CapacityPeriodRepository.prototype, 'findById')
+    const lockSpy = vi.spyOn(RoomRepository.prototype, 'lockByIds')
+
+    await preview(ctx, hotel.id, period.id, { selector: { roomIds: [room401.id] }, spec: ABS6 })
+    expect(findSpy.mock.calls).toEqual([[period.id, {}]]) // one plain (unlocked) read, exactly as before
+    expect(lockSpy).not.toHaveBeenCalled()
+
+    findSpy.mockClear()
+    await apply(ctx, hotel.id, period.id, { selector: { roomIds: [room401.id] }, spec: ABS6 })
+    expect(findSpy.mock.calls[0]).toEqual([period.id, { forUpdate: true }])
+
+    findSpy.mockClear()
+    await updateCapacityPeriod(ctx, hotel.id, period.id, { notes: 'locked' })
+    expect(findSpy.mock.calls[0]).toEqual([period.id, { forUpdate: true }])
   })
 })

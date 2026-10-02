@@ -216,4 +216,25 @@ describe('capacity-periods — end-to-end lifecycle over HTTP (acceptance exampl
     const retireAgain = await client.request(`/api/hotels/${hotel.id}/rooms/${room401.id}/retire`, { method: 'POST', cookie, body: { effectiveFrom: isoDaysFromNow(1) } })
     expect(retireAgain.status).toBe(200)
   })
+
+  it('N1: PATCHing a period\'s end past an overridden room\'s retirement -> 409 NOT_IN_INVENTORY_FOR_PERIOD with details.conflicts; the period keeps its dates', async () => {
+    const { cookie, scope } = await loginAs(['room.view', 'room.manage', 'capacity.manage'], { allHotels: true })
+    const { hotel, floor, roomType } = await setupHotel(scope)
+    const room401 = await createRoom401(cookie, hotel.id, floor.id, roomType.id)
+    const created = await client.request(`/api/hotels/${hotel.id}/capacity-periods`, { method: 'POST', cookie, body: { name: 'N1 HTTP', kind: 'HAJJ', startDate: SEASON_START, endDate: SEASON_END } })
+    const applyRes = await client.request(`/api/hotels/${hotel.id}/capacity-periods/${created.json.id}/overrides`, {
+      method: 'POST', cookie, body: { selector: { roomIds: [room401.id] }, spec: { mode: 'ABSOLUTE', physicalBeds: 6, sellableCapacity: 6 } },
+    })
+    expect(applyRes.json).toMatchObject({ applied: 1 })
+    // Retiring the day after the season ends is allowed: the override still ends on SEASON_END.
+    const retireRes = await client.request(`/api/hotels/${hotel.id}/rooms/${room401.id}/retire`, { method: 'POST', cookie, body: { effectiveFrom: isoDaysFromNow(151) } })
+    expect(retireRes.status).toBe(200)
+
+    const patchRes = await client.request(`/api/hotels/${hotel.id}/capacity-periods/${created.json.id}`, { method: 'PATCH', cookie, body: { endDate: isoDaysFromNow(170) } })
+    expectStandardError(patchRes, { status: 409, code: 'NOT_IN_INVENTORY_FOR_PERIOD' })
+    expect(patchRes.json.data.details).toEqual({ conflicts: [{ roomId: room401.id, roomNumber: '401', reason: 'NOT_IN_INVENTORY_FOR_PERIOD' }] })
+
+    const getRes = await client.request(`/api/hotels/${hotel.id}/capacity-periods/${created.json.id}`, { cookie })
+    expect(getRes.json).toMatchObject({ startDate: SEASON_START, endDate: SEASON_END, overrideCount: 1 })
+  })
 })

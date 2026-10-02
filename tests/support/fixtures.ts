@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DbOrTx } from '../../db/client'
 import { hotelRepos, platformRepos, tenantRepos } from '../../server/repositories'
-import type { CapacityPeriodRow, FloorRow, NewCapacityPeriod, NewFloor, NewRoom, NewRoomBaseConfig, NewRoomCapacityOverride, RoomBaseConfigRow, RoomCapacityOverrideRow, RoomRow } from '../../server/repositories/hotel'
+import type { CapacityPeriodRow, FloorRow, NewCapacityPeriod, NewFloor, NewRoom, NewRoomBaseConfig, NewRoomCapacityOverride, NewRoomOperationalBlock, RoomBaseConfigRow, RoomCapacityOverrideRow, RoomOperationalBlockRow, RoomRow } from '../../server/repositories/hotel'
 import type { NewOrganization, OrganizationRow } from '../../server/repositories/platform/organizationRepository'
 import type { HotelRow, NewHotel, NewRoomType, NewUser, RoleRow, RoomTypeRow, UserRow } from '../../server/repositories/tenant'
 import { trustedOrganizationScope, type HotelScope, type OrganizationScope } from '../../server/security/scope'
@@ -119,6 +119,18 @@ export async function makeRoomCapacityOverride(db: DbOrTx, hotelScope: HotelScop
     ...overrides,
   }])
   return row!
+}
+
+/** An ACTIVE operational block written straight through the repository (no service rules) — defaults to a 5-night MAINTENANCE block in 2027. */
+export async function makeRoomBlock(db: DbOrTx, hotelScope: HotelScope, roomId: string, overrides: Partial<NewRoomOperationalBlock> = {}): Promise<RoomOperationalBlockRow> {
+  return hotelRepos(db, hotelScope).operationalBlocks.insert({
+    roomId,
+    kind: 'MAINTENANCE',
+    startDate: '2027-05-01',
+    endDate: '2027-05-05',
+    reason: 'Fixture block',
+    ...overrides,
+  })
 }
 
 /** Adds the permission keys missing from the global catalog (existing descriptions are left alone). */

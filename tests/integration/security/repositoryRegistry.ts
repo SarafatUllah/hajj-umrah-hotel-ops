@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm'
-import { appUser, auditLog, capacityPeriod, floor, hotel, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomType, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
+import { appUser, auditLog, capacityPeriod, floor, hotel, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
 import type { DbOrTx } from '../../../db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
-import { CapacityPeriodRepository, FloorRepository, HotelSettingRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
-import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeRole, makeRoom, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
+import { CapacityPeriodRepository, FloorRepository, HotelSettingRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
+import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
 /**
  * Behavioral tenant-isolation registry: one entry per `ClassName.method` of every scoped repository.
@@ -45,6 +45,24 @@ const foreignKeyViolation = (error: unknown) => pgCode(error) === '23503'
 
 async function assertNoRows(rows: unknown[], what: string) {
   if (rows.length !== 0) throw new Error(`${what}: expected no rows, found ${rows.length}`)
+}
+
+/** Task 16: org A's hotel + in-service room (+ optionally one ACTIVE 2027-05-01..05-10 MAINTENANCE block). */
+async function arrangeBlockRoom(db: DbOrTx, orgA: OrganizationScope, withBlock: boolean) {
+  const hotelRow = await makeHotel(db, orgA)
+  const scopeA = trustedHotelScope(orgA, hotelRow.id)
+  const floorRow = await makeFloor(db, scopeA)
+  const roomTypeRow = await makeRoomType(db, orgA)
+  const { room: roomRow } = await makeRoomWithVersion(db, scopeA, floorRow.id, roomTypeRow.id, {}, { validFrom: '2025-01-01', validTo: null })
+  const block = withBlock ? await makeRoomBlock(db, scopeA, roomRow.id, { startDate: '2027-05-01', endDate: '2027-05-10' }) : null
+  return { hotelId: hotelRow.id, roomId: roomRow.id, blockId: block?.id ?? '' }
+}
+
+/** Task 16: org A's block must still be active and unshortened (no cancellation/early-end leaked across the scope). */
+async function assertBlockUntouched(db: DbOrTx, blockId: string) {
+  const [row] = await db.select().from(roomOperationalBlock).where(eq(roomOperationalBlock.id, blockId))
+  if (!row) throw new Error('room_operational_block of org A: expected the row to still exist')
+  if (row.cancelledAt !== null || row.endedEarlyAt !== null || row.endDate !== '2027-05-10') throw new Error('room_operational_block of org A: expected the row to be unchanged')
 }
 
 export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
@@ -354,6 +372,16 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: (db, scope, ids) => new FloorRepository(db, trustedHotelScope(scope, ids.hotelId)).findById(ids.floorId),
     expect: 'null',
   }),
+  // Task 15 selector validation (fix round): one batched existence check for `floorIds`.
+  'FloorRepository.findByIds': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      return { hotelId: hotelRow.id, floorId: floorRow.id }
+    },
+    act: (db, scope, ids) => new FloorRepository(db, trustedHotelScope(scope, ids.hotelId)).findByIds([ids.floorId]),
+    expect: 'empty',
+  }),
   'FloorRepository.findByLevel': isolationCase({
     arrange: async (db, orgA) => {
       const hotelRow = await makeHotel(db, orgA)
@@ -419,6 +447,12 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     arrange: async (db, orgA) => ({ roomTypeId: (await makeRoomType(db, orgA)).id }),
     act: (db, scope, ids) => new RoomTypeRepository(db, scope).findById(ids.roomTypeId),
     expect: 'null',
+  }),
+  // Task 15 selector validation (fix round): one batched existence check for `roomTypeIds`.
+  'RoomTypeRepository.findByIds': isolationCase({
+    arrange: async (db, orgA) => ({ roomTypeId: (await makeRoomType(db, orgA)).id }),
+    act: (db, scope, ids) => new RoomTypeRepository(db, scope).findByIds([ids.roomTypeId]),
+    expect: 'empty',
   }),
   'RoomTypeRepository.findByCode': isolationCase({
     arrange: async (db, orgA) => ({ code: (await makeRoomType(db, orgA)).code }),
@@ -508,17 +542,33 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     rejection: foreignKeyViolation,
     unchanged: async (db, ids) => assertNoRows(await db.select().from(room).where(eq(room.hotelId, ids.hotelId)), 'room of org A\'s hotel'),
   }),
-  'RoomRepository.findById': isolationCase({
-    arrange: async (db, orgA) => {
-      const hotelRow = await makeHotel(db, orgA)
-      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
-      const roomTypeRow = await makeRoomType(db, orgA)
-      const roomRow = await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
-      return { hotelId: hotelRow.id, roomId: roomRow.id }
-    },
-    act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).findById(ids.roomId),
-    expect: 'null',
-  }),
+  'RoomRepository.findById': [
+    isolationCase({
+      name: 'plain read',
+      arrange: async (db, orgA) => {
+        const hotelRow = await makeHotel(db, orgA)
+        const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+        const roomTypeRow = await makeRoomType(db, orgA)
+        const roomRow = await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+        return { hotelId: hotelRow.id, roomId: roomRow.id }
+      },
+      act: (db, scope, ids) => new RoomRepository(db, trustedHotelScope(scope, ids.hotelId)).findById(ids.roomId),
+      expect: 'null',
+    }),
+    // Task 16 fix round: the locked read (retire / block create) is the same scoped lookup — a foreign room is not returned.
+    isolationCase({
+      name: 'locked read (forUpdate)',
+      arrange: async (db, orgA) => {
+        const hotelRow = await makeHotel(db, orgA)
+        const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+        const roomTypeRow = await makeRoomType(db, orgA)
+        const roomRow = await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+        return { hotelId: hotelRow.id, roomId: roomRow.id }
+      },
+      act: (db, scope, ids) => db.transaction(tx => new RoomRepository(tx, trustedHotelScope(scope, ids.hotelId)).findById(ids.roomId, { forUpdate: true })),
+      expect: 'null',
+    }),
+  ],
   'RoomRepository.findByNumber': isolationCase({
     arrange: async (db, orgA) => {
       const hotelRow = await makeHotel(db, orgA)
@@ -740,6 +790,19 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     expect: 'empty',
   }),
 
+  // Task 16 fix round: the multi-room lock (bulk block create, override apply) — a foreign room is neither returned nor locked.
+  'RoomRepository.lockByIds': isolationCase({
+    arrange: async (db, orgA) => {
+      const hotelRow = await makeHotel(db, orgA)
+      const floorRow = await makeFloor(db, trustedHotelScope(orgA, hotelRow.id))
+      const roomTypeRow = await makeRoomType(db, orgA)
+      const roomRow = await makeRoom(db, trustedHotelScope(orgA, hotelRow.id), floorRow.id, roomTypeRow.id)
+      return { hotelId: hotelRow.id, roomId: roomRow.id }
+    },
+    act: (db, scope, ids) => db.transaction(tx => new RoomRepository(tx, trustedHotelScope(scope, ids.hotelId)).lockByIds([ids.roomId])),
+    expect: 'empty',
+  }),
+
   // Task 15: CapacityPeriodRepository (Hotel scope, same construction as FloorRepository's cases above).
   'CapacityPeriodRepository.insert': isolationCase({
     arrange: async (db, orgA) => ({ hotelId: (await makeHotel(db, orgA)).id }),
@@ -751,15 +814,29 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     rejection: foreignKeyViolation,
     unchanged: async (db, ids) => assertNoRows(await db.select().from(capacityPeriod).where(eq(capacityPeriod.hotelId, ids.hotelId)), 'capacity_period of org A\'s hotel'),
   }),
-  'CapacityPeriodRepository.findById': isolationCase({
-    arrange: async (db, orgA) => {
-      const hotelRow = await makeHotel(db, orgA)
-      const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
-      return { hotelId: hotelRow.id, periodId: period.id }
-    },
-    act: (db, scope, ids) => new CapacityPeriodRepository(db, trustedHotelScope(scope, ids.hotelId)).findById(ids.periodId),
-    expect: 'null',
-  }),
+  'CapacityPeriodRepository.findById': [
+    isolationCase({
+      name: 'plain read',
+      arrange: async (db, orgA) => {
+        const hotelRow = await makeHotel(db, orgA)
+        const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+        return { hotelId: hotelRow.id, periodId: period.id }
+      },
+      act: (db, scope, ids) => new CapacityPeriodRepository(db, trustedHotelScope(scope, ids.hotelId)).findById(ids.periodId),
+      expect: 'null',
+    }),
+    // Task 16 fix round (N1): the locked read (period date edit / override apply) is the same scoped lookup — a foreign period is not returned.
+    isolationCase({
+      name: 'locked read (forUpdate)',
+      arrange: async (db, orgA) => {
+        const hotelRow = await makeHotel(db, orgA)
+        const period = await makeCapacityPeriod(db, trustedHotelScope(orgA, hotelRow.id))
+        return { hotelId: hotelRow.id, periodId: period.id }
+      },
+      act: (db, scope, ids) => db.transaction(tx => new CapacityPeriodRepository(tx, trustedHotelScope(scope, ids.hotelId)).findById(ids.periodId, { forUpdate: true })),
+      expect: 'null',
+    }),
+  ],
   'CapacityPeriodRepository.list': isolationCase({
     arrange: async (db, orgA) => {
       const hotelRow = await makeHotel(db, orgA)
@@ -989,6 +1066,70 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
       return { hotelId: hotelRow.id, roomId: roomRow.id }
     },
     act: async (db, scope, ids) => (await new RoomCapacityOverrideRepository(db, trustedHotelScope(scope, ids.hotelId)).existsEndingOnOrAfter(ids.roomId, '2027-01-01')) ? 1 : 0,
+    expect: 'zero-affected',
+  }),
+
+  // Task 16: OperationalBlockRepository (Hotel scope). No delete method exists (blocks are never deleted).
+  'OperationalBlockRepository.insert': isolationCase({
+    arrange: (db, orgA) => arrangeBlockRoom(db, orgA, false),
+    act: async (db, scope, ids) => {
+      await new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).insert({ roomId: ids.roomId, kind: 'MAINTENANCE', startDate: '2027-05-01', endDate: '2027-05-05', reason: 'probe' })
+      return db.select().from(roomOperationalBlock).where(eq(roomOperationalBlock.roomId, ids.roomId))
+    },
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+    unchanged: async (db, ids) => assertNoRows(await db.select().from(roomOperationalBlock).where(eq(roomOperationalBlock.roomId, ids.roomId)), 'room_operational_block of org A\'s room'),
+  }),
+  'OperationalBlockRepository.insertMany': isolationCase({
+    arrange: (db, orgA) => arrangeBlockRoom(db, orgA, false),
+    act: async (db, scope, ids) => {
+      await new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).insertMany([{ roomId: ids.roomId, kind: 'MAINTENANCE', startDate: '2027-05-01', endDate: '2027-05-05', reason: 'probe' }])
+      return db.select().from(roomOperationalBlock).where(eq(roomOperationalBlock.roomId, ids.roomId))
+    },
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+    unchanged: async (db, ids) => assertNoRows(await db.select().from(roomOperationalBlock).where(eq(roomOperationalBlock.roomId, ids.roomId)), 'room_operational_block of org A\'s room'),
+  }),
+  'OperationalBlockRepository.findById': isolationCase({
+    arrange: (db, orgA) => arrangeBlockRoom(db, orgA, true),
+    act: (db, scope, ids) => new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).findById(ids.blockId),
+    expect: 'null',
+  }),
+  'OperationalBlockRepository.findViewsByIds': isolationCase({
+    arrange: (db, orgA) => arrangeBlockRoom(db, orgA, true),
+    act: (db, scope, ids) => new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).findViewsByIds([ids.blockId]),
+    expect: 'empty',
+  }),
+  'OperationalBlockRepository.list': isolationCase({
+    arrange: (db, orgA) => arrangeBlockRoom(db, orgA, true),
+    act: async (db, scope, ids) => (await new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).list({ from: '2027-01-01', to: '2027-12-31', includeCancelled: true, page: 1, pageSize: 50 })).rows,
+    expect: 'empty',
+  }),
+  'OperationalBlockRepository.findActiveOverlapping': isolationCase({
+    arrange: (db, orgA) => arrangeBlockRoom(db, orgA, true),
+    act: (db, scope, ids) => new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).findActiveOverlapping([ids.roomId], { from: '2027-05-01', to: '2027-05-31' }),
+    expect: 'empty',
+  }),
+  'OperationalBlockRepository.markCancelled': isolationCase({
+    arrange: (db, orgA) => arrangeBlockRoom(db, orgA, true),
+    act: (db, scope, ids) => new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).markCancelled(ids.blockId, new Date(), '00000000-0000-0000-0000-0000000000bb', 'probe'),
+    expect: 'null',
+    unchanged: (db, ids) => assertBlockUntouched(db, ids.blockId),
+  }),
+  'OperationalBlockRepository.endEarly': isolationCase({
+    arrange: (db, orgA) => arrangeBlockRoom(db, orgA, true),
+    act: (db, scope, ids) => new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).endEarly(ids.blockId, { newEndDate: '2027-05-05', at: new Date(), by: '00000000-0000-0000-0000-0000000000bb', reason: 'probe' }),
+    expect: 'null',
+    unchanged: (db, ids) => assertBlockUntouched(db, ids.blockId),
+  }),
+  'OperationalBlockRepository.findActiveForRoomsOn': isolationCase({
+    arrange: (db, orgA) => arrangeBlockRoom(db, orgA, true),
+    act: (db, scope, ids) => new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).findActiveForRoomsOn([ids.roomId], '2027-05-03'),
+    expect: 'empty',
+  }),
+  'OperationalBlockRepository.existsActiveEndingOnOrAfter': isolationCase({
+    arrange: (db, orgA) => arrangeBlockRoom(db, orgA, true),
+    act: async (db, scope, ids) => (await new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).existsActiveEndingOnOrAfter(ids.roomId, '2027-01-01')) ? 1 : 0,
     expect: 'zero-affected',
   }),
 }

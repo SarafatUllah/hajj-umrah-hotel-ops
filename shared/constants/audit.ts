@@ -28,6 +28,9 @@ export const AUDIT_ACTIONS = [
   'BLOCK_CREATED',
   'BLOCK_CANCELLED',
   'BLOCK_ENDED_EARLY',
+  // PF-21: the bulk-block summary row (entityType 'hotel', entityId = hotelId), written once per bulk
+  // request alongside one BLOCK_CREATED row per block.
+  'BLOCKS_BULK_CREATED',
   'DOCUMENT_ADDED',
   'DOCUMENT_ARCHIVED',
   'DEMO_RESET',

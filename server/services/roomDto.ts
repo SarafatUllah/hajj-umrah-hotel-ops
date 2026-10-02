@@ -1,10 +1,10 @@
 import type { BaseConfigOrigin, CapacityPeriodKind, InventoryStatus, RoomFeature } from '../../shared/constants/inventory'
 import { type IsoDate, toEpochDay } from '../../shared/utils/dates'
 import { type BaseVersion, type CapacityOverride, baseCapacityAt, effectiveCapacityAt } from '../domain/inventory/capacity'
-import { type CalendarOptions, buildRoomSegments } from '../domain/inventory/calendar'
+import { type BlockInput, type CalendarOptions, buildRoomSegments } from '../domain/inventory/calendar'
 import { type PeriodPhase, periodPhase } from '../domain/inventory/capacityPeriodRules'
 import { nextCapacityChange, type NextChangeCapacity } from '../domain/inventory/nextChange'
-import type { FloorRow, RoomBaseConfigRow, RoomCapacityOverrideRow, RoomRow } from '../repositories/hotel'
+import type { FloorRow, RoomBaseConfigRow, RoomCapacityOverrideRow, RoomOperationalBlockRow, RoomRow } from '../repositories/hotel'
 import type { RoomTypeRow } from '../repositories/tenant'
 
 export type { PeriodPhase }
@@ -41,13 +41,13 @@ export interface RoomDetail extends RoomListItem {
   seasons: Array<{ overrideId: string, period: PeriodRef & { phase: PeriodPhase }, physicalBeds: number, sellableCapacity: number }>
 }
 
-/** No operational blocks exist yet (Task 16 supplies them). */
-const NO_BLOCKS: never[] = []
-/** `maintenanceBlocksSales` is irrelevant with zero blocks (Task 16 supplies the real hotel setting); a fixed value keeps `buildRoomSegments`' call shape stable. */
-const CALENDAR_OPTIONS: CalendarOptions = { maintenanceBlocksSales: true }
-
 export function toBaseVersion(row: RoomBaseConfigRow): BaseVersion {
   return { validFrom: row.validFrom, validTo: row.validTo, physicalBeds: row.physicalBeds, sellableCapacity: row.sellableCapacity }
+}
+
+/** `BlockInput` (the pure calendar shape) from a persisted, ACTIVE block row (callers pass only non-cancelled blocks). */
+export function toBlockInput(row: RoomOperationalBlockRow): BlockInput {
+  return { id: row.id, kind: row.kind as BlockInput['kind'], from: row.startDate, to: row.endDate }
 }
 
 /** `CapacityOverride` (the pure domain shape) from a persisted override row — drops `id`/`organizationId`/etc., which the domain layer never needs. */
@@ -81,14 +81,18 @@ export interface RoomDtoRefs {
   overrides: CapacityOverride[]
   /** Resolved `PeriodRef`s for every `periodId` appearing in `overrides`, keyed by period id. */
   periodRefs: Map<string, PeriodRef>
+  /** The room's ACTIVE operational blocks covering `asOf` (Task 16, S5) — they decide `status` with the verified precedence. */
+  blocks: BlockInput[]
+  /** The hotel's calendar options (its `inventory.maintenanceBlocksSales` setting). */
+  calendarOptions: CalendarOptions
   asOf: IsoDate
 }
 
 export function toRoomListItem(refs: RoomDtoRefs): RoomListItem {
-  const { room, floor, roomType, versions, overrides, periodRefs, asOf } = refs
+  const { room, floor, roomType, versions, overrides, periodRefs, blocks, calendarOptions, asOf } = refs
   const base = baseCapacityAt(versions, asOf)
   const effective = effectiveCapacityAt(versions, overrides, asOf)
-  const segments = buildRoomSegments({ roomId: room.id, versions, overrides, blocks: NO_BLOCKS }, { from: asOf, to: asOf }, CALENDAR_OPTIONS)
+  const segments = buildRoomSegments({ roomId: room.id, versions, overrides, blocks }, { from: asOf, to: asOf }, calendarOptions)
   const status = segments[0]!.status
 
   return {

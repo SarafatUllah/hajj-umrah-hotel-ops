@@ -64,9 +64,30 @@ export class RoomRepository {
     return this.q.insertMany(room, valuesList).returning()
   }
 
-  async findById(id: string): Promise<RoomRow | null> {
-    const [row] = await this.q.select(room, eq(room.id, id), { limit: 1 })
+  /**
+   * One room of this hotel, or null. `forUpdate` row-locks it: the room row is the serialization
+   * point for every write that changes or depends on the room's dated inventory (retirement vs.
+   * block create / override apply) — a concurrent writer of the same room waits here and then
+   * reads the committed state. Only meaningful inside a transaction.
+   */
+  async findById(id: string, options: { forUpdate?: boolean } = {}): Promise<RoomRow | null> {
+    const [row] = await this.q.select(room, eq(room.id, id), { limit: 1, forUpdate: options.forUpdate })
     return row ?? null
+  }
+
+  /**
+   * Row-locks (`FOR UPDATE`) every room of this hotel among `ids` in ONE statement and returns them,
+   * ordered by id. The ids are de-duplicated and the statement is `ORDER BY id`, so PostgreSQL
+   * acquires the row locks in ascending-id order — every multi-room locker (bulk block create,
+   * override apply) takes them in the same global order, so two of them can never deadlock on each
+   * other's rooms. An id that is not a room of this hotel is simply absent from the result (and never
+   * locked): the scope predicate is part of the locked statement itself. Only meaningful inside a
+   * transaction.
+   */
+  async lockByIds(ids: readonly string[]): Promise<RoomRow[]> {
+    const unique = [...new Set(ids)].sort()
+    if (unique.length === 0) return []
+    return this.q.select(room, inArray(room.id, unique), { orderBy: [asc(room.id)], forUpdate: true })
   }
 
   /** `roomNumber` must already be normalized (`normalizeRoomNumber`) — this is an exact-match lookup, used for the lifetime-uniqueness check. */

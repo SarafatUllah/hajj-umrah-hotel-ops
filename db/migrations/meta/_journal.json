@@ -43,6 +43,13 @@
       "when": 1790804552998,
       "tag": "0005_capacity_periods",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790869721821,
+      "tag": "0006_room_blocks",
+      "breakpoints": true
     }
   ]
 }

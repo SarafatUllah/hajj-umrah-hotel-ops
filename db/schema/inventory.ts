@@ -166,3 +166,47 @@ export const roomCapacityOverride = pgTable('room_capacity_override', {
   check('room_override_beds_check', sql`${t.physicalBeds} between 1 and 30`),
   check('room_override_sellable_check', sql`${t.sellableCapacity} between 0 and 30`),
 ])
+
+/**
+ * Task 16 (D3): the date-effective operational layer — a room unavailable for a dated, reasoned cause
+ * (operational block, maintenance, out of service). There is deliberately NO mutable room status:
+ * a room's status on a night is DERIVED by `buildRoomSegments` from base config + overrides + these
+ * rows. Rows are never deleted: an unstarted block is soft-cancelled (`cancelled_*`), a running one is
+ * ended early (`end_date` moved to yesterday, the planned last night kept in `original_end_date`,
+ * S11). The same-kind no-overlap exclusion constraint (`room_block_no_overlap`, active rows only) is
+ * appended by hand to migration 0006 after `drizzle-kit generate`, like Tasks 14/15's constraints.
+ */
+export const roomOperationalBlock = pgTable('room_operational_block', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: orgCol(),
+  hotelId: uuid('hotel_id').notNull(),
+  roomId: uuid('room_id').notNull(),
+  kind: text('kind').notNull(),
+  startDate: date('start_date', { mode: 'string' }).notNull(),
+  endDate: date('end_date', { mode: 'string' }).notNull(),
+  reason: text('reason').notNull(),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  cancelledBy: uuid('cancelled_by'),
+  cancelReason: text('cancel_reason'), // reason for a cancellation OR an early end (S11)
+  endedEarlyAt: timestamp('ended_early_at', { withTimezone: true }), // S11
+  endedEarlyBy: uuid('ended_early_by'), // S11
+  originalEndDate: date('original_end_date', { mode: 'string' }), // S11: the planned last night before the early end
+}, t => [
+  foreignKey({ columns: [t.organizationId, t.hotelId, t.roomId], foreignColumns: [room.organizationId, room.hotelId, room.id], name: 'room_block_room_fk' }),
+  index('room_block_org_hotel_idx').on(t.organizationId, t.hotelId),
+  // PF-6: the brief's verbatim block only indexes (organization_id, hotel_id) — added here so the FULL
+  // 3-column room_block_room_fk is covered by an index's leading columns (the global "every FK column
+  // set gets an index" rule; the GiST exclusion index is partial and leads with room_id alone, so it
+  // does not count), and so the list's `roomId` filter / the retire guard / room-status reads are
+  // indexed; plus a date index for the list's window (`start_date <= to AND end_date >= from`).
+  index('room_block_room_idx').on(t.organizationId, t.hotelId, t.roomId),
+  index('room_block_dates_idx').on(t.organizationId, t.hotelId, t.startDate, t.endDate),
+  check('room_block_kind_check', sql`${t.kind} in ('OPERATIONAL_BLOCK', 'MAINTENANCE', 'OUT_OF_SERVICE')`),
+  check('room_block_range_check', sql`${t.startDate} <= ${t.endDate}`),
+  check('room_block_reason_check', sql`char_length(btrim(${t.reason})) > 0`),
+  check('room_block_ended_early_check', sql`(${t.endedEarlyAt} is null) = (${t.originalEndDate} is null) and (${t.endedEarlyAt} is null) = (${t.endedEarlyBy} is null)`), // S11: all or none
+  check('room_block_end_state_check', sql`${t.endedEarlyAt} is null or ${t.cancelledAt} is null`), // S11: cancelled xor ended early
+  check('room_block_original_end_check', sql`${t.originalEndDate} is null or ${t.originalEndDate} > ${t.endDate}`), // S11
+])

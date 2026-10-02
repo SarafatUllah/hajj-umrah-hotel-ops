@@ -1,4 +1,4 @@
-import { asc, eq, sql } from 'drizzle-orm'
+import { asc, eq, inArray, sql } from 'drizzle-orm'
 import type { DbOrTx } from '../../../db/client'
 import { room, roomBaseConfig, roomType } from '../../../db/schema'
 import type { OrganizationScope } from '../../security/scope'
@@ -26,6 +26,12 @@ export class RoomTypeRepository {
   async findById(id: string): Promise<RoomTypeRow | null> {
     const [row] = await this.q.select(roomType, eq(roomType.id, id), { limit: 1 })
     return row ?? null
+  }
+
+  /** Bulk id lookup, organization-scoped — Task 15's `roomTypeIds` override selector validates every id in ONE query (same pattern as `RoomRepository.findByIds`). */
+  async findByIds(ids: readonly string[]): Promise<RoomTypeRow[]> {
+    if (ids.length === 0) return []
+    return this.q.select(roomType, inArray(roomType.id, ids as string[]))
   }
 
   async findByCode(code: string): Promise<RoomTypeRow | null> {

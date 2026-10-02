@@ -81,6 +81,20 @@ export const CONSTRAINT_MESSAGES: Record<string, { kind: 'conflict' | 'validatio
   // own (organization_id, hotel_id, period_id, valid_from, valid_to) is structurally impossible to
   // insert/update without violating this composite FK first.
   room_override_period_dates_fk: { kind: 'validation', code: 'INVALID_REFERENCE', message: 'An override\'s dates must match its capacity period\'s dates' },
+  // Task 16: exclusion_violation (23P01) -> kind 'conflict'. Fires when a room would get two ACTIVE
+  // blocks of the SAME kind on one night (the DB is the final arbiter against concurrent creates; the
+  // service's friendly BLOCK_OVERLAP pre-check runs first). Its 40P01 deadlock twin is handled by the
+  // block service's local translateBlockWriteError, exactly like Task 15's override writes.
+  room_block_no_overlap: { kind: 'conflict', code: 'RANGE_OVERLAP', message: 'This room already has an active block of the same kind on one or more of these nights' },
+  // Task 16: foreign_key_violation (23503) — the block's room must belong to the same organization AND hotel.
+  room_block_room_fk: { kind: 'validation', code: 'INVALID_REFERENCE', message: 'The room does not belong to this hotel' },
+  // Task 16: check_violation (23514) — kind 'validation'; the generic CONSTRAINT_VIOLATION code, with a specific message.
+  room_block_kind_check: { kind: 'validation', code: 'CONSTRAINT_VIOLATION', message: 'Unknown block kind' },
+  room_block_range_check: { kind: 'validation', code: 'CONSTRAINT_VIOLATION', message: 'A block\'s end date must not be before its start date' },
+  room_block_reason_check: { kind: 'validation', code: 'CONSTRAINT_VIOLATION', message: 'A block needs a non-blank reason' },
+  room_block_ended_early_check: { kind: 'validation', code: 'CONSTRAINT_VIOLATION', message: 'An early end records its time, actor and original end date together' },
+  room_block_end_state_check: { kind: 'validation', code: 'CONSTRAINT_VIOLATION', message: 'A block cannot be both cancelled and ended early' },
+  room_block_original_end_check: { kind: 'validation', code: 'CONSTRAINT_VIOLATION', message: 'An ended-early block\'s original end must be after its new end' },
 }
 
 /** Generic mapping by SQLSTATE, applied before the per-constraint registry above. */

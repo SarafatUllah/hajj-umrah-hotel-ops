@@ -1,3 +1,4 @@
+import { resolveSettings } from '../../shared/business-rules/hotelSettings'
 import type { BaseConfigOrigin, CapacityPeriodKind } from '../../shared/constants/inventory'
 import { MAX_BULK_ROOMS, MAX_CALENDAR_DAYS } from '../../shared/constants/inventory'
 import type {
@@ -9,9 +10,10 @@ import type {
   RetireRoomInput,
   UpdateRoomInput,
 } from '../../shared/schemas/room'
-import { addDays, todayInTimezone } from '../../shared/utils/dates'
+import { addDays, type IsoDate, todayInTimezone } from '../../shared/utils/dates'
 import { normalizeRoomNumber } from '../../shared/utils/roomNumber'
 import { type BaseVersionRow, planBaseChange, planReactivate, planRetire } from '../domain/inventory/baseVersions'
+import type { BlockInput, CalendarOptions } from '../domain/inventory/calendar'
 import type { CapacityOverride } from '../domain/inventory/capacity'
 import { InventoryRuleError } from '../domain/inventory/rules'
 import { translateDbError } from '../errors/dbErrors'
@@ -22,7 +24,7 @@ import type { HotelRow, RoomTypeRow } from '../repositories/tenant'
 import type { AuthContext } from '../security/authContext'
 import { authorizeHotel } from '../security/authorize'
 import { recordAudit } from './audit'
-import { type PeriodRef, type RoomDetail, type RoomListItem, toBaseVersion, toCapacityOverride, toRoomDetail, toRoomListItem } from './roomDto'
+import { type PeriodRef, type RoomDetail, type RoomListItem, toBaseVersion, toBlockInput, toCapacityOverride, toRoomDetail, toRoomListItem } from './roomDto'
 
 export interface RoomListPage {
   items: RoomListItem[]
@@ -56,12 +58,33 @@ async function periodRefsFor(hotelScoped: ReturnType<typeof hotelRepos>, overrid
 }
 
 /**
+ * Task 16 (S5): the hotel's calendar options, read through the same `hotel_setting` mechanism as
+ * `hotelService`'s settings (stored rows + registry defaults via `resolveSettings`) — ONE query.
+ * `maintenanceBlocksSales` only changes whether a MAINTENANCE night is SELLABLE, never the displayed
+ * `status`, and never what is stored.
+ */
+async function calendarOptionsFor(hotelScoped: ReturnType<typeof hotelRepos>): Promise<CalendarOptions> {
+  const rows = await hotelScoped.settings.getAll()
+  const stored: Record<string, unknown> = {}
+  for (const row of rows) stored[row.key] = row.value
+  return { maintenanceBlocksSales: resolveSettings(stored)['inventory.maintenanceBlocksSales'] }
+}
+
+/** Task 16 (S5): every ACTIVE block of `roomIds` covering `date`, grouped by room — ONE query for the whole page, never one per room. */
+async function blocksByRoomOn(hotelScoped: ReturnType<typeof hotelRepos>, roomIds: readonly string[], date: IsoDate): Promise<Map<string, BlockInput[]>> {
+  const rows = await hotelScoped.operationalBlocks.findActiveForRoomsOn(roomIds, date)
+  const map = new Map<string, BlockInput[]>()
+  for (const b of rows) map.set(b.roomId, [...(map.get(b.roomId) ?? []), toBlockInput(b)])
+  return map
+}
+
+/**
  * Looks the room up scoped to the ALREADY-authorized `HotelScope` (never a bare global-id lookup) —
  * a room belonging to another hotel of the same org, another org, or no room at all, are all
  * indistinguishable 404s here, exactly like `loadFloorInScope`/`loadRoomTypeInScope` in Task 12/13.
  */
-async function loadRoomInScope(hotelScoped: ReturnType<typeof hotelRepos>, roomId: string): Promise<RoomRow> {
-  const row = await hotelScoped.rooms.findById(roomId)
+async function loadRoomInScope(hotelScoped: ReturnType<typeof hotelRepos>, roomId: string, options: { forUpdate?: boolean } = {}): Promise<RoomRow> {
+  const row = await hotelScoped.rooms.findById(roomId, options)
   if (!row) throw new NotFoundError('ROOM_NOT_FOUND')
   return row
 }
@@ -83,16 +106,18 @@ async function loadActiveRoomTypeRef(tenant: ReturnType<typeof tenantRepos>, roo
 }
 
 async function buildRoomDetail(ctx: AuthContext, hotel: HotelRow, hotelScoped: ReturnType<typeof hotelRepos>, tenant: ReturnType<typeof tenantRepos>, roomRow: RoomRow): Promise<RoomDetail> {
-  const [floorRow, roomTypeRow, versionRows, overrideRows] = await Promise.all([
+  const today = todayInTimezone(hotel.timezone, ctx.now())
+  const [floorRow, roomTypeRow, versionRows, overrideRows, blocksByRoom, calendarOptions] = await Promise.all([
     hotelScoped.floors.findById(roomRow.floorId),
     tenant.roomTypes.findById(roomRow.roomTypeId),
     hotelScoped.roomBaseConfigs.versionsForRoom(roomRow.id),
     hotelScoped.roomCapacityOverrides.findAllForRoom(roomRow.id),
+    blocksByRoomOn(hotelScoped, [roomRow.id], today),
+    calendarOptionsFor(hotelScoped),
   ])
   if (!floorRow || !roomTypeRow) throw new ConflictError('ROOM_NOT_FOUND', 'Room no longer exists')
 
   const periodRefs = await periodRefsFor(hotelScoped, overrideRows)
-  const today = todayInTimezone(hotel.timezone, ctx.now())
 
   return toRoomDetail({
     room: roomRow,
@@ -101,6 +126,8 @@ async function buildRoomDetail(ctx: AuthContext, hotel: HotelRow, hotelScoped: R
     versions: versionRows.map(toBaseVersion),
     overrides: overrideRows.map(toCapacityOverride),
     periodRefs,
+    blocks: blocksByRoom.get(roomRow.id) ?? [],
+    calendarOptions,
     baseVersionRows: versionRows,
     overrideRows,
     today,
@@ -119,8 +146,9 @@ export async function getRoom(ctx: AuthContext, hotelId: string, roomId: string)
 /**
  * Filtered, paginated room list. A FIXED number of statements regardless of page size: one for the
  * page of rooms (+ one for its total count), one batched `versionsForRooms` for every room on the
- * page, and one unfiltered `floors.list`/`roomTypes.list` each (small, whole-hotel/whole-org
- * lookups) — never one query per room.
+ * page, one batched override read and one batched ACTIVE-block read (`findActiveForRoomsOn`, Task 16)
+ * for those room ids, one `hotel_setting` read, and one unfiltered `floors.list`/`roomTypes.list`
+ * each (small, whole-hotel/whole-org lookups) — never one query per room.
  */
 export async function listRooms(ctx: AuthContext, hotelId: string, query: ListRoomsQuery): Promise<RoomListPage> {
   const { hotel, scope } = await authorizeHotel(ctx, 'room.view', hotelId, { allowInactive: true })
@@ -145,11 +173,14 @@ export async function listRooms(ctx: AuthContext, hotelId: string, query: ListRo
   // may be an upcoming season boundary, not just a base-config change, so the window must reach as
   // far as nextCapacityChange itself ever looks. Still ONE query for the whole page.
   const horizonEnd = addDays(asOf, MAX_CALENDAR_DAYS - 1)
-  const [versionRows, floorRows, roomTypeRows, overrideRows] = await Promise.all([
-    hotelScoped.roomBaseConfigs.versionsForRooms(page.rows.map(r => r.id)),
+  const pageRoomIds = page.rows.map(r => r.id)
+  const [versionRows, floorRows, roomTypeRows, overrideRows, blocksByRoom, calendarOptions] = await Promise.all([
+    hotelScoped.roomBaseConfigs.versionsForRooms(pageRoomIds),
     hotelScoped.floors.list({ includeInactive: true }),
     tenant.roomTypes.list({ includeInactive: true }),
-    hotelScoped.roomCapacityOverrides.findByRoomIds(page.rows.map(r => r.id), { from: asOf, to: horizonEnd }),
+    hotelScoped.roomCapacityOverrides.findByRoomIds(pageRoomIds, { from: asOf, to: horizonEnd }),
+    blocksByRoomOn(hotelScoped, pageRoomIds, asOf),
+    calendarOptionsFor(hotelScoped),
   ])
   const periodRefs = await periodRefsFor(hotelScoped, overrideRows)
 
@@ -166,7 +197,7 @@ export async function listRooms(ctx: AuthContext, hotelId: string, query: ListRo
     if (!floorRow || !roomTypeRow) throw new ConflictError('ROOM_NOT_FOUND', 'Room no longer exists')
     const versions = (versionsByRoom.get(roomRow.id) ?? []).map(toBaseVersion)
     const overrides = overridesByRoom.get(roomRow.id) ?? []
-    return toRoomListItem({ room: roomRow, floor: floorRow, roomType: roomTypeRow, versions, overrides, periodRefs, asOf })
+    return toRoomListItem({ room: roomRow, floor: floorRow, roomType: roomTypeRow, versions, overrides, periodRefs, blocks: blocksByRoom.get(roomRow.id) ?? [], calendarOptions, asOf })
   })
 
   return { items, page: query.page, pageSize: query.pageSize, total: page.total }
@@ -248,6 +279,9 @@ export async function createRoom(ctx: AuthContext, hotelId: string, input: Creat
       versions: [toBaseVersion(baseVersion)],
       overrides: [],
       periodRefs: new Map(),
+      // A room created in THIS transaction cannot have a block yet (room_block_room_fk needs the room first).
+      blocks: [],
+      calendarOptions: await calendarOptionsFor(hotelScoped),
       baseVersionRows: [baseVersion],
       overrideRows: [],
       today,
@@ -334,6 +368,12 @@ export async function updateRoom(ctx: AuthContext, hotelId: string, roomId: stri
  * before `effectiveFrom` and opens a new one, in the SAME transaction as its `ROOM_BASE_CHANGED`
  * audit row. History is never rewritten — the closed version's `validFrom`/`physicalBeds`/
  * `sellableCapacity`/`origin` are untouched, only its `validTo` is set once.
+ *
+ * The room row is locked (`FOR UPDATE`) FIRST, before the versions are read — the same lock
+ * `retireRoom` takes before closing the same open version. Without it the two could deadlock (this
+ * transaction holding the open version's row lock while its insert's FK check waits on retirement's
+ * room lock) or this change could overwrite the version retirement just closed and re-open the room.
+ * Whichever locks first commits first; the other re-plans against the committed versions.
  */
 export async function changeBaseConfig(ctx: AuthContext, hotelId: string, roomId: string, input: ChangeBaseConfigInput): Promise<RoomDetail> {
   const { hotel, scope } = await authorizeHotel(ctx, 'capacity.manage', hotelId)
@@ -341,7 +381,7 @@ export async function changeBaseConfig(ctx: AuthContext, hotelId: string, roomId
   return ctx.db.transaction(async (tx) => {
     const hotelScoped = hotelRepos(tx, scope)
     const tenant = tenantRepos(tx, ctx.scope)
-    const current = await loadRoomInScope(hotelScoped, roomId)
+    const current = await loadRoomInScope(hotelScoped, roomId, { forUpdate: true })
     const versionRows = await hotelScoped.roomBaseConfigs.versionsForRoom(current.id)
     const today = todayInTimezone(hotel.timezone, ctx.now())
 
@@ -389,9 +429,15 @@ export async function changeBaseConfig(ctx: AuthContext, hotelId: string, roomId
 }
 
 /**
- * Retires a room (`room.manage`): closes the open version. Task 16's guard for blocks extending past
- * the retirement date is intentionally NOT implemented here — it adds its own guard, with its own
- * test, when it lands.
+ * Retires a room (`room.manage`): closes the open version. Guarded twice: a seasonal override (Task
+ * 15) or an ACTIVE operational block (Task 16) still ending on or after the retirement date must be
+ * removed/cancelled first — otherwise it would sit on nights the room is no longer in inventory.
+ *
+ * The room row is locked (`FOR UPDATE`) FIRST, before either guard runs: block create/bulk create
+ * and override apply take the same room-row lock before their inventory-coverage checks, so a
+ * concurrent block/override write and this retirement serialize on the room. Whichever commits
+ * first, the other re-checks against the committed state (the guards here, or their coverage check)
+ * — a block or override can never end up covering a night at or after the retirement date.
  */
 export async function retireRoom(ctx: AuthContext, hotelId: string, roomId: string, input: RetireRoomInput): Promise<RoomDetail> {
   const { hotel, scope } = await authorizeHotel(ctx, 'room.manage', hotelId)
@@ -399,13 +445,19 @@ export async function retireRoom(ctx: AuthContext, hotelId: string, roomId: stri
   return ctx.db.transaction(async (tx) => {
     const hotelScoped = hotelRepos(tx, scope)
     const tenant = tenantRepos(tx, ctx.scope)
-    const current = await loadRoomInScope(hotelScoped, roomId)
+    const current = await loadRoomInScope(hotelScoped, roomId, { forUpdate: true })
 
     // Task 15 retire guard: a room with a seasonal override still ending on or after the retirement
     // date would otherwise leave an override row with no base version underneath it for its last
     // nights — the caller must remove the override(s) first.
     if (await hotelScoped.roomCapacityOverrides.existsEndingOnOrAfter(current.id, input.effectiveFrom)) {
       throw new ConflictError('ROOM_HAS_FUTURE_OVERRIDES', 'This room has a seasonal capacity override extending to or past the retirement date; remove it first')
+    }
+
+    // Task 16 retire guard: an active (not cancelled) block ending on or after the retirement date
+    // would cover nights the room is no longer in inventory — cancel or end it first.
+    if (await hotelScoped.operationalBlocks.existsActiveEndingOnOrAfter(current.id, input.effectiveFrom)) {
+      throw new ConflictError('ROOM_HAS_ACTIVE_BLOCKS', 'This room has an active block ending on or after the retirement date; cancel it first')
     }
 
     const versionRows = await hotelScoped.roomBaseConfigs.versionsForRoom(current.id)
@@ -603,6 +655,8 @@ export async function bulkCreateRooms(ctx: AuthContext, hotelId: string, input: 
 
     const asOf = todayInTimezone(hotel.timezone, ctx.now())
     const versionsByRoom = new Map(baseVersions.map(v => [v.roomId, [toBaseVersion(v)]]))
-    return createdRooms.map(r => toRoomListItem({ room: r, floor: floorRow, roomType: roomTypeRow, versions: versionsByRoom.get(r.id) ?? [], overrides: [], periodRefs: new Map(), asOf }))
+    // Rooms created in THIS transaction cannot have blocks yet (room_block_room_fk needs the room first).
+    const calendarOptions = await calendarOptionsFor(hotelScoped)
+    return createdRooms.map(r => toRoomListItem({ room: r, floor: floorRow, roomType: roomTypeRow, versions: versionsByRoom.get(r.id) ?? [], overrides: [], periodRefs: new Map(), blocks: [], calendarOptions, asOf }))
   })
 }

@@ -1,4 +1,4 @@
-import { asc, count, eq } from 'drizzle-orm'
+import { asc, count, eq, inArray } from 'drizzle-orm'
 import type { DbOrTx } from '../../../db/client'
 import { floor } from '../../../db/schema'
 import type { HotelScope } from '../../security/scope'
@@ -31,6 +31,12 @@ export class FloorRepository {
   async findById(id: string): Promise<FloorRow | null> {
     const [row] = await this.q.select(floor, eq(floor.id, id), { limit: 1 })
     return row ?? null
+  }
+
+  /** Bulk id lookup, hotel-scoped — Task 15's `floorIds` override selector validates every id in ONE query (same pattern as `RoomRepository.findByIds`). */
+  async findByIds(ids: readonly string[]): Promise<FloorRow[]> {
+    if (ids.length === 0) return []
+    return this.q.select(floor, inArray(floor.id, ids as string[]))
   }
 
   async findByLevel(level: number): Promise<FloorRow | null> {

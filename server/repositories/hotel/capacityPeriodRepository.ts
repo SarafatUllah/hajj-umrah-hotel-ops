@@ -23,8 +23,15 @@ export class CapacityPeriodRepository {
     return row!
   }
 
-  async findById(id: string): Promise<CapacityPeriodRow | null> {
-    const [row] = await this.q.select(capacityPeriod, eq(capacityPeriod.id, id), { limit: 1 })
+  /**
+   * One period of this hotel, or null. `forUpdate` row-locks it: the period row is the serialization
+   * point between the two writers of a period's overrides — `applyOverrides` (creates override rows)
+   * and `updateCapacityPeriod` (moves every override row's dates through the FK cascade). Both lock
+   * the period row FIRST, before any room-row lock, so neither can act on the other's uncommitted
+   * view of the period's overrides. Only meaningful inside a transaction.
+   */
+  async findById(id: string, options: { forUpdate?: boolean } = {}): Promise<CapacityPeriodRow | null> {
+    const [row] = await this.q.select(capacityPeriod, eq(capacityPeriod.id, id), { limit: 1, forUpdate: options.forUpdate })
     return row ?? null
   }
 

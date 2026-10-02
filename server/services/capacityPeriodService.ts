@@ -8,8 +8,8 @@ import type {
   RemoveOverridesInput,
   UpdateCapacityPeriodInput,
 } from '../../shared/schemas/capacityPeriod'
-import { InvalidRangeError, type IsoDate, rangeLength, todayInTimezone } from '../../shared/utils/dates'
-import { baseCapacityAt, type CapacitySegment, capacitySegments, effectiveCapacityAt } from '../domain/inventory/capacity'
+import { InvalidRangeError, type IsoDate, type NightRange, rangeLength, todayInTimezone } from '../../shared/utils/dates'
+import { type BaseVersion, baseCapacityAt, type CapacitySegment, capacitySegments, effectiveCapacityAt } from '../domain/inventory/capacity'
 import { assertOverridesChangeable, assertPeriodDeletable, assertPeriodPatchAllowed, assertPeriodRange, computeOverrideValues, periodPhase, type PeriodPhase } from '../domain/inventory/capacityPeriodRules'
 import { InventoryRuleError } from '../domain/inventory/rules'
 import { extractPgError, translateDbError } from '../errors/dbErrors'
@@ -68,10 +68,74 @@ function groupByPeriodId<T extends { periodId: string }>(rows: readonly T[]): Ma
   return map
 }
 
-async function loadPeriodInScope(hotelScoped: ReturnType<typeof hotelRepos>, periodId: string): Promise<CapacityPeriodRow> {
-  const row = await hotelScoped.capacityPeriods.findById(periodId)
+/**
+ * The period scoped to the ALREADY-authorized `HotelScope`. `forUpdate` (inside a transaction only)
+ * row-locks it — see `CapacityPeriodRepository.findById` for why the period row is the serialization
+ * point between `applyOverrides` and `updateCapacityPeriod`.
+ */
+async function loadPeriodInScope(hotelScoped: ReturnType<typeof hotelRepos>, periodId: string, options: { forUpdate?: boolean } = {}): Promise<CapacityPeriodRow> {
+  const row = await hotelScoped.capacityPeriods.findById(periodId, options)
   if (!row) throw new NotFoundError('CAPACITY_PERIOD_NOT_FOUND')
   return row
+}
+
+/**
+ * The single inventory-coverage rule for overrides, shared by override apply (`planOverrideApplication`)
+ * and period date edits (`assertOverriddenRoomsCoverRange`): the base-only coverage (no overrides)
+ * over `range` must sum to exactly the range's length — any gap (not yet commissioned, retired before
+ * the range ends) means partial or zero coverage.
+ */
+function coversEveryNight(versions: BaseVersion[], range: NightRange): boolean {
+  const coverage = capacitySegments(versions, [], range)
+  const coveredNights = coverage.reduce((n, s) => n + rangeLength(s), 0)
+  return coveredNights === rangeLength(range)
+}
+
+/**
+ * Period date edit guard (N1). A date edit moves every override row of the period with it (the
+ * `(period_id, valid_from, valid_to)` FK cascades), so each room holding an override on this period
+ * must be in inventory for EVERY night of the CANDIDATE range — exactly the rule an override apply
+ * enforces — or the cascade would silently stretch an override onto nights with no base version
+ * underneath (e.g. after the room's retirement).
+ *
+ * The caller must already hold the period row lock (`loadPeriodInScope(..., { forUpdate: true })`):
+ * `applyOverrides` takes the same lock first, so no override can be added to this period while this
+ * runs. The overridden rooms are then row-locked (`rooms.lockByIds`, ascending-id order — the same
+ * lock `retireRoom` takes), and the overrides and base versions are re-read AFTER that lock, so the
+ * check sees any retirement that committed while this transaction waited. A room whose override is
+ * read here but whose row is somehow not locked has no versions in the map and therefore fails the
+ * check (fail-closed). Issues no write: on any uncovered room it throws before the caller writes
+ * anything. A period with no overrides costs exactly one query and takes no room lock.
+ */
+async function assertOverriddenRoomsCoverRange(hotelScoped: ReturnType<typeof hotelRepos>, periodId: string, range: NightRange): Promise<void> {
+  const initial = await hotelScoped.roomCapacityOverrides.findByPeriod(periodId)
+  if (initial.length === 0) return
+
+  const lockedRooms = await hotelScoped.rooms.lockByIds(initial.map(o => o.roomId))
+  const lockedIds = lockedRooms.map(r => r.id)
+  const [overrides, versionRows] = await Promise.all([
+    hotelScoped.roomCapacityOverrides.findByPeriod(periodId),
+    hotelScoped.roomBaseConfigs.versionsForRooms(lockedIds),
+  ])
+  const versionsByRoom = groupByRoomId(versionRows)
+  const overriddenRoomIds = new Set(overrides.map(o => o.roomId))
+  const roomNumberById = new Map(lockedRooms.map(r => [r.id, r.roomNumber]))
+
+  const conflicts: Array<{ roomId: string, roomNumber: string, reason: SkipReason }> = []
+  for (const roomId of [...overriddenRoomIds].sort()) {
+    const versions = (versionsByRoom.get(roomId) ?? []).map(toBaseVersion)
+    if (!coversEveryNight(versions, range)) {
+      conflicts.push({ roomId, roomNumber: roomNumberById.get(roomId) ?? '', reason: 'NOT_IN_INVENTORY_FOR_PERIOD' })
+    }
+  }
+
+  if (conflicts.length > 0) {
+    throw new ConflictError(
+      'NOT_IN_INVENTORY_FOR_PERIOD',
+      'One or more rooms with an override in this period are not in inventory for every night of the new dates; remove their overrides first or choose dates they cover',
+      { conflicts },
+    )
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +281,11 @@ function diffPeriodFields(row: CapacityPeriodRow, patch: Record<string, unknown>
  * row of this period; a resulting overlap with another period's override for the same room surfaces
  * as `409 RANGE_OVERLAP` (translated from the exclusion constraint) with the WHOLE transaction (the
  * period's own update included) rolled back.
+ *
+ * A date change is also refused with `409 NOT_IN_INVENTORY_FOR_PERIOD` (`details.conflicts`) when any
+ * room holding an override in this period would not be in inventory for every night of the NEW range
+ * (N1 — `assertOverriddenRoomsCoverRange`); nothing is written. Lock order, identical to
+ * `applyOverrides`: the period row first, then the overridden rooms (ascending id).
  */
 export async function updateCapacityPeriod(ctx: AuthContext, hotelId: string, periodId: string, patch: UpdateCapacityPeriodInput): Promise<CapacityPeriodDto> {
   const { hotel, scope } = await authorizeHotel(ctx, 'capacity.manage', hotelId)
@@ -224,7 +293,9 @@ export async function updateCapacityPeriod(ctx: AuthContext, hotelId: string, pe
   return ctx.db.transaction(async (tx) => {
     const hotelScoped = hotelRepos(tx, scope)
     const tenant = tenantRepos(tx, ctx.scope)
-    const current = await loadPeriodInScope(hotelScoped, periodId)
+    // Period row lock FIRST (same position as in applyOverrides): no override can be added to this
+    // period until this transaction ends, and `current` is the latest committed version of the row.
+    const current = await loadPeriodInScope(hotelScoped, periodId, { forUpdate: true })
     const today = todayInTimezone(hotel.timezone, ctx.now())
 
     try {
@@ -242,6 +313,12 @@ export async function updateCapacityPeriod(ctx: AuthContext, hotelId: string, pe
     if (patch.notes !== undefined) candidate.notes = patch.notes
 
     const { before, after, changed } = diffPeriodFields(current, candidate)
+
+    // N1: a real date change cascades to every override row of this period — every overridden room
+    // must cover the CANDIDATE range. Validated for ALL rooms before any write below.
+    if (changed.startDate !== undefined || changed.endDate !== undefined) {
+      await assertOverriddenRoomsCoverRange(hotelScoped, current.id, { from: changed.startDate ?? current.startDate, to: changed.endDate ?? current.endDate })
+    }
 
     let updatedRow = current
     if (Object.keys(changed).length > 0) {
@@ -315,19 +392,19 @@ export async function deleteCapacityPeriod(ctx: AuthContext, hotelId: string, pe
 async function resolveSelectorRooms(hotelScoped: ReturnType<typeof hotelRepos>, tenant: ReturnType<typeof tenantRepos>, selector: OverrideSelector): Promise<RoomRow[]> {
   if ('all' in selector) return hotelScoped.rooms.listAll()
 
+  // Each id list is validated in ONE scoped query (an id not returned does not belong here); the set
+  // de-duplicates a direct service caller's repeats (the schema already does for HTTP callers).
   if ('floorIds' in selector) {
-    for (const floorId of selector.floorIds) {
-      const floor = await hotelScoped.floors.findById(floorId)
-      if (!floor) throw new ValidationError('INVALID_REFERENCE', 'floorIds must reference floors of this hotel')
-    }
+    const floorIds = [...new Set(selector.floorIds)]
+    const floors = await hotelScoped.floors.findByIds(floorIds)
+    if (floors.length !== floorIds.length) throw new ValidationError('INVALID_REFERENCE', 'floorIds must reference floors of this hotel')
     return hotelScoped.rooms.listByFloorIds(selector.floorIds)
   }
 
   if ('roomTypeIds' in selector) {
-    for (const roomTypeId of selector.roomTypeIds) {
-      const roomType = await tenant.roomTypes.findById(roomTypeId)
-      if (!roomType) throw new ValidationError('INVALID_REFERENCE', 'roomTypeIds must reference room types of this organization')
-    }
+    const roomTypeIds = [...new Set(selector.roomTypeIds)]
+    const roomTypes = await tenant.roomTypes.findByIds(roomTypeIds)
+    if (roomTypes.length !== roomTypeIds.length) throw new ValidationError('INVALID_REFERENCE', 'roomTypeIds must reference room types of this organization')
     return hotelScoped.rooms.listByRoomTypeIds(selector.roomTypeIds)
   }
 
@@ -350,7 +427,15 @@ export type SkipReason = 'NOT_IN_INVENTORY_FOR_PERIOD' | 'ALREADY_OVERRIDDEN'
 export interface SkippedOverridePlan { roomId: string, roomNumber: string, reason: SkipReason }
 export interface OverridePlan { applied: AppliedOverridePlan[], skipped: SkippedOverridePlan[] }
 
-export async function planOverrideApplication(hotelScoped: ReturnType<typeof hotelRepos>, tenant: ReturnType<typeof tenantRepos>, period: CapacityPeriodRow, input: ApplyOverridesInput, today: IsoDate): Promise<OverridePlan> {
+/**
+ * `options.lock` (apply ONLY — `hotelScoped` must then be bound to the apply transaction): the
+ * resolved rooms are row-locked (`rooms.lockByIds`, ascending-id order) right after the selector is
+ * resolved and BEFORE their base versions and existing overrides are read, so the coverage and
+ * overlap checks below see the state committed by any concurrent retirement / override apply of
+ * these rooms (those take the same room-row lock). The preview never passes it: it stays a
+ * non-locking, side-effect-free read with exactly its previous queries.
+ */
+export async function planOverrideApplication(hotelScoped: ReturnType<typeof hotelRepos>, tenant: ReturnType<typeof tenantRepos>, period: CapacityPeriodRow, input: ApplyOverridesInput, today: IsoDate, options: { lock?: boolean } = {}): Promise<OverridePlan> {
   try {
     assertOverridesChangeable(period, today)
   }
@@ -358,8 +443,18 @@ export async function planOverrideApplication(hotelScoped: ReturnType<typeof hot
     rethrowAsDomainError(error)
   }
 
-  const rooms = await resolveSelectorRooms(hotelScoped, tenant, input.selector)
+  let rooms = await resolveSelectorRooms(hotelScoped, tenant, input.selector)
   if (rooms.length === 0) return { applied: [], skipped: [] }
+
+  if (options.lock) {
+    // Rooms are never deleted, so every resolved room comes back locked; the resolved ORDER is kept
+    // (the plan — and so `skipped` — lists rooms exactly as the preview of the same body does).
+    const lockedById = new Map((await hotelScoped.rooms.lockByIds(rooms.map(r => r.id))).map(r => [r.id, r]))
+    rooms = rooms.flatMap((r) => {
+      const locked = lockedById.get(r.id)
+      return locked ? [locked] : []
+    })
+  }
 
   const roomIds = rooms.map(r => r.id)
   const periodRange = { from: period.startDate, to: period.endDate }
@@ -376,12 +471,9 @@ export async function planOverrideApplication(hotelScoped: ReturnType<typeof hot
   for (const room of rooms) {
     const versions = (versionsByRoom.get(room.id) ?? []).map(toBaseVersion)
 
-    // In inventory for EVERY night of the period: the base-only coverage (no overrides) over the
-    // period's range must sum to exactly the period's length — any gap (not yet commissioned,
-    // retired mid-period) means partial or zero coverage.
-    const coverage = capacitySegments(versions, [], periodRange)
-    const coveredNights = coverage.reduce((n, s) => n + rangeLength(s), 0)
-    if (coveredNights !== rangeLength(periodRange)) {
+    // In inventory for EVERY night of the period (`coversEveryNight` — the same rule a period date
+    // edit enforces on the candidate range).
+    if (!coversEveryNight(versions, periodRange)) {
       skipped.push({ roomId: room.id, roomNumber: room.roomNumber, reason: 'NOT_IN_INVENTORY_FOR_PERIOD' })
       continue
     }
@@ -411,7 +503,11 @@ export async function planOverrideApplication(hotelScoped: ReturnType<typeof hot
 /**
  * Applies overrides (`capacity.manage`) inside one transaction: plans via `planOverrideApplication`,
  * then (unless `onConflict: 'FAIL'` and something was skipped, which writes nothing and throws 409)
- * inserts every planned row and writes exactly one `CAPACITY_OVERRIDES_APPLIED` audit row.
+ * inserts every planned row and writes exactly one `CAPACITY_OVERRIDES_APPLIED` audit row. Lock
+ * order, identical to `updateCapacityPeriod`: the period row first (serializes with a date edit or
+ * another apply of the same period), then the planned rooms in ascending-id order before their
+ * coverage is checked (serializes with a concurrent `retireRoom` of any of them, and with another
+ * apply on the same rooms).
  */
 export async function applyOverrides(ctx: AuthContext, hotelId: string, periodId: string, input: ApplyOverridesInput): Promise<{ applied: number, skipped: SkippedOverridePlan[] }> {
   const { hotel, scope } = await authorizeHotel(ctx, 'capacity.manage', hotelId)
@@ -419,10 +515,14 @@ export async function applyOverrides(ctx: AuthContext, hotelId: string, periodId
   return ctx.db.transaction(async (tx) => {
     const hotelScoped = hotelRepos(tx, scope)
     const tenant = tenantRepos(tx, ctx.scope)
-    const period = await loadPeriodInScope(hotelScoped, periodId)
+    // Period row lock FIRST (same position as in updateCapacityPeriod): a concurrent date edit of this
+    // period either committed before this read (and `period` carries its new dates) or waits for this
+    // transaction — it can never cascade dates onto an override this apply has not validated.
+    const period = await loadPeriodInScope(hotelScoped, periodId, { forUpdate: true })
     const today = todayInTimezone(hotel.timezone, ctx.now())
 
-    const plan = await planOverrideApplication(hotelScoped, tenant, period, input, today)
+    // `lock: true` — the planned rooms are row-locked before their coverage is read (see planOverrideApplication).
+    const plan = await planOverrideApplication(hotelScoped, tenant, period, input, today, { lock: true })
 
     if (input.onConflict === 'FAIL' && plan.skipped.length > 0) {
       throw new ConflictError('OVERRIDE_CONFLICT', 'One or more rooms could not receive this override', { skipped: plan.skipped })
