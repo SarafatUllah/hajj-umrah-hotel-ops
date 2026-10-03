@@ -6,7 +6,7 @@ import { expectStandardError } from './support/errorShape'
 import {
   closeTestDb,
   DEMO_ADMIN_EMAIL,
-  DEMO_ADMIN_PASSWORD,
+  DEMO_PASSWORD,
   DEMO_ORG_SLUG,
   getHttpTestDb,
   makeLoginableUser,
@@ -62,7 +62,7 @@ describe('POST /api/admin/demo/reset — HTTP authorization (proof 8)', () => {
   it('the demo admin gets 200, and a real DEMO_RESET audit row exists afterward', async () => {
     await seedDemoOrganization(db)
 
-    const login = await client.login(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)
+    const login = await client.login(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_PASSWORD)
     expect(login.status).toBe(200)
 
     const res = await client.request('/api/admin/demo/reset', { method: 'POST', cookie: login.cookie })

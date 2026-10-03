@@ -1,7 +1,8 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { organization, appUser, auditLog, userRole } from '../../../db/schema'
-import { seedDemoOrganization, DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from '../../../db/seed/demo-org'
+import { seedDemoOrganization, DEMO_ORG_SLUG } from '../../../db/seed/demo-org'
+import { DEMO_ADMIN_EMAIL, DEMO_PASSWORD } from '../../../server/demo/personas'
 import { seedOrganizationRoles } from '../../../db/seed/rbac'
 import { resetDemoData, DemoOrganizationNotFoundError, DemoResetForbiddenError } from '../../../server/services/demo.service'
 import { useDb } from '../../../server/utils/db'
@@ -51,7 +52,7 @@ describe('resetDemoData', () => {
 
     const result = await resetDemoData(actor)
 
-    const authResult = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)
+    const authResult = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_PASSWORD)
     expect(authResult).not.toBeNull()
 
     const auditRows = await db.select().from(auditLog).where(eq(auditLog.action, 'DEMO_RESET'))
@@ -158,6 +159,6 @@ describe('resetDemoData', () => {
     const demoOrgs = await db.select().from(organization).where(eq(organization.slug, DEMO_ORG_SLUG))
     expect(demoOrgs.length).toBe(1)
     expect(fulfilled.map(r => r.value.organizationId)).toContain(demoOrgs[0].id)
-    expect(await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)).not.toBeNull()
+    expect(await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_PASSWORD)).not.toBeNull()
   })
 })

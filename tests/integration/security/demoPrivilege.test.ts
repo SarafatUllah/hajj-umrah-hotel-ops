@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import { seedDemoOrganization, DEMO_ADMIN_EMAIL } from '../../../db/seed/demo-org'
+import { seedDemoOrganization } from '../../../db/seed/demo-org'
+import { DEMO_ADMIN_EMAIL } from '../../../server/demo/personas'
 import { seedOrganizationRoles, seedPermissionCatalog } from '../../../db/seed/rbac'
 import { resolveAuthContext } from '../../../server/security/authContext'
 import { resetDemoData, DemoOrganizationNotFoundError, DemoResetForbiddenError } from '../../../server/services/demo.service'

@@ -5,7 +5,8 @@ import { tenantRepos } from '../../../server/repositories'
 import type { OrganizationScope } from '../../../server/security/scope'
 import type { UserRow } from '../../../server/repositories/tenant'
 import { hashPassword } from '../../../server/utils/password'
-import { DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD, DEMO_ORG_SLUG, seedDemoOrganization } from '../../../db/seed/demo-org'
+import { DEMO_ORG_SLUG, seedDemoOrganization } from '../../../db/seed/demo-org'
+import { DEMO_ADMIN_EMAIL, DEMO_PASSWORD } from '../../../server/demo/personas'
 import { seedOrganizationRoles, seedPermissionCatalog } from '../../../db/seed/rbac'
 import { closeTestDb, getTestDb, truncateAllTables } from '../../integration/support/testDb'
 import { ensurePermissions, makeFloor, makeHotel, makeOrg, makeRole, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions, type MakeUserOptions } from '../../support/fixtures'
@@ -20,7 +21,7 @@ import { ensurePermissions, makeFloor, makeHotel, makeOrg, makeRole, makeRoomTyp
 export {
   closeTestDb,
   DEMO_ADMIN_EMAIL,
-  DEMO_ADMIN_PASSWORD,
+  DEMO_PASSWORD,
   DEMO_ORG_SLUG,
   ensurePermissions,
   getTestDb as getHttpTestDb,

@@ -16,6 +16,8 @@ export interface SeedRolesOptions {
    * organization's Super Admin would hold it).
    */
   extraPermissions?: Partial<Record<string, readonly string[]>>
+  /** Stable role ids (Task 20: the demo organization's roles keep the same ids across a reset). Omitted = the database generates them. */
+  roleId?: (roleKey: string) => string
 }
 
 export async function seedOrganizationRoles(db: DbOrTx, organizationId: string, options: SeedRolesOptions = {}): Promise<Record<string, string>> {
@@ -23,7 +25,7 @@ export async function seedOrganizationRoles(db: DbOrTx, organizationId: string, 
   const roleIdByKey: Record<string, string> = {}
 
   for (const [key, definition] of Object.entries(ROLE_DEFINITIONS)) {
-    const roleRow = await roles.findByKey(key) ?? await roles.insert({ key, name: definition.name })
+    const roleRow = await roles.findByKey(key) ?? await roles.insert({ ...(options.roleId ? { id: options.roleId(key) } : {}), key, name: definition.name })
     roleIdByKey[key] = roleRow.id
     const extra = options.extraPermissions?.[key] ?? []
     await roles.grantPermissions(roleRow.id, [...definition.permissions, ...extra])
