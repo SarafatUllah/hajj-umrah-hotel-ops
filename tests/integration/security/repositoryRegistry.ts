@@ -1164,6 +1164,81 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
       act: (db, scope, ids) => new InventoryReadRepository(db, trustedHotelScope(scope, ids.hotelId)).loadRoomInputs([{ from: '2026-01-01', to: '2026-01-31' }, { from: '2027-01-01', to: '2027-12-31' }], { includeBlocks: true }),
       expect: 'empty',
     }),
+    // Task 18: the refs path (override statement joined to capacity_period, block statement with
+    // reason) and the pre-loaded-rooms path. The act flattens every loaded row and every ref id, so a
+    // leak through ANY statement (or the join) surfaces as a non-empty result.
+    isolationCase({
+      name: 'Task 18 withRefs: rooms, versions, overrides, blocks and period/block refs',
+      arrange: arrangeInventoryRoom,
+      act: async (db, scope, ids) => {
+        const { rooms, refs } = await new InventoryReadRepository(db, trustedHotelScope(scope, ids.hotelId)).loadRoomInputs({ from: '2027-01-01', to: '2027-12-31' }, { includeBlocks: true, includeOutOfInventory: true, withRefs: true })
+        return [...rooms, ...refs.periods.keys(), ...refs.blocks.keys()]
+      },
+      expect: 'empty',
+    }),
+    isolationCase({
+      name: 'Task 18 org A\'s room rows passed in opts.rooms (+ roomIds): no row of org A is read for them',
+      arrange: arrangeInventoryRoom,
+      act: async (db, scope, ids) => {
+        const rooms = [{ id: ids.roomId, roomNumber: 'leaked', floorId: ids.roomId, roomTypeId: ids.roomId }]
+        const loaded = await new InventoryReadRepository(db, trustedHotelScope(scope, ids.hotelId)).loadRoomInputs({ from: '2027-01-01', to: '2027-12-31' }, { rooms, roomIds: [ids.roomId], includeBlocks: true, includeOutOfInventory: true, withRefs: true })
+        return [...loaded.rooms.flatMap(r => [...r.versions, ...r.overrides, ...r.blocks]), ...loaded.refs.periods.keys(), ...loaded.refs.blocks.keys()]
+      },
+      expect: 'empty',
+    }),
+  ],
+  // Task 18: the calendar's candidate rooms (room joined to floor and room_type, each scoped).
+  'InventoryReadRepository.listRoomCandidates': [
+    isolationCase({
+      name: 'whole hotel',
+      arrange: arrangeInventoryRoom,
+      act: (db, scope, ids) => new InventoryReadRepository(db, trustedHotelScope(scope, ids.hotelId)).listRoomCandidates(),
+      expect: 'empty',
+    }),
+    isolationCase({
+      name: 'org A\'s floor and room type ids as filters, and a matching number prefix',
+      arrange: async (db, orgA) => {
+        const ids = await arrangeInventoryRoom(db, orgA)
+        const [row] = await db.select().from(room).where(eq(room.id, ids.roomId))
+        return { ...ids, floorId: row!.floorId, roomTypeId: row!.roomTypeId, prefix: row!.roomNumber.slice(0, 2) }
+      },
+      act: (db, scope, ids) => new InventoryReadRepository(db, trustedHotelScope(scope, ids.hotelId)).listRoomCandidates({ floorId: ids.floorId, roomTypeId: ids.roomTypeId, q: ids.prefix }),
+      expect: 'empty',
+    }),
+    // The bounded early-guard form: roomIds (org A's own room id), LIMIT and OFFSET.
+    isolationCase({
+      name: 'roomIds + limit + offset (the bounded early-guard read): org A\'s room never comes back',
+      arrange: arrangeInventoryRoom,
+      act: async (db, scope, ids) => {
+        const repo = new InventoryReadRepository(db, trustedHotelScope(scope, ids.hotelId))
+        return [
+          ...await repo.listRoomCandidates({ roomIds: [ids.roomId], limit: 5001 }),
+          ...await repo.listRoomCandidates({ limit: 5000, offset: 0 }),
+        ]
+      },
+      expect: 'empty',
+    }),
+  ],
+  // Task 18: the hotel's in-inventory room ids (ONE single-table statement on room_base_config).
+  'InventoryReadRepository.listRoomIdsInInventory': [
+    isolationCase({
+      name: 'whole hotel, any range, with and without limit',
+      arrange: arrangeInventoryRoom,
+      act: async (db, scope, ids) => {
+        const repo = new InventoryReadRepository(db, trustedHotelScope(scope, ids.hotelId))
+        return [
+          ...await repo.listRoomIdsInInventory({ from: '2000-01-01', to: '2100-12-31' }),
+          ...await repo.listRoomIdsInInventory({ from: '2027-01-01', to: '2027-01-31' }, { limit: 5001 }),
+        ]
+      },
+      expect: 'empty',
+    }),
+    isolationCase({
+      name: 'org A\'s room id passed as roomIds: no version of it is read',
+      arrange: arrangeInventoryRoom,
+      act: (db, scope, ids) => new InventoryReadRepository(db, trustedHotelScope(scope, ids.hotelId)).listRoomIdsInInventory({ from: '2000-01-01', to: '2100-12-31' }, { roomIds: [ids.roomId] }),
+      expect: 'empty',
+    }),
   ],
 }
 

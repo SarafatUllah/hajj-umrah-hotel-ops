@@ -1,5 +1,5 @@
 import { type IsoDate, type NightRange, eachDate, fromEpochDay, toEpochDay } from '../../../shared/utils/dates'
-import { type CapacitySource, cutPoints, effectiveCapacityAt } from './capacity'
+import { type CapacitySource, type PreparedCapacity, capacityOnDay, cutDays, prepareCapacity } from './capacity'
 import { type AverageResult, type RoomCapacityInput, makeAverage } from './averages'
 import { type BlockKind, type InventoryStatus, INVENTORY_STATUSES } from '../../../shared/constants/inventory'
 
@@ -26,19 +26,22 @@ export interface CalendarSegment {
 
 const rank = (s: InventoryStatus) => INVENTORY_STATUSES.indexOf(s)
 
-function blockCovers(b: BlockInput, day: number): boolean {
-  return toEpochDay(b.from) <= day && day <= toEpochDay(b.to)
-}
+type SegmentState = Omit<CalendarSegment, 'from' | 'to'>
 
-function stateAt(input: RoomCalendarInput, date: IsoDate, options: CalendarOptions): Omit<CalendarSegment, 'from' | 'to'> {
-  const cap = effectiveCapacityAt(input.versions, input.overrides, date)
+/** A block with its dates parsed to epoch days and its status rank looked up, once per room (not once per night examined). */
+interface PreparedBlock { from: number, to: number, id: string, kind: BlockKind, rank: number }
+
+function stateOnDay(capacity: PreparedCapacity, blocks: PreparedBlock[], day: number, options: CalendarOptions): SegmentState {
+  const cap = capacityOnDay(capacity, day)
   if (!cap) {
     return { status: 'NOT_IN_INVENTORY', sellable: false, physicalBeds: null, sellableCapacity: null, capacitySource: null, periodId: null, blockIds: [] }
   }
-  const day = toEpochDay(date)
-  const covering = input.blocks.filter(b => blockCovers(b, day))
+  const covering = blocks.filter(b => b.from <= day && day <= b.to)
   let status: InventoryStatus = 'AVAILABLE'
-  for (const b of covering) if (rank(b.kind) < rank(status)) status = b.kind
+  let statusRank = rank(status)
+  for (const b of covering) {
+    if (b.rank < statusRank) { status = b.kind; statusRank = b.rank }
+  }
   const sellable = !covering.some(b => b.kind !== 'MAINTENANCE' || options.maintenanceBlocksSales)
   return {
     status,
@@ -51,27 +54,38 @@ function stateAt(input: RoomCalendarInput, date: IsoDate, options: CalendarOptio
   }
 }
 
-const sameState = (a: Omit<CalendarSegment, 'from' | 'to'>, b: Omit<CalendarSegment, 'from' | 'to'>) =>
+const sameState = (a: SegmentState, b: SegmentState) =>
   a.status === b.status && a.sellable === b.sellable && a.physicalBeds === b.physicalBeds && a.sellableCapacity === b.sellableCapacity
   && a.capacitySource === b.capacitySource && a.periodId === b.periodId && a.blockIds.join() === b.blockIds.join()
 
-/** Run-length-encoded calendar row for one room. Every night of `range` is covered by exactly one segment. */
-export function buildRoomSegments(input: RoomCalendarInput, range: NightRange, options: CalendarOptions): CalendarSegment[] {
-  const points = cutPoints(range, [
-    ...input.versions.map(v => ({ from: v.validFrom, to: v.validTo })),
-    ...input.overrides.map(o => ({ from: o.validFrom, to: o.validTo })),
-    ...input.blocks.map(b => ({ from: b.from, to: b.to })),
-  ])
-  const end = toEpochDay(range.to)
-  const out: CalendarSegment[] = []
+/** A run-length segment whose boundaries are epoch days. */
+interface DaySegment { from: number, to: number, state: SegmentState }
+
+/**
+ * The run-length encoding of one room over `[start, end]` (epoch days). Every date of the room's
+ * versions, overrides and blocks is parsed ONCE up front; the per-night evaluation then compares
+ * numbers only (the ISO re-parse per boundary per cut point was the whole CPU cost of a 400-day,
+ * 2,000-room summary). `buildRoomSegments` and `summarizeDaily` both read this one derivation.
+ */
+function deriveDaySegments(input: RoomCalendarInput, start: number, end: number, options: CalendarOptions): DaySegment[] {
+  const capacity = prepareCapacity(input.versions, input.overrides)
+  const blocks: PreparedBlock[] = input.blocks.map(b => ({ from: toEpochDay(b.from), to: toEpochDay(b.to), id: b.id, kind: b.kind, rank: rank(b.kind) }))
+  const points = cutDays(start, end, capacity.versions, capacity.overrides, blocks)
+  const out: DaySegment[] = []
   points.forEach((s, i) => {
     const e = (points[i + 1] ?? end + 1) - 1
-    const state = stateAt(input, fromEpochDay(s), options)
+    const state = stateOnDay(capacity, blocks, s, options)
     const last = out[out.length - 1]
-    if (last && sameState(last, state)) last.to = fromEpochDay(e)
-    else out.push({ from: fromEpochDay(s), to: fromEpochDay(e), ...state })
+    if (last && sameState(last.state, state)) last.to = e
+    else out.push({ from: s, to: e, state })
   })
   return out
+}
+
+/** Run-length-encoded calendar row for one room. Every night of `range` is covered by exactly one segment. */
+export function buildRoomSegments(input: RoomCalendarInput, range: NightRange, options: CalendarOptions): CalendarSegment[] {
+  return deriveDaySegments(input, toEpochDay(range.from), toEpochDay(range.to), options)
+    .map(seg => ({ from: fromEpochDay(seg.from), to: fromEpochDay(seg.to), ...seg.state }))
 }
 
 export interface DailySummary {
@@ -91,12 +105,11 @@ export function summarizeDaily(rooms: RoomCalendarInput[], range: NightRange, op
   const rows: DailySummary[] = dates.map(date => ({
     date, roomsInInventory: 0, sellableRooms: 0, outOfService: 0, maintenance: 0, operationalBlock: 0, effectiveSellableCapacity: 0, sellableRoomCapacity: 0,
   }))
+  const end = toEpochDay(range.to)
   for (const room of rooms) {
-    for (const seg of buildRoomSegments(room, range, options)) {
+    for (const { from: segFrom, to: segTo, state: seg } of deriveDaySegments(room, start, end, options)) {
       if (seg.status === 'NOT_IN_INVENTORY') continue
-      const from = toEpochDay(seg.from) - start
-      const to = toEpochDay(seg.to) - start
-      for (let i = from; i <= to; i++) {
+      for (let i = segFrom - start; i <= segTo - start; i++) {
         const row = rows[i]!
         row.roomsInInventory += 1
         row.effectiveSellableCapacity += seg.sellableCapacity ?? 0

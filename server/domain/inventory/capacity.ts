@@ -40,20 +40,57 @@ export function effectiveCapacityAt(versions: BaseVersion[], overrides: Capacity
 
 export interface Interval { from: IsoDate, to: IsoDate | null }
 
-/** Epoch-day boundaries inside `range` at which any interval starts or (the day after it) ends. */
-export function cutPoints(range: NightRange, intervals: Interval[]): number[] {
-  const start = toEpochDay(range.from)
-  const end = toEpochDay(range.to)
+/** An interval whose boundaries are already epoch days (`to: null` = open-ended). */
+export interface DayInterval { from: number, to: number | null }
+
+/**
+ * Epoch-day cut points inside `[start, end]` (epoch days): `start` itself and every day at which any
+ * interval starts or (the day after it) ends. The numeric core of `cutPoints` — callers that already
+ * hold epoch days (see `prepareCapacity`) skip the ISO re-parse.
+ */
+export function cutDays(start: number, end: number, ...lists: ReadonlyArray<ReadonlyArray<DayInterval>>): number[] {
   const cuts = new Set<number>([start])
-  for (const i of intervals) {
-    const s = toEpochDay(i.from)
-    if (s > start && s <= end) cuts.add(s)
-    if (i.to !== null) {
-      const after = toEpochDay(i.to) + 1
-      if (after > start && after <= end) cuts.add(after)
+  for (const list of lists) {
+    for (const i of list) {
+      if (i.from > start && i.from <= end) cuts.add(i.from)
+      if (i.to !== null) {
+        const after = i.to + 1
+        if (after > start && after <= end) cuts.add(after)
+      }
     }
   }
   return [...cuts].sort((a, b) => a - b)
+}
+
+/** Epoch-day boundaries inside `range` at which any interval starts or (the day after it) ends. */
+export function cutPoints(range: NightRange, intervals: Interval[]): number[] {
+  return cutDays(toEpochDay(range.from), toEpochDay(range.to), intervals.map(i => ({ from: toEpochDay(i.from), to: i.to === null ? null : toEpochDay(i.to) })))
+}
+
+/**
+ * A room's base versions and overrides with their dates parsed to epoch days ONCE (each ISO string is
+ * validated and parsed a single time instead of once per night examined), in their original order, so
+ * `capacityOnDay` answers exactly what `effectiveCapacityAt` answers for the same night.
+ */
+export interface PreparedCapacity {
+  versions: Array<DayInterval & { version: BaseVersion }>
+  overrides: Array<{ from: number, to: number, override: CapacityOverride }>
+}
+
+export function prepareCapacity(versions: BaseVersion[], overrides: CapacityOverride[]): PreparedCapacity {
+  return {
+    versions: versions.map(version => ({ from: toEpochDay(version.validFrom), to: version.validTo === null ? null : toEpochDay(version.validTo), version })),
+    overrides: overrides.map(override => ({ from: toEpochDay(override.validFrom), to: toEpochDay(override.validTo), override })),
+  }
+}
+
+/** `effectiveCapacityAt` for a prepared room and an epoch day: first covering base version, then first covering override. */
+export function capacityOnDay(prepared: PreparedCapacity, day: number): EffectiveCapacity | null {
+  const base = prepared.versions.find(v => v.from <= day && (v.to === null || day <= v.to))?.version
+  if (!base) return null
+  const o = prepared.overrides.find(x => day >= x.from && day <= x.to)?.override
+  if (o) return { physicalBeds: o.physicalBeds, sellableCapacity: o.sellableCapacity, source: 'PERIOD_OVERRIDE', periodId: o.periodId }
+  return { physicalBeds: base.physicalBeds, sellableCapacity: base.sellableCapacity, source: 'BASE', periodId: null }
 }
 
 const sameCapacity = (a: EffectiveCapacity, b: EffectiveCapacity) =>
@@ -61,21 +98,19 @@ const sameCapacity = (a: EffectiveCapacity, b: EffectiveCapacity) =>
 
 /** Run-length-encoded effective capacity over `range`; nights where the room is not in inventory produce no segment. */
 export function capacitySegments(versions: BaseVersion[], overrides: CapacityOverride[], range: NightRange): CapacitySegment[] {
-  const points = cutPoints(range, [
-    ...versions.map(v => ({ from: v.validFrom, to: v.validTo })),
-    ...overrides.map(o => ({ from: o.validFrom, to: o.validTo })),
-  ])
+  const prepared = prepareCapacity(versions, overrides)
   const end = toEpochDay(range.to)
-  const out: CapacitySegment[] = []
+  const points = cutDays(toEpochDay(range.from), end, prepared.versions, prepared.overrides)
+  const out: Array<{ from: number, to: number, cap: EffectiveCapacity }> = []
   points.forEach((s, i) => {
     const e = (points[i + 1] ?? end + 1) - 1
-    const cap = effectiveCapacityAt(versions, overrides, fromEpochDay(s))
+    const cap = capacityOnDay(prepared, s)
     if (!cap) return
     const last = out[out.length - 1]
-    if (last && toEpochDay(last.to) + 1 === s && sameCapacity(last, cap)) last.to = fromEpochDay(e)
-    else out.push({ from: fromEpochDay(s), to: fromEpochDay(e), ...cap })
+    if (last && last.to + 1 === s && sameCapacity(last.cap, cap)) last.to = e
+    else out.push({ from: s, to: e, cap })
   })
-  return out
+  return out.map(seg => ({ from: fromEpochDay(seg.from), to: fromEpochDay(seg.to), ...seg.cap }))
 }
 
 /** Lowest sellable capacity over every night of a stay; null if the room is not in inventory for the whole stay. */

@@ -34,3 +34,18 @@ export const MAX_AVERAGE_STAY_NIGHTS = 90
 export const MAX_ELIGIBLE_ROOM_IDS = 2000
 /** Cap on an explicit `hotelIds` list for the organization averages (Task 17). */
 export const MAX_AVERAGE_HOTEL_IDS = 200
+/** The statuses the Phase 1 room calendar shows and filters by (Task 18). Phase 2 adds OCCUPIED/BOOKED/HELD. */
+export const CALENDAR_FILTER_STATUSES = ['AVAILABLE', 'OPERATIONAL_BLOCK', 'MAINTENANCE', 'OUT_OF_SERVICE', 'NOT_IN_INVENTORY'] as const satisfies readonly InventoryStatus[]
+export type CalendarFilterStatus = typeof CALENDAR_FILTER_STATUSES[number]
+/** Most candidate rooms one room-calendar / daily-summary request derives (Task 18): more is a 422 `TOO_MANY_ROOMS`, never a truncated answer. */
+export const MAX_CALENDAR_ROOMS = 5000
+/** Default room-calendar page size (Task 18); at most `MAX_ROOMS_PER_PAGE`. */
+export const DEFAULT_CALENDAR_PAGE_SIZE = 50
+/**
+ * Largest room-calendar response body (UTF-8 JSON bytes, as sent) the API serves: 2 MiB (Task 18: "a
+ * 2,000-room response stays under 2 MB"). A page whose body would exceed it is a 422
+ * `CALENDAR_RESPONSE_TOO_LARGE` — never truncated; narrow `pageSize` or the date range. The size of a
+ * page depends on its data (segments and referenced blocks per room), so it is checked on the real
+ * body, not predicted from `pageSize` x days.
+ */
+export const MAX_CALENDAR_RESPONSE_BYTES = 2 * 1024 * 1024

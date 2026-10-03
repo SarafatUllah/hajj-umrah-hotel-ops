@@ -32,8 +32,8 @@ export interface RoomPage {
   total: number
 }
 
-/** Escapes LIKE/ILIKE metacharacters so a client-supplied `q` (e.g. `%`) is matched LITERALLY, never as a wildcard. */
-function escapeLikePattern(raw: string): string {
+/** Escapes LIKE/ILIKE metacharacters so a client-supplied `q` (e.g. `%`) is matched LITERALLY, never as a wildcard. Also used by Task 18's `InventoryReadRepository.listRoomCandidates`. */
+export function escapeLikePattern(raw: string): string {
   return raw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
 }
 
