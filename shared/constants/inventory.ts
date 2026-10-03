@@ -28,3 +28,9 @@ export const MAX_CAPACITY_PERIOD_DAYS = 366
 export const MAX_BULK_ROOMS = 200
 /** Cap on a `roomIds` override selector, after de-duplication (S9, Task 15). */
 export const MAX_OVERRIDE_SELECTOR_ROOMS = 1000
+/** Longest stay (in nights) the Available-Stay Average accepts (Task 17). */
+export const MAX_AVERAGE_STAY_NIGHTS = 90
+/** Cap on `availableStay.eligibleRoomIds` when `includeRoomIds=true` (Task 17); `eligibleRoomCount` is always exact (capped exactly when the list is shorter than the count). */
+export const MAX_ELIGIBLE_ROOM_IDS = 2000
+/** Cap on an explicit `hotelIds` list for the organization averages (Task 17). */
+export const MAX_AVERAGE_HOTEL_IDS = 200

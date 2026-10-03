@@ -3,7 +3,7 @@ import { appUser, auditLog, capacityPeriod, floor, hotel, hotelSetting, room, ro
 import type { DbOrTx } from '../../../db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
-import { CapacityPeriodRepository, FloorRepository, HotelSettingRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
+import { CapacityPeriodRepository, FloorRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
 import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
 /**
@@ -63,6 +63,15 @@ async function assertBlockUntouched(db: DbOrTx, blockId: string) {
   const [row] = await db.select().from(roomOperationalBlock).where(eq(roomOperationalBlock.id, blockId))
   if (!row) throw new Error('room_operational_block of org A: expected the row to still exist')
   if (row.cancelledAt !== null || row.endedEarlyAt !== null || row.endDate !== '2027-05-10') throw new Error('room_operational_block of org A: expected the row to be unchanged')
+}
+
+/** Task 17: org A's in-service room with a 2027 Hajj override and an active 2027 block (every table `loadRoomInputs` reads). */
+async function arrangeInventoryRoom(db: DbOrTx, orgA: OrganizationScope) {
+  const { hotelId, roomId } = await arrangeBlockRoom(db, orgA, true)
+  const scopeA = trustedHotelScope(orgA, hotelId)
+  const period = await makeCapacityPeriod(db, scopeA)
+  await makeRoomCapacityOverride(db, scopeA, roomId, period.id)
+  return { hotelId, roomId }
 }
 
 export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
@@ -1132,6 +1141,30 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: async (db, scope, ids) => (await new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).existsActiveEndingOnOrAfter(ids.roomId, '2027-01-01')) ? 1 : 0,
     expect: 'zero-affected',
   }),
+
+  // Task 17: InventoryReadRepository (Hotel scope, read-only). Org A's room has a base version, a
+  // Hajj override and an active block, so a leak through ANY of the four queries would surface as a
+  // returned room. Cross-hotel (same organization) cases live in capacityAverageService.test.ts.
+  'InventoryReadRepository.loadRoomInputs': [
+    isolationCase({
+      name: 'whole hotel, blocks included',
+      arrange: arrangeInventoryRoom,
+      act: (db, scope, ids) => new InventoryReadRepository(db, trustedHotelScope(scope, ids.hotelId)).loadRoomInputs({ from: '2027-01-01', to: '2027-12-31' }, { includeBlocks: true }),
+      expect: 'empty',
+    }),
+    isolationCase({
+      name: 'org A\'s room ids passed in opts.roomIds',
+      arrange: arrangeInventoryRoom,
+      act: (db, scope, ids) => new InventoryReadRepository(db, trustedHotelScope(scope, ids.hotelId)).loadRoomInputs({ from: '2027-01-01', to: '2027-12-31' }, { roomIds: [ids.roomId], includeBlocks: true }),
+      expect: 'empty',
+    }),
+    isolationCase({
+      name: 'several disjoint windows (the OR-of-windows predicates)',
+      arrange: arrangeInventoryRoom,
+      act: (db, scope, ids) => new InventoryReadRepository(db, trustedHotelScope(scope, ids.hotelId)).loadRoomInputs([{ from: '2026-01-01', to: '2026-01-31' }, { from: '2027-01-01', to: '2027-12-31' }], { includeBlocks: true }),
+      expect: 'empty',
+    }),
+  ],
 }
 
 export function registryCases(): Array<{ key: string, case: AnyCase }> {
