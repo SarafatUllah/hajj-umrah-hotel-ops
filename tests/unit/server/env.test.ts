@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { getEnv, resetEnvCache } from '../../../server/utils/env'
+import { getEnv, getStorageEnv, resetEnvCache } from '../../../server/utils/env'
 
 const REQUIRED_VARS = {
   DATABASE_URL: 'postgres://user:pass@localhost:5433/db',
@@ -13,6 +13,8 @@ describe('getEnv', () => {
     resetEnvCache()
     for (const key of Object.keys(REQUIRED_VARS)) Reflect.deleteProperty(process.env, key)
     delete process.env.APP_ENV
+    delete process.env.STORAGE_DRIVER
+    delete process.env.STORAGE_LOCAL_DIR
   })
 
   afterEach(() => {
@@ -60,6 +62,36 @@ describe('getEnv', () => {
   it('accepts a valid DATABASE_POOL_MAX', () => {
     Object.assign(process.env, REQUIRED_VARS, { DATABASE_POOL_MAX: '25' })
     expect(getEnv().DATABASE_POOL_MAX).toBe(25)
+  })
+
+  it('defaults the storage settings to the local driver under .data/uploads', () => {
+    Object.assign(process.env, REQUIRED_VARS)
+    delete process.env.STORAGE_DRIVER
+    delete process.env.STORAGE_LOCAL_DIR
+    expect(getEnv()).toMatchObject({ STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: '.data/uploads' })
+  })
+
+  it('accepts an explicit local driver and directory', () => {
+    Object.assign(process.env, REQUIRED_VARS, { STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: '/var/lib/hotel-uploads' })
+    expect(getEnv()).toMatchObject({ STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: '/var/lib/hotel-uploads' })
+  })
+
+  it.each(['s3', 'LOCAL', 'azure', ''])('rejects the unsupported STORAGE_DRIVER=%j explicitly (no silent fallback to local)', (value) => {
+    Object.assign(process.env, REQUIRED_VARS, { STORAGE_DRIVER: value })
+    expect(() => getEnv()).toThrow(/STORAGE_DRIVER/)
+  })
+
+  it('getStorageEnv validates only the storage settings (database settings may be absent) and rejects an unsupported driver', () => {
+    delete process.env.DATABASE_URL
+    delete process.env.STORAGE_DRIVER
+    expect(getStorageEnv()).toEqual({ STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: '.data/uploads' })
+    process.env.STORAGE_DRIVER = 's3'
+    expect(() => getStorageEnv()).toThrow(/STORAGE_DRIVER/)
+  })
+
+  it('rejects a blank STORAGE_LOCAL_DIR', () => {
+    Object.assign(process.env, REQUIRED_VARS, { STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: '   ' })
+    expect(() => getEnv()).toThrow(/STORAGE_LOCAL_DIR/)
   })
 
   it('caches the parsed result until resetEnvCache is called', () => {

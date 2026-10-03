@@ -1,10 +1,10 @@
 import { and, eq } from 'drizzle-orm'
-import { appUser, auditLog, capacityPeriod, floor, hotel, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
+import { appUser, auditLog, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '../../../db/schema'
 import type { DbOrTx } from '../../../db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
-import { AuditRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
-import { CapacityPeriodRepository, FloorRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
-import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
+import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
+import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
+import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeHotelDocument, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
 /**
  * Behavioral tenant-isolation registry: one entry per `ClassName.method` of every scoped repository.
@@ -72,6 +72,24 @@ async function arrangeInventoryRoom(db: DbOrTx, orgA: OrganizationScope) {
   const period = await makeCapacityPeriod(db, scopeA)
   await makeRoomCapacityOverride(db, scopeA, roomId, period.id)
   return { hotelId, roomId }
+}
+
+/** Task 19: org A's hotel with one hotel document (asset + hotel_document), or just an unattached org-A asset when `withDocument` is false. */
+async function arrangeDocument(db: DbOrTx, orgA: OrganizationScope, withDocument: boolean) {
+  const hotelRow = await makeHotel(db, orgA)
+  const scopeA = trustedHotelScope(orgA, hotelRow.id)
+  if (withDocument) {
+    const { asset } = await makeHotelDocument(db, scopeA)
+    return { hotelId: hotelRow.id, assetId: asset.id, orgAId: orgA.organizationId }
+  }
+  const asset = await new DocumentAssetRepository(db, orgA).insert({ storageKey: `${orgA.organizationId}/2026/unattached.pdf`, originalFilename: 'u.pdf', mimeType: 'application/pdf', sizeBytes: 10, sha256: 'c'.repeat(64) })
+  return { hotelId: hotelRow.id, assetId: asset.id, orgAId: orgA.organizationId }
+}
+
+/** Task 19: org A's asset must still be un-archived. */
+async function assertAssetNotArchived(db: DbOrTx, assetId: string) {
+  const [row] = await db.select().from(documentAsset).where(eq(documentAsset.id, assetId))
+  if (!row || row.archivedAt !== null) throw new Error('document_asset of org A: expected the row to exist and not be archived')
 }
 
 export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
@@ -1240,6 +1258,61 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
       expect: 'empty',
     }),
   ],
+  // Task 19: DocumentAssetRepository (Organization scope). No delete method exists (documents are archived, never deleted).
+  'DocumentAssetRepository.insert': isolationCase({
+    arrange: async (_db, orgA) => ({ orgAId: orgA.organizationId }),
+    act: async (db, scope, ids) => {
+      await new DocumentAssetRepository(db, scope).insert({ organizationId: ids.orgAId, storageKey: `${scope.organizationId}/2026/planted.pdf`, originalFilename: 'p.pdf', mimeType: 'application/pdf', sizeBytes: 10, sha256: 'd'.repeat(64) } as never)
+      return db.select().from(documentAsset).where(and(eq(documentAsset.organizationId, ids.orgAId), eq(documentAsset.originalFilename, 'p.pdf')))
+    },
+    expect: 'empty',
+  }),
+  'DocumentAssetRepository.findById': isolationCase({
+    arrange: (db, orgA) => arrangeDocument(db, orgA, true),
+    act: (db, scope, ids) => new DocumentAssetRepository(db, scope).findById(ids.assetId),
+    expect: 'null',
+  }),
+  'DocumentAssetRepository.markArchived': isolationCase({
+    arrange: (db, orgA) => arrangeDocument(db, orgA, true),
+    act: (db, scope, ids) => new DocumentAssetRepository(db, scope).markArchived(ids.assetId, new Date()),
+    expect: 'null',
+    unchanged: (db, ids) => assertAssetNotArchived(db, ids.assetId),
+  }),
+
+  // Task 19: HotelDocumentRepository (Hotel scope). No delete method exists. Cross-hotel (same
+  // organization) cases and the captured SQL live in documentService.test.ts.
+  'HotelDocumentRepository.insert': isolationCase({
+    arrange: (db, orgA) => arrangeDocument(db, orgA, false),
+    act: async (db, scope, ids) => {
+      await new HotelDocumentRepository(db, trustedHotelScope(scope, ids.hotelId)).insert({ documentId: ids.assetId, docType: 'LICENSE', title: 'probe', description: null })
+      return db.select().from(hotelDocument).where(eq(hotelDocument.documentId, ids.assetId))
+    },
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+    unchanged: async (db, ids) => assertNoRows(await db.select().from(hotelDocument).where(eq(hotelDocument.documentId, ids.assetId)), 'hotel_document of org A\'s asset'),
+  }),
+  'HotelDocumentRepository.findView': [
+    isolationCase({
+      name: 'plain',
+      arrange: (db, orgA) => arrangeDocument(db, orgA, true),
+      act: (db, scope, ids) => new HotelDocumentRepository(db, trustedHotelScope(scope, ids.hotelId)).findView(ids.assetId),
+      expect: 'null',
+    }),
+    isolationCase({
+      name: 'forUpdate (inside a transaction)',
+      arrange: (db, orgA) => arrangeDocument(db, orgA, true),
+      act: (db, scope, ids) => db.transaction(tx => new HotelDocumentRepository(tx, trustedHotelScope(scope, ids.hotelId)).findView(ids.assetId, { forUpdate: true })),
+      expect: 'null',
+    }),
+  ],
+  'HotelDocumentRepository.list': isolationCase({
+    arrange: (db, orgA) => arrangeDocument(db, orgA, true),
+    act: async (db, scope, ids) => {
+      const repo = new HotelDocumentRepository(db, trustedHotelScope(scope, ids.hotelId))
+      return [...(await repo.list({ includeArchived: true, page: 1, pageSize: 50 })).rows, ...(await repo.list({ includeArchived: false, page: 1, pageSize: 50 })).rows]
+    },
+    expect: 'empty',
+  }),
 }
 
 export function registryCases(): Array<{ key: string, case: AnyCase }> {

@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { DbOrTx } from '../../db/client'
 import { hotelRepos, platformRepos, tenantRepos } from '../../server/repositories'
-import type { CapacityPeriodRow, FloorRow, NewCapacityPeriod, NewFloor, NewRoom, NewRoomBaseConfig, NewRoomCapacityOverride, NewRoomOperationalBlock, RoomBaseConfigRow, RoomCapacityOverrideRow, RoomOperationalBlockRow, RoomRow } from '../../server/repositories/hotel'
+import type { CapacityPeriodRow, FloorRow, HotelDocumentRow, NewCapacityPeriod, NewFloor, NewRoom, NewRoomBaseConfig, NewRoomCapacityOverride, NewRoomOperationalBlock, RoomBaseConfigRow, RoomCapacityOverrideRow, RoomOperationalBlockRow, RoomRow } from '../../server/repositories/hotel'
 import type { NewOrganization, OrganizationRow } from '../../server/repositories/platform/organizationRepository'
-import type { HotelRow, NewHotel, NewRoomType, NewUser, RoleRow, RoomTypeRow, UserRow } from '../../server/repositories/tenant'
+import type { DocumentAssetRow, HotelRow, NewDocumentAsset, NewHotel, NewRoomType, NewUser, RoleRow, RoomTypeRow, UserRow } from '../../server/repositories/tenant'
 import { trustedOrganizationScope, type HotelScope, type OrganizationScope } from '../../server/security/scope'
 
 /**
@@ -131,6 +131,29 @@ export async function makeRoomBlock(db: DbOrTx, hotelScope: HotelScope, roomId: 
     reason: 'Fixture block',
     ...overrides,
   })
+}
+
+/**
+ * A document asset + its hotel_document row written straight through the repositories (no storage
+ * object, no service rules). The storage key is unique per call and has the production shape.
+ */
+export async function makeHotelDocument(
+  db: DbOrTx,
+  hotelScope: HotelScope,
+  overrides: Partial<NewDocumentAsset> & { docType?: string, title?: string, description?: string | null } = {},
+): Promise<{ asset: DocumentAssetRow, document: HotelDocumentRow }> {
+  const { docType, title, description, ...assetOverrides } = overrides
+  const asset = await tenantRepos(db, hotelScope).documentAssets.insert({
+    storageKey: `${hotelScope.organizationId}/2026/${randomUUID()}.pdf`,
+    originalFilename: 'fixture.pdf',
+    mimeType: 'application/pdf',
+    sizeBytes: 1234,
+    sha256: 'a'.repeat(64),
+    uploadedBy: null,
+    ...assetOverrides,
+  })
+  const document = await hotelRepos(db, hotelScope).hotelDocuments.insert({ documentId: asset.id, docType: docType ?? 'LICENSE', title: title ?? 'Fixture document', description: description ?? null })
+  return { asset, document }
 }
 
 /** Adds the permission keys missing from the global catalog (existing descriptions are left alone). */

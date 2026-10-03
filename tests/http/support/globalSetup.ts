@@ -1,10 +1,15 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
 declare module 'vitest' {
   export interface ProvidedContext {
     httpTestBaseUrl: string
+    /** Task 19: the isolated STORAGE_LOCAL_DIR the test server writes uploaded documents to (removed at teardown). */
+    httpTestStorageDir: string
   }
 }
 
@@ -24,7 +29,7 @@ const SHUTDOWN_GRACE_MS = 5_000
  * runs (even if a test throws) and kills the exact child PID it spawned — see the orphan-process
  * check in the Task 8 report for proof no server survives a run.
  */
-export default async function setup({ provide }: { provide: <T extends 'httpTestBaseUrl'>(key: T, value: string) => void }): Promise<() => Promise<void>> {
+export default async function setup({ provide }: { provide: <T extends 'httpTestBaseUrl' | 'httpTestStorageDir'>(key: T, value: string) => void }): Promise<() => Promise<void>> {
   if (process.env.HTTP_TEST_SKIP_BUILD !== '1') {
     const build = spawnSync('pnpm', ['build'], { cwd: PROJECT_ROOT, stdio: 'inherit' })
     if (build.error || build.status !== 0) {
@@ -32,19 +37,27 @@ export default async function setup({ provide }: { provide: <T extends 'httpTest
     }
   }
 
-  const { child, baseUrl } = await startServer()
+  // Uploaded documents go to a throw-away directory, never to the developer's .data/uploads.
+  const storageDir = await mkdtemp(join(tmpdir(), 'hotel-http-uploads-'))
+  const started = await startServer(storageDir).catch(async (error: unknown) => {
+    await rm(storageDir, { recursive: true, force: true })
+    throw error
+  })
+  const { child, baseUrl } = started
   provide('httpTestBaseUrl', baseUrl)
+  provide('httpTestStorageDir', storageDir)
 
   return async () => {
     await stopServer(child)
+    await rm(storageDir, { recursive: true, force: true })
   }
 }
 
-function startServer(): Promise<{ child: ChildProcessWithoutNullStreams, baseUrl: string }> {
+function startServer(storageDir: string): Promise<{ child: ChildProcessWithoutNullStreams, baseUrl: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn('node', ['.output/server/index.mjs'], {
       cwd: PROJECT_ROOT,
-      env: { ...process.env, PORT: '0', HOST: '127.0.0.1' },
+      env: { ...process.env, PORT: '0', HOST: '127.0.0.1', STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: storageDir },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 

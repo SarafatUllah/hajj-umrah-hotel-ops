@@ -1,9 +1,9 @@
 import type { DbOrTx } from '../../db/client'
 import type { HotelScope, OrganizationScope } from '../security/scope'
-import { CapacityPeriodRepository, FloorRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from './hotel'
+import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from './hotel'
 import { PlatformOrganizationRepository } from './platform/organizationRepository'
 import { PlatformPermissionCatalogRepository } from './platform/permissionCatalogRepository'
-import { AuditRepository, HotelRepository, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from './tenant'
+import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from './tenant'
 
 export type * from './tenant'
 export type * from './hotel'
@@ -41,6 +41,7 @@ export function tenantRepos(db: DbOrTx, scope: OrganizationScope) {
     userHotelAccess: () => new UserHotelAccessRepository(db, scope),
     organization: () => new TenantOrganizationRepository(db, scope),
     roomTypes: () => new RoomTypeRepository(db, scope),
+    documentAssets: () => new DocumentAssetRepository(db, scope),
   })
 }
 
@@ -55,6 +56,7 @@ export function hotelRepos(db: DbOrTx, scope: HotelScope) {
     roomCapacityOverrides: () => new RoomCapacityOverrideRepository(db, scope),
     operationalBlocks: () => new OperationalBlockRepository(db, scope),
     inventoryRead: () => new InventoryReadRepository(db, scope),
+    hotelDocuments: () => new HotelDocumentRepository(db, scope),
   })
 }
 
