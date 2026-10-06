@@ -1,7 +1,8 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { organization, appUser, role, permission, rolePermission, userRole } from '../../../db/schema'
-import { seedDemoOrganization, DemoSlugConflictError, DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from '../../../db/seed/demo-org'
+import { seedDemoOrganization, DemoSlugConflictError, DEMO_ORG_SLUG } from '../../../db/seed/demo-org'
+import { DEMO_ADMIN_EMAIL, DEMO_PASSWORD } from '../../../server/demo/personas'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
 import { resolveAuthContext } from '../../../server/security/authContext'
@@ -33,7 +34,7 @@ describe('seedDemoOrganization', () => {
     const roleRows = await db.select().from(role).where(eq(role.organizationId, org.id))
     expect(roleRows.length).toBe(Object.keys(ROLE_DEFINITIONS).length)
 
-    const authResult = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)
+    const authResult = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_PASSWORD)
     expect(authResult).not.toBeNull()
 
     // PF-1: authenticate() no longer carries a permission snapshot — re-assert via resolveAuthContext.
@@ -90,8 +91,9 @@ describe('seedDemoOrganization', () => {
       .where(eq(userRole.userId, foreignUser.id))
     expect(foreignUserRoles).toEqual([{ organizationId: foreignOrg.id, key: 'VIEWER' }])
 
-    // The demo org got its own, separate admin user.
-    const demoAdmins = await db.select().from(appUser).where(eq(appUser.organizationId, demoOrgId))
+    // The demo org got its own, separate admin user (alongside the eight other personas).
+    expect((await db.select().from(appUser).where(eq(appUser.organizationId, demoOrgId))).length).toBe(9)
+    const demoAdmins = await db.select().from(appUser).where(and(eq(appUser.organizationId, demoOrgId), eq(appUser.email, DEMO_ADMIN_EMAIL)))
     expect(demoAdmins.length).toBe(1)
     expect(demoAdmins[0].id).not.toBe(foreignUser.id)
 
@@ -102,7 +104,7 @@ describe('seedDemoOrganization', () => {
     expect([...foreignCtx!.authz.permissions]).toEqual(['booking.view'])
 
     // And the demo admin login still works with the demo password.
-    const demoLogin = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)
+    const demoLogin = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_PASSWORD)
     expect(demoLogin?.user.organizationId).toBe(demoOrgId)
     const demoCtx = await resolveAuthContext(db, { userId: demoLogin!.user.id, organizationId: demoLogin!.user.organizationId })
     expect([...demoCtx!.authz.permissions].sort()).toEqual([...PERMISSIONS].sort())

@@ -7,8 +7,9 @@ async function main() {
   if (!connectionString) throw new Error('DATABASE_URL is required')
   const { db, close } = createDbWithClient(connectionString, { max: 1 })
   try {
-    const { organizationId } = await seedDemoOrganization(db)
-    console.log(`Demo organization ready: ${organizationId}`)
+    // Replaces the demo organization with the deterministic baseline (same ids), so a second run is idempotent.
+    const { organizationId, summary } = await seedDemoOrganization(db)
+    console.log(`Demo organization ready: ${organizationId} (anchor ${summary.anchorDate}; ${summary.hotels} hotels, ${summary.rooms} rooms, ${summary.users} users)`)
   }
   finally {
     await close()

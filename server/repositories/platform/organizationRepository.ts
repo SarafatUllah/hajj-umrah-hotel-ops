@@ -1,6 +1,9 @@
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import type { DbOrTx } from '../../../db/client'
 import { organization } from '../../../db/schema'
+
+/** Arbitrary constant, unique to this application's demo seed lock. */
+const DEMO_SEED_LOCK_KEY = 5_120_260_901
 
 export type OrganizationRow = typeof organization.$inferSelect
 export type NewOrganization = typeof organization.$inferInsert
@@ -26,6 +29,16 @@ export class PlatformOrganizationRepository {
   async insert(values: NewOrganization): Promise<OrganizationRow> {
     const [row] = await this.db.insert(organization).values(values).returning()
     return row!
+  }
+
+  /**
+   * Demo seed / reset only: takes a transaction-scoped advisory lock that serializes every demo seed and
+   * demo reset (the lock is released at COMMIT/ROLLBACK). Must be called inside a transaction. Two
+   * concurrent resets therefore run one after the other instead of racing on the delete + recreate of the
+   * same deterministic ids.
+   */
+  async lockDemoSeed(): Promise<void> {
+    await this.db.execute(sql`select pg_advisory_xact_lock(${DEMO_SEED_LOCK_KEY}::bigint)`)
   }
 
   /**
