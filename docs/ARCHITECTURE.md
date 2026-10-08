@@ -1,6 +1,6 @@
-# Hajj & Umrah Hotel Operations System — Architecture Review (Phase 0)
+# Hajj & Umrah Hotel Operations System — Architecture
 
-Status: **DRAFT FOR APPROVAL** — no application code has been written yet. This document is the required output before any implementation begins.
+Status: **approved in Phase 0; updated at the end of Phase 1 (Inventory Foundation) to match the shipped code.** Sections describing later phases (bookings, finance, HR, notifications, reporting, …) remain the agreed direction, not shipped behavior. What Phase 1 actually ships is described in §6 (table catalogue), §7–§8 (tenancy and authorization), §9 (inventory), §14 (demo), §15 (documents and storage), §20 (health), §22 (testing) and §28 (Phase 1 divergence register, changelog and known limitations). Operational guides: `README.md` (developer workflow, demo personas), `docs/MIGRATIONS.md` (migration policy), `docs/DEPLOY_CHECKLIST.md` (deployment prerequisites).
 
 ---
 
@@ -72,11 +72,37 @@ Reasoning specific to this domain:
 
 ## 6. PostgreSQL Schema / Domain Plan
 
-Organized by module; see §24 for relationships and §25 for constraints. Money = `bigint` minor units (halalas). Dates = `date` for operational days, `timestamptz` for events. All tenant tables carry `organization_id`.
+Organized by module; see §25 for relationships and §26 for constraints. Money = `bigint` minor units (halalas). Dates = `date` for operational days, `timestamptz` for events. All tenant tables carry `organization_id`.
 
-**Core/Tenancy:** `organization`, `user`, `role`, `permission`, `role_permission`, `user_role`, `user_hotel_access`, `session`, `audit_log`
+### 6.1 Shipped tables (Phase 0 + Phase 1, migrations `0000`–`0007`)
 
-**Inventory:** `hotel`, `hotel_settings`, `floor`, `room_type`, `room`, `capacity_period`, `room_capacity_override` (per-room override within a period), `room_status_event` (maintenance/OOS/housekeeping state changes)
+There is **no session table**: sessions are sealed cookies (§8). There is **no `room_status_event` table**: maintenance/out-of-service are `room_operational_block` rows, and housekeeping status is a Phase 4 concern.
+
+| Table | Scope | Purpose (Phase 1) |
+|---|---|---|
+| `organization` | platform | A tenant. `slug` unique; `is_demo` flags the demo organization. |
+| `app_user` | organization | A login. Email unique per organization; `all_hotels` flag; `is_active`. Argon2id password hash. |
+| `role`, `role_permission`, `user_role` | organization | Roles per organization (seeded from `shared/constants/roles.ts`), their permission keys, and user↔role links (`user_role.organization_id` + composite FKs, migration `0001`). |
+| `permission` | platform | The global permission-key catalogue (`shared/constants/permissions.ts`). |
+| `hotel` | organization | A hotel: code (unique per organization), name, city/country, IANA timezone, check-in/out times, currency, ownership type, license reference, status `ACTIVE`/`INACTIVE`. |
+| `hotel_setting` | hotel | Key/value settings validated against a registry (`shared/business-rules/hotelSettings.ts`); Phase 1 has `inventory.maintenanceBlocksSales` (default `true`). |
+| `user_hotel_access` | hotel | Explicit hotel access for users without `all_hotels`. |
+| `floor` | hotel | Level (unique per hotel, −5…200), label, active flag. |
+| `room_type` | organization | Organization-wide catalogue: code, default physical beds and default sellable capacity (copied — snapshot — into a room's base version when a room is created). |
+| `room` | hotel | A physical room: number (unique per hotel, never reused, immutable), floor, room type, features, notes. Rooms are never deleted. |
+| `room_base_config` | hotel | Versioned base capacity: `[valid_from, valid_to]` (`valid_to` null = open-ended), physical beds 1–30, sellable 0–30, origin, reason. A room is **in inventory** on a night iff a version covers it. Exclusion constraint: no two versions of one room overlap. |
+| `capacity_period` | hotel | A dated season (`HAJJ`/`RAMADAN`/`SPECIAL`), name unique per hotel. |
+| `room_capacity_override` | hotel | One room's capacity during one period; its dates always equal the period's (composite FK `(period_id, valid_from, valid_to)` → period `(id, start_date, end_date)` `ON UPDATE CASCADE`). Exclusion constraint: at most one override per room per night. |
+| `room_operational_block` | hotel | `OUT_OF_SERVICE` / `MAINTENANCE` / `OPERATIONAL_BLOCK` over dates, with a required reason; soft-cancel (`cancelled_*`) and ended-early columns (`ended_early_at`, `ended_early_by`, `original_end_date`). Partial exclusion constraint: no two **active** blocks of the **same kind** on one room and night. |
+| `audit_log` | organization (+ optional hotel) | Immutable (a `BEFORE UPDATE` trigger raises) before/after audit rows; `hotel_id` set for hotel-scoped events. |
+| `document_asset` | organization | Document metadata: server-generated `storage_key` (unique), sanitized original filename, MIME (`application/pdf`/`image/png`/`image/jpeg`), size 1 B–10 MiB, SHA-256, `archived_at`. Bytes are not in PostgreSQL (§15). |
+| `hotel_document` | hotel | Links an asset to a hotel with document type (`LICENSE`/`CONTRACT`/`INSURANCE`/`PERMIT`/`OTHER`), title, description. |
+
+Every hotel-owned table carries `organization_id` **and** `hotel_id` and references its parents through **composite foreign keys that include `organization_id`** (and `hotel_id` where the parent is hotel-owned), so a row can never point at another tenant's (or another hotel's) row. `btree_gist` is required for the three exclusion constraints (see `docs/MIGRATIONS.md`).
+
+### 6.2 Planned tables (later phases — not shipped)
+
+The names below are the direction for later phases and do not exist yet.
 
 **Booking:** `customer`, `agent`, `booking`, `booking_room_requirement`, `booking_room_allocation` (system-suggested + final, versioned), `booking_room_assignment` (physical room ↔ booking ↔ date range), `hold`, `hold_reminder_log`, `pilgrim` (optional roster), `room_transfer`, `itinerary` (optional package grouping)
 
@@ -102,6 +128,13 @@ Enforcement, layered:
 
 `hotel_id` is the second-level scope (`user_hotel_access` join table: user → one/many/all hotels within their org), enforced the same way in the service layer.
 
+**As shipped in Phase 1** (layers 1–2 above, made structural; RLS is still not used — Phase 9):
+
+- **Branded scopes.** `OrganizationScope` and `HotelScope` (`server/security/scope.ts`) are branded types that only `server/security`, the seeds and tests may mint (`trusted*`, enforced by ESLint `no-restricted-imports`). Tenant repositories (`server/repositories/tenant`) take an `OrganizationScope`, hotel repositories (`server/repositories/hotel`) a `HotelScope`; every query they build carries the `organization_id` (and `hotel_id`) predicate (`server/repositories/base/scopedQuery.ts`). Platform repositories (`server/repositories/platform`: organizations, permission catalogue) are the only unscoped ones.
+- **Layering.** Only repositories import Drizzle or `db/schema`/`db/client`; services, routes, domain, utils and `shared` may not (ESLint rule + `tests/unit/architecture/layering.test.ts`). Every tenant/hotel repository method is listed in an isolation registry exercised by `tests/integration/security/tenantIsolation.test.ts`.
+- **Database backstop.** Composite foreign keys including `organization_id` (and `hotel_id`) on every child table, plus `UNIQUE (organization_id, id)` targets, make a cross-tenant or cross-hotel reference impossible even for code that bypasses the services (§6.1).
+- **Demo isolation.** The demo organization is an ordinary tenant flagged `is_demo`; its reset deletes exactly that organization (one cascading delete by id) and recreates it (§14).
+
 ## 8. Authentication / RBAC Strategy
 
 - **Session-based auth**, sealed encrypted httpOnly cookies via `nuxt-auth-utils` (avoids hand-rolling JWT/session infra; battle-tested with Nitro). Passwords hashed with argon2id.
@@ -111,32 +144,63 @@ Enforcement, layered:
 - Sensitive-field access (e.g., employee Iqama numbers) uses a dedicated finer-grained permission (`employee.viewSensitive`) checked at the field-serialization layer, not just the route layer, so a route granting general `employee.view` doesn't leak sensitive fields by accident.
 - 2FA (TOTP) is schema-ready (optional `user.totp_secret`) but not required for v1 UI; recommended before production go-live for Super Admin/Accountant roles.
 
-## 9. Inventory Architecture
+### 8.1 As shipped in Phase 1
 
-**Derived, not pre-materialized.** No per-room-per-day row is created in advance. Availability for a room over a date range is computed as:
+- **Identity-only sealed session.** `POST /api/auth/login` (organization slug + email + password; one identical 401 `INVALID_CREDENTIALS` for unknown organization, unknown email or wrong password) stores only `{ user: { id, organizationId, email, fullName }, loggedInAt }` in the `nuxt-auth-utils` sealed cookie (`httpOnly`, `sameSite=lax`, `secure` by default — `NUXT_SESSION_COOKIE_SECURE=false` only for local HTTP/tests — `maxAge` 8 hours, sealed with `NUXT_SESSION_PASSWORD`, minimum 32 characters). No permission or hotel-access snapshot is ever stored in the cookie. There is no session table. 2FA, login rate limiting and lockout are not implemented (Phase 9).
+- **Per-request authorization context.** Every authenticated request calls `resolveAuthContext` (`server/security/authContext.ts`) once (memoized per request): the active user row (scoped to the session's organization), the permission keys of the user's roles in its **own** organization, and its explicit hotel ids — three queries, fresh from the database, so a role change, a deactivated user or revoked hotel access takes effect on the next request. A user that no longer resolves clears the session and answers 401 `SESSION_INVALID`.
+- **Roles and permissions** are database rows (§6.1). Hotel access = `app_user.all_hotels` **or** a `user_hotel_access` row. `organization.resetDemo` is demo-only: it is granted to the demo organization's Super Admin by the demo seed and is never part of the generic Super Admin role.
+- **One authorization path for hotels.** `authorizeHotel(ctx, permission, hotelId)` (`server/security/authorize.ts`) is called by every hotel-scoped service and is the only place a `HotelScope` is minted for a request; organization-level operations use `requireOrgPermission` / `requireAllHotels`. Creating hotels and writing room types require `allHotels` as well as the permission.
+- **Outcome semantics** (verified over real HTTP in `tests/http/**`):
 
-```
-effective_capacity(room, date) =
-    room_capacity_override active on date (most specific, date-effective)
-    ELSE room_type default capacity
-    ELSE room.physical_beds (base fallback)
+| Situation | Response |
+|---|---|
+| No session, invalid or expired session, user deactivated/removed | **401** (`UNAUTHENTICATED` / `SESSION_INVALID`) |
+| Resource id that is not in the caller's organization | **404** (e.g. `HOTEL_NOT_FOUND`, `ROOM_NOT_FOUND`, `BLOCK_NOT_FOUND`) |
+| Hotel of the caller's organization that the caller has no access to | **the same 404** `HOTEL_NOT_FOUND` — indistinguishable from a nonexistent hotel |
+| Accessible resource, but the caller lacks the permission | **403** `FORBIDDEN` |
+| A body references an id outside the authorized scope (e.g. a floor/room type/room of another hotel or organization in a create, override selector or bulk request) | **422** `INVALID_REFERENCE` |
+| Write to an `INACTIVE` hotel | **409** `HOTEL_INACTIVE` (reads stay allowed) |
 
-is_available(room, [checkIn, checkOut)) =
-    room.status = ACTIVE (not OOS)
-    AND no existing booking_room_assignment for this room
-        overlapping [checkIn, checkOut) with status in
-        (HELD, CONFIRMED, CHECKED_IN)
-    AND no operational block (maintenance/OOS event) overlapping the range
-```
+  Counts that would reveal inventory to callers without `room.view` are `null` (`HotelSummary.floorCount/roomCount`), and room-type `usageCount` is `null` unless the caller has `allHotels`. The only unauthenticated endpoints are `POST /api/auth/login`, `GET /api/health` and the runtime-gated `GET /api/public/demo-sign-in` (§14).
 
-This is answered with a single indexed range-overlap query (GiST index on a `daterange` expression), not a scan of daily rows — scales to years of history and thousands of rooms without a materialization job.
+## 9. Inventory Architecture (as shipped in Phase 1)
 
-Distinct statuses are modeled as **separate enums for separate concerns** rather than one ambiguous "blocked" state, per §8 of the spec:
-- `booking_room_assignment.status`: HELD, CONFIRMED, CHECKED_IN, CHECKED_OUT, CANCELLED
-- `room.operational_status`: ACTIVE, MAINTENANCE, OUT_OF_SERVICE
-- `room.housekeeping_status` (decoupled module, §27): VACANT_CLEAN, VACANT_DIRTY, OCCUPIED, CLEANING, INSPECTED
+**Derived, not pre-materialized.** No room × day row exists anywhere. Every per-night answer (capacity, status, availability, averages, calendar, daily summary) is computed on request by pure functions in `server/domain/inventory/**` from four kinds of stored facts, loaded per request with a fixed number of batched queries (never one per room or per night):
 
-A room is *sellable* only when operational_status = ACTIVE; housekeeping status never blocks a sale (only ops staff visibility), matching the "loosely coupled, disable if not needed" instruction.
+| Stored fact | Table | Meaning |
+|---|---|---|
+| Base versions | `room_base_config` | The room's normal capacity over `[valid_from, valid_to]` (open-ended last version). Changes close the current version the day before and open a new one (`planBaseChange`); retirement closes the open version (`planRetire`); reactivation opens a new open-ended version after a gap (`planReactivate`). History is never rewritten: no change may take effect before the hotel's today. |
+| Capacity periods | `capacity_period` | A dated season (`HAJJ`, `RAMADAN`, `SPECIAL`). Phase (`FUTURE`/`ACTIVE`/`ENDED`) is computed with the hotel-local today; ENDED periods allow only name/notes edits, ACTIVE periods have a frozen start and kind (the end may be extended, or shortened to yesterday), FUTURE periods are fully editable but cannot start in the past. |
+| Room capacity overrides | `room_capacity_override` | A room's capacity during one period (dates = the period's, kept in sync by the composite FK with `ON UPDATE CASCADE`). Applied by selector (`all`, `floorIds`, `roomTypeIds`, `roomIds` ≤ 1,000) with `ABSOLUTE` or `DELTA` values (DELTA is applied to the room's base capacity on the period's first night); rooms not in inventory for every night of the period, or already overridden, are skipped with a reason. The preview endpoint runs the same planning function without writing. Overrides may be added/removed only while the period is FUTURE. |
+| Operational blocks | `room_operational_block` | `OUT_OF_SERVICE`, `MAINTENANCE`, `OPERATIONAL_BLOCK` over dates with a reason. New blocks start on the hotel's today or later, are at most 731 nights, and must cover nights on which the room is in inventory. Cancelling an upcoming block soft-cancels it; "cancelling" a running block ends it yesterday (ended early, S11); ended or cancelled blocks cannot be changed. Blocks never change capacity, only status and sellability. |
+
+**Rules** (a *night* is identified by the date it starts, in hotel time; ranges are inclusive; "today" is always `todayInTimezone(hotel.timezone, now)`, never the server's or browser's date):
+
+1. **In inventory(room, night)** ⇔ a base version covers the night.
+2. **Effective capacity(room, night)** = the override covering the night (`source: PERIOD_OVERRIDE`, with its `periodId`) ▸ else the base version (`source: BASE`) ▸ else none (not in inventory, even if an override row exists). Physical beds and sellable (Haji) capacity are always carried separately.
+3. **Status(room, night)** by precedence: `NOT_IN_INVENTORY` › `OUT_OF_SERVICE` › `MAINTENANCE` › `OPERATIONAL_BLOCK` › `AVAILABLE` (Phase 2 inserts `OCCUPIED` › `BOOKED` › `HELD` before `AVAILABLE`; the constant already reserves them). Only active (non-cancelled) blocks count.
+4. **Sellable(room, night)** ⇔ in inventory ∧ no covering block that stops sales: `OUT_OF_SERVICE` and `OPERATIONAL_BLOCK` always, `MAINTENANCE` unless the hotel setting `inventory.maintenanceBlocksSales` is `false`.
+5. **Stay** `[checkIn, checkOut)` = the nights `checkIn … checkOut − 1`; a room is available for the stay iff it is sellable on every night; its stay capacity is the minimum effective sellable capacity over those nights.
+
+**Calendar segments.** `GET /api/hotels/:hotelId/room-calendar` returns, per room, run-length **segments** `{ from, to, status, sellable, physicalBeds, sellableCapacity, capacitySource, periodId, blockIds }` that cover the requested range exactly (no gap, no overlap), plus `meta: { today, maintenanceBlocksSales }` and `refs` holding exactly the periods and blocks referenced by the returned page (S13). Filters: floor, room type, room-number prefix `q`, capacity bounds, statuses with `statusMatch` `any`/`all`, `includeOutOfInventory`; derived filters apply before paging, so `total` is exact. Bounds: ≤ 400 days, page size ≤ 200 (default 50), at most 5,000 candidate rooms (more → 422 `TOO_MANY_ROOMS`, never a truncated answer), and a 2 MiB response-body budget (a larger page → 422 `CALENDAR_RESPONSE_TOO_LARGE`; narrow the page or range). The capacity timeline (`GET …/rooms/:roomId/capacity-timeline`) returns the same capacity segments for one room with `refs.periods`.
+
+**Daily summary.** `GET …/inventory/daily-summary` returns one row per date: `roomsInInventory`, `sellableRooms`, `outOfService`, `maintenance`, `operationalBlock`, `effectiveSellableCapacity` (all rooms in inventory) and `sellableRoomCapacity` (sellable rooms only) — zeros, never `NaN`, when nothing is in inventory. Same derivation as the calendar.
+
+**Capacity averages** (`server/domain/inventory/averages.ts`, `calendar.ts`; served by `GET /api/hotels/:hotelId/capacity/averages` and `GET /api/capacity/averages`). Notation: `R(D)` = rooms of the hotel in inventory on `D`; `base(r,D)` / `eff(r,D)` = base / effective sellable capacity.
+
+| Average | Formula | Basis |
+|---|---|---|
+| Base Hotel Average(D) | `Σ_{r∈R(D)} base(r,D) ÷ |R(D)|` — seasonal overrides and blocks ignored | `ROOMS` |
+| Date-Effective Hotel Average(D) | `Σ_{r∈R(D)} eff(r,D) ÷ |R(D)|` — overrides included, blocks ignored | `ROOMS` |
+| Range Average [a, b] | `Σ_{D∈[a,b]} Σ_{r∈R(D)} eff(r,D) ÷ Σ_{D∈[a,b]} |R(D)|` — weighted by room-nights (≤ 400 days) | `ROOM_NIGHTS` |
+| Available-Stay Average(S) | `Σ_{r∈E(S)} min_{D∈S} eff(r,D) ÷ |E(S)|`, `E(S)` = rooms sellable on every night of the stay (honours `maintenanceBlocksSales`; stay ≤ 90 nights; `eligibleRoomCount` always exact) | `ROOMS` |
+| All-hotel (organization) | `Σ_h numerator_h ÷ Σ_h denominator_h` over the accessible ACTIVE hotels (or the explicit `hotelIds`), each evaluated on the explicit `date` or on its **own** hotel-local today — never the mean of hotel averages | as the parts |
+
+Every average returns `{ numerator, denominator, value, display, basis }`. A **zero denominator** gives `value: null, display: null` — never `0`, `NaN` or `Infinity`. `display` is the ratio rounded **half-up to 2 decimals with integer arithmetic** (`formatRatio`). Worked examples (asserted in tests over the demo data): MKK-AJYAD base average on 2025-07-01 = 310 ÷ 80 = 3.875 → `"3.88"`; demo organization base average on 2025-07-01 = 1578 ÷ 360 = 4.3833… → `"4.38"`; during Hajj 2027 MKK-GRAND's date-effective average is above its base average and equals it again from 2027-08-01. Room estimates (`ceil(hajiCount ÷ average)`) are Phase 2.
+
+**Concurrency.** Each write runs in one transaction with its audit row. Writers that must not interleave take row locks first (the room row for base changes, retirement and blocks; the period row, then the rooms in ascending id order, for override application and period date edits). The three exclusion constraints are the database backstop; a constraint conflict surfaces as 409 (`RANGE_OVERLAP`, `BLOCK_OVERLAP`, …), and the exclusion-check deadlock (`40P01`) is translated to the same 409 for blocks and overrides. Residual non-corrupting race outcomes are listed in §28.
+
+**Phase 2 integration.** Reservations add one more unavailability source (`booking_room_assignment`, §10) to rules 3–5 and narrow `E(S)`; no Phase 1 table changes. Blocking over booked nights and "no future bookings before deactivation" are Phase 2 seams, not built.
 
 ## 10. Booking Concurrency Strategy
 
@@ -192,17 +256,35 @@ Algorithm:
 
 ## 14. Demo Data Architecture
 
-- Demo data lives in one ordinary `organization` row (`slug = 'demo'`), using the exact same schema and code paths as real tenants — **no parallel "demo mode" code branch**, which is both simpler and guarantees the demo always reflects real behavior.
-- Seed script is **idempotent and deterministic**: fixed seed for any randomization (Haji names, dates relative to a fixed anchor date recomputed at seed time), organized as composable seed modules per domain (hotels → rooms → capacity periods → employees → bookings → payments → expenses …) matching the phase build-out in §55, so each phase's `pnpm demo:seed` extends the same dataset.
-- **"Reset Demo Data"** is a privileged server action: wrapped in a transaction that deletes only rows scoped to the demo `organization_id` (cascade-scoped via FK), then re-runs the deterministic seed, then writes an audit entry — requires `organization.resetDemo` permission (Super Admin only) plus a confirmation step in the UI. It is architecturally incapable of touching another `organization_id` because every delete/seed statement is parameterized by the demo org's id, and no other tenant row can satisfy the same FK chain.
-- Demo realism/consistency rules (§56) are enforced by generating data **through the same domain services used at runtime** (e.g., seeding a booking calls the same allocation + invoicing + payment-application services a real user action would) rather than hand-crafting inconsistent rows directly via SQL — this is the single biggest guarantee against "impressive but wrong" fake data.
+- Demo data lives in one ordinary `organization` row (`slug = 'demo'`, `is_demo = true`), using the exact same schema and code paths as real tenants — **no parallel "demo mode" code branch**, which is both simpler and guarantees the demo always reflects real behavior.
+- **"Reset Demo Data"** is a privileged server action that deletes only the demo organization and re-runs the deterministic seed in one transaction, then writes an audit entry; it is architecturally incapable of touching another `organization_id`.
+- Demo realism/consistency rules (§56 of the brief) are a permanent requirement; later phases extend the same dataset (bookings, payments, …) as their modules ship.
+
+### 14.1 As shipped in Phase 1
+
+- **Dataset** (`db/seed/demo-org.ts`, `db/seed/demo/**`, catalogues in `server/demo/catalog.ts` and `server/demo/personas.ts`): 5 hotels (3 Makkah, 2 Madinah), 360 rooms on 36 floors, 4 organization-level room types, versioned base capacity with renovations, sellable reductions, retirements, a temporarily closed and reactivated room and an inactive floor, 24 capacity periods (six named seasons per hotel family — Ramadan 2026/2027, Hajj 2026/2027/2028 and an Umrah peak Dec 2026 — applied to the hotels each belongs to) with 830 room overrides, 123 operational blocks of every kind at the default anchor (including cancelled and ended-early ones), and 9 personas with 11 explicit hotel-access rows (all-hotels personas hold the flag instead). The story: MKK-GRAND room 401 is a Quad (4/4) that becomes 6/6 during Hajj 2027 (2027-05-01…2027-07-31); MKK-AJYAD's base average is 3.88; different roles see different hotels.
+- **Deterministic ids.** Every durable demo id is a UUID v5 of a stable key under a fixed private namespace (`db/seed/demo/ids.ts`: organization, roles, users, room types, hotels, floors, rooms, base versions, periods, overrides, blocks). The same key yields the same id on every seed in every environment.
+- **Seeded randomness.** Every random choice uses a per-hotel, per-purpose `mulberry32` stream seeded from a string (`db/seed/demo/random.ts`), so the generated data is identical on every machine.
+- **Anchor date.** Time-relative rows (running maintenance, ended-early and historical blocks) hang off `DEMO_ANCHOR_DATE` (default `2026-09-01`, a real date within 2000-01-01…2100-12-31); seasonal periods are fixed calendar dates. A reset may pass another `anchorDate` to bring the demo forward.
+- **Seed = reset.** `seedDemoOrganization` runs in one transaction under a transaction-level advisory lock (`lockDemoSeed`), deletes an existing `is_demo` organization with one cascading statement by its id (a non-demo organization holding the slug is refused), and recreates everything under the **same ids**, so sessions, bookmarks and client caches stay valid. All nine personas share one Argon2id hash computed once per run. `pnpm db:seed` and `POST /api/admin/demo/reset` both use it; the reset additionally records a `DEMO_RESET` audit row in the same transaction. A failure anywhere rolls everything back; concurrent resets are serialized by the advisory lock.
+- **Who may reset.** The route requires `organization.resetDemo` (403 `FORBIDDEN` otherwise — no other organization's Super Admin holds it) and the service additionally requires the caller to belong to the demo organization (also 403). Body: optional `{ "anchorDate": "YYYY-MM-DD" }`, strict.
+- **Second-organization isolation.** Tests seed a second, fully populated organization and prove its fingerprint (`tests/support/fingerprint.ts`) is byte-identical after resets; the Phase 1 acceptance scenario (`tests/integration/acceptance/phase1.test.ts`) repeats this end to end.
+- **Production guard.** The seed and the reset refuse to run with `APP_ENV=production` unless `ALLOW_DEMO_SEED=true` is set deliberately (`DemoSeedForbiddenError`; the reset route answers 403 `DEMO_SEED_NOT_ALLOWED`).
+- **Public demo sign-in metadata.** `GET /api/public/demo-sign-in` is unauthenticated metadata for a demo login screen (slug, the demo password and the persona list with display names, role names, hotels and `phase1Available`). It is **not** authentication: it mints no session and exposes no id or hash. It answers only when `DEMO_SIGN_IN_ENABLED=true` **and** `APP_ENV` is `development` or `demo` **and** an `is_demo` organization with slug `demo` exists; otherwise it returns exactly the unknown-route 404. Configuration rules: `APP_ENV=production` with `DEMO_SIGN_IN_ENABLED=true` is an invalid configuration that **stops startup** (`server/plugins/demoEnv.ts`); `APP_ENV=staging` with the flag `true` is a **valid** configuration that starts normally, but the runtime gate keeps the endpoint closed (404); `production` with the flag `false`/unset serves 404.
 
 ## 15. File Storage Architecture
 
-- A `StorageDriver` interface (`put`, `getSignedUrl`, `delete`) abstracts storage; **local filesystem driver for development**, **S3-compatible object storage (Cloudflare R2 recommended for cost) for staging/production** — selected via env var, no code change to switch.
-- Database stores only **metadata + storage key** (`document_asset(id, organization_id, storage_key, mime_type, size_bytes, original_filename, uploaded_by, entity_type, entity_id)`), never binary content in Postgres.
-- Uploads are validated server-side (MIME allow-list, max size) before a signed key is issued; filenames are never trusted for storage paths — a generated UUID + extension is used, original filename kept only as display metadata.
-- Sensitive documents (Iqama scans, contracts) get **signed, time-limited download URLs** issued per-request after a permission check, never public bucket URLs.
+Direction (unchanged): a `StorageDriver` abstraction, metadata in PostgreSQL, bytes outside it, generated keys, server-side validation, and S3-compatible object storage (Cloudflare R2 recommended for cost) once a cloud driver exists.
+
+### 15.1 As shipped in Phase 1 (hotel documents)
+
+- **Metadata in PostgreSQL, bytes behind `StorageDriver`.** `document_asset` + `hotel_document` (§6.1) hold metadata only; bytes go through `StorageDriver` (`put` — never overwrites, `get` — stream, `exists`, `delete`) in `server/storage/**`.
+- **Local driver only.** Phase 1 ships exactly one driver, `local` (`STORAGE_DRIVER=local`, files under `STORAGE_LOCAL_DIR`, default `.data/uploads`, resolved against the process working directory). Any other `STORAGE_DRIVER` value is a configuration error that stops startup (`server/plugins/storage.ts`); there is no silent fallback. **An S3-compatible driver is not implemented** (Phase 9).
+- **Server-generated keys.** `<organizationId>/<year>/<random uuid><ext>`, built only from the organization id, the clock and a random UUID; the user's filename never reaches a path (it is sanitized and kept as display metadata only).
+- **Validation.** Allow-list `application/pdf`, `image/png`, `image/jpeg`; the bytes must start with the declared type's signature (magic bytes); 1 byte to 10 MiB (also enforced by a check constraint). Uploads are `multipart/form-data` with a mandatory `Content-Length` (missing length or `Transfer-Encoding` → 411; a declared length above 10 MiB plus 64 KiB framing → 422 `FILE_TOO_LARGE` before any byte is read). The body is buffered in memory (not streamed).
+- **Write order.** Authorize (`hotel.manage`) → validate → write the object → one transaction (asset row, hotel-document row, `DOCUMENT_ADDED` audit). A failed transaction deletes the object again.
+- **Download and archive.** Downloads stream through the API after `authorizeHotel` (`hotel.view`); there is **no public storage URL** and no signed URL. Archiving sets `archived_at` (+ audit) and **keeps the bytes and rows**; archived documents are visible/downloadable only with `includeArchived` and `hotel.manage`. Nothing is hard-deleted.
+- **Persistence requirement.** With the local driver, `STORAGE_LOCAL_DIR` must be writable and **persistent** across deploys/restarts and included in the deployment's backup plan; an ephemeral container filesystem loses every document while its metadata rows remain (downloads then fail with 500 `DOCUMENT_FILE_MISSING`). The demo reset removes demo document rows with the organization but does not delete stored files (the demo seeds no documents).
 
 ## 16. Reporting Architecture
 
@@ -217,7 +299,8 @@ Algorithm:
 - **Managed PostgreSQL** (Neon or Supabase recommended — see §18) rather than self-hosted, for automated backups/PITR without ops burden.
 - **Object storage**: Cloudflare R2 (S3-compatible, no egress fees).
 - **Reverse proxy/TLS/CDN**: handled by the hosting platform (Railway/Render/Fly all provide this) rather than custom nginx config.
-- Config fully via environment variables (`DATABASE_URL`, `STORAGE_*`, `EMAIL_*`, `SESSION_SECRET`, `APP_ENV`) — four environments (`development`, `demo`, `staging`, `production`) differ only by env vars and which `organization` rows exist, never by code branches.
+- Config fully via environment variables — four environments (`APP_ENV`: `development`, `demo`, `staging`, `production`) differ only by env vars and which `organization` rows exist, never by code branches. Phase 1 reads `APP_ENV`, `DATABASE_URL`, `DATABASE_POOL_MAX`, `NUXT_SESSION_PASSWORD`, `NUXT_SESSION_COOKIE_SECURE`, `STORAGE_DRIVER`, `STORAGE_LOCAL_DIR`, `ALLOW_DEMO_SEED`, `DEMO_ANCHOR_DATE` and `DEMO_SIGN_IN_ENABLED` (validated by `server/utils/env.ts`; documented in `.env.example`). Email settings arrive with the notification phase.
+- **Migrations run before the new app version takes traffic** (`pnpm db:migrate`); see `docs/MIGRATIONS.md` and `docs/DEPLOY_CHECKLIST.md`. Phase 1 has no object storage yet: with the local storage driver the document directory must be a persistent volume (§15.1).
 
 ## 18. Low-Cost Deployment Options
 
@@ -241,7 +324,7 @@ Recommended starting stack (re-evaluate only if usage outgrows it):
 - API errors logged with context (route, org/hotel, actor, input shape — never raw secrets/PII in logs).
 - Background job failures logged by pg-boss's built-in failure tracking, surfaced in an internal `/admin/jobs` view.
 - Email delivery status persisted per notification (§13).
-- `/api/health` endpoint checks DB connectivity and job-queue liveness for platform health checks.
+- `GET /api/health` (shipped, unauthenticated) runs `select 1` and answers 200 `{ status: 'ok', db: 'ok' }`, or 503 `{ status: 'degraded', db: 'down' }`. The first database use also validates the full environment (`getEnv()`), so an invalid `DATABASE_URL`/`NUXT_SESSION_PASSWORD` shows up here as 503. Job-queue liveness is added with pg-boss (Phase 7).
 - Architecture leaves a clean seam to add Sentry (or similar) later — a single error-reporting hook point in the Nitro error handler and a client-side Vue error boundary, not wired to a vendor yet.
 
 ## 21. Security Requirements
@@ -255,13 +338,26 @@ Recommended starting stack (re-evaluate only if usage outgrows it):
 - Sensitive employee fields (Iqama number, passport number, salary) gated by dedicated permissions, redacted from API responses when the caller lacks them — not just hidden in the UI.
 - Full audit logging (§35) with before/after values for all financial, capacity, permission, and compliance changes.
 - Secrets only via environment variables / the hosting platform's secret manager — never committed, never hard-coded per-environment URLs.
+- **Phase 1 status:** server-side authorization on every route, the sealed `httpOnly` / `sameSite=lax` / `secure` session cookie, Argon2id, Zod validation, magic-byte upload validation, generated storage keys and before/after audit for every configuration write are shipped (§8.1, §15.1). Login rate limiting/lockout, an explicit CSRF origin check beyond `sameSite=lax`, 2FA and RLS are not yet implemented (Phase 9).
 
 ## 22. Testing Strategy
 
 - **Unit tests (Vitest)** for the pure domain layer — this is the highest-value test surface and is fast/deterministic: capacity resolution, seasonal overrides, hotel averages, allocation optimizer (including edge cases from §2), nightly rate/booking totals, money arithmetic, payment application/due calculation, occupancy/ADR/RevPAR, weighted multi-hotel aggregation, payroll calculation, reminder-offset scheduling, permission/hotel-scope checks.
 - **Integration tests** against a real ephemeral Postgres (Docker Compose service, or Testcontainers) for: the booking transaction end-to-end (concurrent double-booking attempt must fail exactly one of two simultaneous requests), hold expiry sweep under `SKIP LOCKED`, tenant-isolation (a query scoped to org A must never return org B rows), exclusion-constraint enforcement for capacity-period overlap.
-- **E2E (Playwright)**, added from Phase 2 onward once real screens exist, covering the golden paths: create booking → allocate rooms → pay → invoice; and a role-based access smoke test per persona (§38).
+- **E2E (Playwright)** browser tests arrive with the Phase 1 **UI** work (`docs/UI-UX-MASTER-DIRECTION.md` §45: persona navigation, golden paths, server-side 403/404 for hidden actions) and grow with every later phase (e.g. create booking → allocate rooms → pay → invoice). They are not part of the backend Phase 1 delivery.
 - Test data uses the same seed-module system as demo data (§14) at reduced scale, run against a disposable test database per CI run, never against demo/production.
+
+**As shipped in Phase 1:**
+
+| Layer | Command | What it covers |
+|---|---|---|
+| Unit | `pnpm test:unit` (`tests/unit/**`) | Pure domain (dates, capacity, averages, calendar, rules), schemas, architecture/layering fitness tests. No database. |
+| Type-level | `pnpm typecheck:types` (`tests/types/**`) | Compile-time proofs, e.g. a tenant query cannot choose its own organization. |
+| Integration | `pnpm test:integration` (`tests/integration/**`) | Real PostgreSQL 16 (`*_test` database only — enforced): repositories, constraints, migrations harness, services, authorization/isolation registry, demo seed/reset, performance bounds (calendar/averages scale), and the **Phase 1 acceptance scenario** (`tests/integration/acceptance/phase1.test.ts`). Runs migrations first; `pnpm test:integration:fresh` rebuilds the test schema from zero. |
+| HTTP (black-box) | `pnpm test:http` (`tests/http/**`) | Builds the production Nitro artifact, starts it as a child process on a free port, and exercises every Phase 1 route over real HTTP (cookies, session lifetime, 401/403/404/409/422 shapes, uploads, demo sign-in gating). `HTTP_TEST_SKIP_BUILD=1` reuses an existing `.output`. |
+| All gates | `pnpm verify` | lint, typecheck, type-level tests, `db:check`, `db:drift`, unit, integration, HTTP — the same gates CI runs (`.github/workflows/ci.yml`). |
+
+Browser E2E is not part of the backend Phase 1 delivery; it arrives with the Phase 1 UI work (see above).
 
 ## 23. Full Implementation Milestones
 
@@ -308,11 +404,16 @@ db/
   seed/                 # composable, idempotent demo/test seed modules
 tests/
   unit/
-  integration/
-  e2e/
+  integration/          # incl. acceptance/phase1.test.ts
+  http/                 # black-box HTTP suite against the built server
+  types/                # compile-only type tests
+  e2e/                  # browser tests (arrive with the UI work; empty in backend Phase 1)
 docs/
   ARCHITECTURE.md       # this file
-  phases/                # per-phase plans, added as each phase starts
+  MIGRATIONS.md         # migration policy
+  DEPLOY_CHECKLIST.md   # deployment prerequisites
+  UI-UX-MASTER-DIRECTION.md
+  superpowers/plans/    # per-phase implementation plans
 ```
 
 ## 25. Major Database Entities & Relationships
@@ -339,7 +440,7 @@ every table above → organization_id (direct or via hotel_id)
 ## 26. Critical Indexes / Constraints
 
 - `EXCLUDE USING gist (room_id WITH =, daterange(check_in, check_out, '[)') WITH &&) WHERE status IN ('HELD','CONFIRMED','CHECKED_IN')` on `booking_room_assignment` — hard double-booking prevention.
-- `EXCLUDE USING gist (room_id WITH =, daterange(start_date, end_date, '[]') WITH &&)` on `room_capacity_override` — no overlapping capacity periods per room.
+- Shipped in Phase 1 (all `daterange(..., '[]')`, inclusive): `room_base_config_no_overlap` `EXCLUDE USING gist (room_id WITH =, daterange(valid_from, valid_to) WITH &&)` (no overlapping base versions); `room_override_no_overlap` on `room_capacity_override` (at most one override per room per night); `room_block_no_overlap` `EXCLUDE USING gist (room_id WITH =, kind WITH =, daterange(start_date, end_date) WITH &&) WHERE (cancelled_at IS NULL)` (no two active same-kind blocks per room per night). All three need `btree_gist`.
 - Composite index `(organization_id, hotel_id)` on every tenant table used in list/filter queries (rooms, bookings, expenses, employees…).
 - Index on `(hotel_id, check_in, check_out)` for room-calendar and availability queries; GiST index on the `daterange` expression itself for range-overlap performance.
 - Unique constraint `(organization_id, invoice_number)` and `(organization_id, booking_reference)` — human-facing sequences unique per org, generated via a per-org sequence, not global.
@@ -355,6 +456,47 @@ every table above → organization_id (direct or via hotel_id)
 - **Exact DP allocation solver has a complexity ceiling** — degrades to heuristic for very large room pools. Mitigation: realistic hotel/stay-scoped pools (tens to a few hundred candidate rooms) stay well within exact-solve bounds; the heuristic path is still unit-tested against known-good outcomes.
 - **Derived-inventory queries vs. pre-materialized grids** — cheaper to store and always correct, but relies on well-tuned range/GiST indexes for performance at scale. Mitigation: covered in §16/§53; add a read-optimized projection only if profiling proves it necessary, not speculatively.
 - **Single-region managed Postgres** is a v1 simplicity trade-off against multi-region resilience — acceptable given the cost target and current scale; revisit if uptime SLAs tighten.
+
+## 28. Phase 1 — changelog, divergence register and known limitations
+
+### 28.1 Changelog (what Phase 1 added)
+
+- **Schema** (migrations `0001`–`0007`, `docs/MIGRATIONS.md`): tenancy hardening (`btree_gist`, `user_role.organization_id`, composite FKs); hotel core (`hotel`, `hotel_setting`, `user_hotel_access`, `app_user.all_hotels`, `audit_log.hotel_id` + immutability trigger); floors and room types; rooms and versioned base capacity; capacity periods and overrides; operational blocks; hotel documents.
+- **Foundation:** branded scopes and scoped repositories with an isolation registry; per-request authorization with an identity-only 8-hour session; standard error shape and DB-error translation; black-box HTTP test harness; CI with static/unit/integration/http jobs.
+- **Inventory:** hotel, floor, room type and room management (bulk create, retire/reactivate), base-capacity versioning, seasonal periods with override preview/apply/remove, operational blocks (bulk, cancel/end early), capacity averages, the derived room calendar, capacity timeline and daily summary, hotel-scoped audit read with cursor paging, hotel documents on the local storage driver.
+- **Demo:** the deterministic 5-hotel / 360-room / 9-persona demo organization with same-id transactional reset and the gated demo sign-in metadata endpoint.
+
+### 28.2 Divergence register (intentional differences from the Phase 1 plan)
+
+Only differences that matter to a reader of the plan are listed; each was accepted in its task's review.
+
+| # | Area (task) | Plan said | Shipped | Why / consequence |
+|---|---|---|---|---|
+| D-1 | Demo sign-in on staging (20) | Task 21 deploy text: "startup validation also refuses" `DEMO_SIGN_IN_ENABLED=true` on staging | Only `APP_ENV=production` + `true` stops startup. `staging` + `true` is a **valid** configuration; the runtime gate keeps the endpoint closed (unknown-route 404). | Staging may mirror production configuration without a crash; the endpoint is still never served there. Operational policy (`DEPLOY_CHECKLIST.md`) still says: leave it unset/false on staging. |
+| D-2 | Demo dataset counts (20) | Approximate targets ("≈125 blocks", "six named periods per hotel family") | Exact, deterministic: 5 hotels, 36 floors, 360 rooms, 4 room types, 24 capacity periods, 830 overrides, 123 blocks (default anchor), 9 users, 11 explicit hotel-access rows | Determinism; the numbers are asserted by the demo tests and change only with the seed. |
+| D-3 | Calendar size bound (18) | "Response stays under 2 MB for 2,000 rooms" | Page size ≤ 200; a hard 2 MiB response-body budget (422 `CALENDAR_RESPONSE_TOO_LARGE`, never truncated) and at most 5,000 candidate rooms per request (422 `TOO_MANY_ROOMS`) | Bounded memory/latency with data-dependent segment counts; clients narrow the page or the range. |
+| D-4 | Uploads (19) | Multipart upload with a 10 MB limit | Body is **buffered** in memory (h3 `readMultipartFormData`); `Content-Length` is **mandatory** (411 otherwise, no chunked uploads); a declared length over the limit is rejected before reading | Bounded buffering without a streaming parser. Accepted windows: if the metadata transaction fails and the cleanup delete also fails, an orphan file remains (logged with its key); if a commit succeeds but its acknowledgement is lost, the cleanup can delete a referenced object (download then answers 500 `DOCUMENT_FILE_MISSING`). Separately, `LocalStorageDriver.put` removes a partial file when `writeFile` fails, but if the final file close itself throws after a successful write, `put` rejects before `documentService` owns the key for compensation, so an extremely rare fully-written object may remain without metadata. |
+| D-5 | Concurrency residuals (14–16) | Every writer serialized by row locks | `deleteCapacityPeriod` does not lock the period row; `reactivateRoom` does not lock the room row | Non-corrupting: a delete racing an override apply is stopped by the override→period foreign key (surfaces as 422 `INVALID_REFERENCE` instead of 409 `PERIOD_HAS_OVERRIDES`); two simultaneous reactivations of one room are stopped by `room_base_config_no_overlap` (409 `RANGE_OVERLAP`, or — if PostgreSQL resolves the exclusion wait as a deadlock `40P01`, which is translated only for blocks and overrides — a 500). Data stays correct in every case. |
+| D-6 | Capacity timeline refs (15/S13) | `refs.periods` as in the calendar | Timeline `refs.periods[id]` also carries `id`, and the response carries `meta.today` | Additive. |
+| D-7 | Hotel write responses (12–14/S2) | `HotelDetail` with counts | `GET /api/hotels` and `GET /api/hotels/:hotelId` return real `floorCount`/`roomCount`; create/update/activate/deactivate responses return them as `null` | Clients re-read the hotel after a write when they need counts. |
+| D-8 | Browser E2E (22) | "E2E from Phase 2 onward" (Phase 0 text) | Black-box HTTP tests are part of backend Phase 1; browser E2E arrives with the Phase 1 UI work (`UI-UX-MASTER-DIRECTION.md` §45) | Plan Task 21 correction. |
+
+### 28.3 Open findings
+
+None recorded at the Phase 1 gate. (The final acceptance gate did find and correct one contract mismatch — Task 19 wrote document audit rows with `entityType: 'hotel_document'` while the public audit filter's fixed list names `document` — so document audit rows are now written as `document`, filterable by `entityType=document`; the relational table is still `hotel_document`. This was a defect, not a divergence.)
+
+### 28.4 Known limitations (accepted Phase 1 scope, not bugs)
+
+- Uploads are buffered in memory (≤ 10 MiB + framing), not streamed.
+- Only the local storage driver exists; it needs a persistent, backed-up directory. No S3-compatible driver (Phase 9).
+- The demo data is a fixed deterministic dataset (movable only through the anchor date).
+- No reservations, holds or bookings (Phase 2); availability counts only inventory and blocks.
+- No browser UI and no browser E2E tests in the backend Phase 1 delivery.
+- No RLS, login rate limiting/lockout or 2FA (Phase 9).
+
+### 28.5 Test-infrastructure note
+
+`tests/integration/db/tenancyHardening.migration.test.ts` builds scratch databases and intermittently exceeds Vitest's default 5 s per-test timeout on a loaded machine. It is a timing issue in the test, not a behavior failure; CI must report it rather than retry it silently.
 
 ---
 
