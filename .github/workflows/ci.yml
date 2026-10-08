@@ -1,13 +1,90 @@
 name: CI
 
+# Phase 1 gates (plan Part C §13), the same commands `pnpm verify` runs locally, split into four jobs so each
+# failure is reported on its own: static, unit, integration, http.
+#
+# Decision rule (plan Task 21) — report, never paper over:
+#   - total CI wall time above 12 minutes -> report it for optimization;
+#   - the `http` job flaking in 3 consecutive runs -> report and investigate.
+# Never remove a check and never add blind retries (no retry loops, no `continue-on-error`) to make a run green.
+
 on:
   push:
     branches: [main]
   pull_request:
 
+# A newer push to the same branch/PR cancels the superseded run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
-  test:
+  # No database: db:check and db:drift diff files (migration history / schema vs. migrations) and never connect,
+  # but drizzle.config.ts throws without a DATABASE_URL, so they get an unreachable placeholder.
+  static:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm first, so setup-node's `cache: pnpm` can find the pnpm store. No `version:` — the action installs the
+      # version pinned in package.json's "packageManager" (pnpm@9.4.0); setting both fails the action.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version' # 22.19.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Compile-only proofs (tests/types): the @ts-expect-error lines must be genuine errors.
+      - name: Type-level tests
+        run: pnpm typecheck:types
+
+      - name: Check migration history
+        env:
+          DATABASE_URL: postgres://ci:ci@localhost:5432/unused_placeholder
+        run: pnpm db:check
+
+      - name: Check for schema/migration drift
+        env:
+          DATABASE_URL: postgres://ci:ci@localhost:5432/unused_placeholder
+        run: pnpm db:drift
+
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      # tests/unit/** only (vitest.config.ts); no database.
+      - name: Unit tests
+        run: pnpm test:unit
+
+  # Fresh PostgreSQL 16 per run: `pnpm test:integration` applies every migration from 0000 to the empty database
+  # (btree_gist is created by migration 0001; the service user is the container superuser) and then runs
+  # tests/integration/**, including the Phase 1 acceptance scenario. The database is new on every run, so no
+  # separate reset step is needed.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16-alpine
@@ -22,42 +99,69 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+    # Test-only values, no secrets. `pnpm test:integration` loads .env.test through `dotenv run`, which never
+    # overrides a variable that is already set, so this block is authoritative. DEMO_SIGN_IN_ENABLED and
+    # ALLOW_DEMO_SEED stay unset (off); the tests that need them set them for themselves.
+    env:
+      APP_ENV: development
+      DATABASE_URL: postgres://hajj_umrah:hajj_umrah_dev_password@localhost:5433/hajj_umrah_test
+      NUXT_SESSION_PASSWORD: ci-test-session-password-at-least-32-characters
+      NUXT_SESSION_COOKIE_SECURE: 'false'
+      STORAGE_DRIVER: local
     steps:
       - uses: actions/checkout@v4
-
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: '.node-version'
-
-      - uses: pnpm/action-setup@v4
-        # No `version:` here — pnpm/action-setup auto-detects and installs
-        # the version pinned in package.json's "packageManager" field
-        # (pnpm@9.4.0). Setting both `version:` and a packageManager field
-        # causes the action to fail with "Multiple versions of pnpm specified".
-
+          cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Unit tests
-        run: pnpm test:unit
-
-      - name: Enable btree_gist on the CI test database
-        run: |
-          PGPASSWORD=hajj_umrah_dev_password psql -h localhost -p 5433 -U hajj_umrah -d hajj_umrah_test -c "CREATE EXTENSION IF NOT EXISTS btree_gist;"
-
-      # `pnpm test:integration` is the exact script developers run locally:
-      # it applies migrations and then runs the integration suite, both via
-      # `dotenv run -f .env.test`. dotenv does not override variables that
-      # are already set, so the env block below is authoritative in CI.
-      - name: Integration tests (migrations + suite)
+      - name: Integration tests (migrations from zero + suite)
+        # `runner` is not available in job-level env, so the throw-away upload directory is set per step.
         env:
-          DATABASE_URL: postgres://hajj_umrah:hajj_umrah_dev_password@localhost:5433/hajj_umrah_test
-          NUXT_SESSION_PASSWORD: ci-test-session-password-at-least-32-characters
-          APP_ENV: development
+          STORAGE_LOCAL_DIR: ${{ runner.temp }}/integration-uploads
         run: pnpm test:integration
+
+  # Black-box HTTP tests against the built production Nitro artifact (`node .output/server/index.mjs`): cookies,
+  # session lifetime, per-request authorization and error shapes over real HTTP. `pnpm test:http` migrates the
+  # fresh database, builds the artifact itself (its global setup runs `pnpm build`), boots it on a free port and
+  # runs the suite — so there is deliberately no separate build step (it would build twice). The harness gives the
+  # server its own temporary STORAGE_LOCAL_DIR; the demo sign-in tests start their own gated server.
+  http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hajj_umrah
+          POSTGRES_PASSWORD: hajj_umrah_dev_password
+          POSTGRES_DB: hajj_umrah_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U hajj_umrah -d hajj_umrah_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      APP_ENV: development
+      DATABASE_URL: postgres://hajj_umrah:hajj_umrah_dev_password@localhost:5433/hajj_umrah_test
+      NUXT_SESSION_PASSWORD: ci-test-session-password-at-least-32-characters
+      NUXT_SESSION_COOKIE_SECURE: 'false'
+      STORAGE_DRIVER: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: HTTP tests (migrate + build + black-box suite)
+        # `runner` is not available in job-level env, so the throw-away upload directory is set per step.
+        env:
+          STORAGE_LOCAL_DIR: ${{ runner.temp }}/http-uploads
+        run: pnpm test:http

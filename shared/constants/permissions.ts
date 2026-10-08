@@ -3,6 +3,8 @@ export const PERMISSIONS = [
   'hotel.manage',
   'room.view',
   'room.manage',
+  'capacity.manage',
+  'room.block',
   'booking.view',
   'booking.create',
   'booking.edit',
@@ -25,16 +27,27 @@ export const PERMISSIONS = [
   'report.view',
   'report.export',
   'user.manage',
+  'audit.view',
   'organization.resetDemo',
 ] as const
 
 export type Permission = typeof PERMISSIONS[number]
+
+/**
+ * Permissions that exist only to support the demo organization's self-service reset. Never granted
+ * generically by a role definition (see ROLE_DEFINITIONS.SUPER_ADMIN) — only the demo organization's
+ * seed grants them explicitly (db/seed/rbac.ts, db/seed/demo-org.ts), so a Super Admin of any other
+ * (real) tenant never holds the power to wipe another organization's data.
+ */
+export const DEMO_ONLY_PERMISSIONS = ['organization.resetDemo'] as const
 
 export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   'hotel.view': 'View hotel details and settings',
   'hotel.manage': 'Create and edit hotels',
   'room.view': 'View rooms and room types',
   'room.manage': 'Create and edit rooms, room types, and capacity periods',
+  'capacity.manage': 'Change base capacity and manage seasonal capacity periods and overrides',
+  'room.block': 'Create and cancel operational blocks, maintenance and out-of-service periods',
   'booking.view': 'View bookings',
   'booking.create': 'Create new bookings and holds',
   'booking.edit': 'Edit existing bookings',
@@ -57,5 +70,6 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   'report.view': 'View reports and dashboards',
   'report.export': 'Export reports as PDF/Excel',
   'user.manage': 'Manage users, roles, and hotel access assignments',
+  'audit.view': 'View the audit log for hotels the user can access',
   'organization.resetDemo': 'Reset the demo organization to its seeded baseline',
 }

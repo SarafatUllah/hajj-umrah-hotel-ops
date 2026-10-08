@@ -1,28 +1,24 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import postgres from 'postgres'
-import { drizzle } from 'drizzle-orm/postgres-js'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { organization, appUser, auditLog, userRole } from '../../../db/schema'
-import { seedDemoOrganization, DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from '../../../db/seed/demo-org'
+import { seedDemoOrganization, DEMO_ORG_SLUG } from '../../../db/seed/demo-org'
+import { DEMO_ADMIN_EMAIL, DEMO_PASSWORD } from '../../../server/demo/personas'
 import { seedOrganizationRoles } from '../../../db/seed/rbac'
 import { resetDemoData, DemoOrganizationNotFoundError, DemoResetForbiddenError } from '../../../server/services/demo.service'
 import { useDb } from '../../../server/utils/db'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
-import { requireTestDatabaseUrl } from '../support/testDatabase'
+import { resolveAuthContext } from '../../../server/security/authContext'
+import { closeTestDb, truncateAllTables } from '../support/testDb'
 
-const connectionString = requireTestDatabaseUrl()
-
-const client = postgres(connectionString, { max: 1 })
-const rawDb = drizzle(client)
 const db = useDb()
 
 afterEach(async () => {
-  await rawDb.execute(sql`TRUNCATE TABLE audit_log, user_role, role_permission, permission, role, app_user, organization RESTART IDENTITY CASCADE`)
+  await truncateAllTables()
 })
 
 afterAll(async () => {
-  await client.end()
+  await closeTestDb()
 })
 
 async function seedDemoAndGetAdmin() {
@@ -34,6 +30,14 @@ async function seedDemoAndGetAdmin() {
     .limit(1)
   return { organizationId, actor: { userId: admin.id, organizationId } }
 }
+
+describe('seedDemoOrganization', () => {
+  it('gives the demo admin all_hotels = true', async () => {
+    const { organizationId } = await seedDemoOrganization(db)
+    const [admin] = await db.select().from(appUser).where(and(eq(appUser.organizationId, organizationId), eq(appUser.email, DEMO_ADMIN_EMAIL))).limit(1)
+    expect(admin?.allHotels).toBe(true)
+  })
+})
 
 describe('resetDemoData', () => {
   it('throws when the demo organization does not exist yet', async () => {
@@ -48,7 +52,7 @@ describe('resetDemoData', () => {
 
     const result = await resetDemoData(actor)
 
-    const authResult = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)
+    const authResult = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_PASSWORD)
     expect(authResult).not.toBeNull()
 
     const auditRows = await db.select().from(auditLog).where(eq(auditLog.action, 'DEMO_RESET'))
@@ -96,7 +100,10 @@ describe('resetDemoData', () => {
     const { organizationId: demoOrgId } = await seedDemoAndGetAdmin()
 
     // A fully legitimate Super Admin of an unrelated tenant: holds every
-    // permission (including organization.resetDemo) within their own org.
+    // permission EXCEPT the demo-only ones (organization.resetDemo) within
+    // their own org — least privilege (PF-2): that permission is granted
+    // only to the demo organization's own SUPER_ADMIN role, explicitly, by
+    // the seed. A generic Super Admin must never be able to wipe another org.
     const [otherOrg] = await db.insert(organization).values({ name: 'Other Tenant', slug: 'other-tenant' }).returning()
     const otherRoles = await seedOrganizationRoles(db, otherOrg.id)
     const [otherAdmin] = await db.insert(appUser).values({
@@ -105,9 +112,12 @@ describe('resetDemoData', () => {
       passwordHash: await hashPassword('other-admin-password'),
       fullName: 'Other Super Admin',
     }).returning()
-    await db.insert(userRole).values({ userId: otherAdmin.id, roleId: otherRoles.SUPER_ADMIN! })
+    await db.insert(userRole).values({ organizationId: otherOrg.id, userId: otherAdmin.id, roleId: otherRoles.SUPER_ADMIN! })
     const otherLogin = await authenticate('other-tenant', 'admin@other-tenant.com', 'other-admin-password')
-    expect(otherLogin?.permissions).toContain('organization.resetDemo')
+    expect(otherLogin).not.toBeNull()
+    // PF-1: authenticate() no longer carries a permission snapshot — re-assert via resolveAuthContext.
+    const otherCtx = await resolveAuthContext(db, { userId: otherLogin!.user.id, organizationId: otherLogin!.user.organizationId })
+    expect(otherCtx?.authz.permissions.has('organization.resetDemo')).toBe(false)
 
     await expect(resetDemoData({ userId: otherAdmin.id, organizationId: otherOrg.id }))
       .rejects.toBeInstanceOf(DemoResetForbiddenError)
@@ -149,6 +159,6 @@ describe('resetDemoData', () => {
     const demoOrgs = await db.select().from(organization).where(eq(organization.slug, DEMO_ORG_SLUG))
     expect(demoOrgs.length).toBe(1)
     expect(fulfilled.map(r => r.value.organizationId)).toContain(demoOrgs[0].id)
-    expect(await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)).not.toBeNull()
+    expect(await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_PASSWORD)).not.toBeNull()
   })
 })

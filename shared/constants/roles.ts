@@ -1,19 +1,24 @@
-import { PERMISSIONS, type Permission } from './permissions'
+import { DEMO_ONLY_PERMISSIONS, PERMISSIONS, type Permission } from './permissions'
 
 export interface RoleDefinition {
   name: string
   permissions: Permission[]
 }
 
+const DEMO_ONLY = new Set<string>(DEMO_ONLY_PERMISSIONS)
+
 export const ROLE_DEFINITIONS: Record<string, RoleDefinition> = {
+  // Every permission except the demo-only ones (least privilege, PF-2): organization.resetDemo is
+  // granted only to the demo organization's SUPER_ADMIN role, explicitly, by the seed
+  // (db/seed/demo-org.ts) — never generically to every organization's Super Admin.
   SUPER_ADMIN: {
     name: 'Super Admin',
-    permissions: [...PERMISSIONS],
+    permissions: PERMISSIONS.filter(p => !DEMO_ONLY.has(p)),
   },
   HOTEL_MANAGER: {
     name: 'Hotel Manager',
     permissions: [
-      'hotel.view', 'hotel.manage', 'room.view', 'room.manage',
+      'hotel.view', 'hotel.manage', 'room.view', 'room.manage', 'capacity.manage', 'room.block',
       'booking.view', 'booking.create', 'booking.edit', 'booking.cancel', 'booking.override',
       'rate.view', 'rate.manage', 'payment.view', 'payment.create',
       'expense.view', 'expense.create',
@@ -21,6 +26,7 @@ export const ROLE_DEFINITIONS: Record<string, RoleDefinition> = {
       'payroll.view',
       'compliance.view', 'compliance.manage',
       'report.view', 'report.export',
+      'audit.view',
     ],
   },
   RESERVATION_MANAGER: {

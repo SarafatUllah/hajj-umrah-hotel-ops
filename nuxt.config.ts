@@ -17,4 +17,21 @@ export default defineNuxtConfig({
       include: ['../server/**/*'],
     },
   },
+  // Session lifetime (A2 — ruled in scope during Phase 0, implemented here in Task 7). Identity
+  // only: no permission/hotel-access snapshot is ever stored in the session cookie (server/security/
+  // authContext.ts resolves authorization fresh from the database on every request instead).
+  runtimeConfig: {
+    session: {
+      // Always overridden at runtime by NUXT_SESSION_PASSWORD (required, min 32 chars — see
+      // server/utils/env.ts) — the empty string here only satisfies SessionConfig's type, it is
+      // never the value actually used.
+      password: '',
+      maxAge: 60 * 60 * 8,
+      cookie: {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: true,
+      },
+    },
+  },
 })

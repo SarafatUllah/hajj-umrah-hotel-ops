@@ -1,21 +1,15 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import postgres from 'postgres'
-import { drizzle } from 'drizzle-orm/postgres-js'
-import { sql } from 'drizzle-orm'
 import { organization, appUser } from '../../../db/schema'
-import { requireTestDatabaseUrl } from '../support/testDatabase'
+import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
-const connectionString = requireTestDatabaseUrl()
-
-const client = postgres(connectionString, { max: 1 })
-const db = drizzle(client)
+const db = getTestDb()
 
 afterEach(async () => {
-  await db.execute(sql`TRUNCATE TABLE app_user, organization RESTART IDENTITY CASCADE`)
+  await truncateAllTables()
 })
 
 afterAll(async () => {
-  await client.end()
+  await closeTestDb()
 })
 
 describe('tenancy schema', () => {

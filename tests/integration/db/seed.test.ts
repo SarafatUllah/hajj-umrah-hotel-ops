@@ -1,28 +1,23 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import postgres from 'postgres'
-import { drizzle } from 'drizzle-orm/postgres-js'
-import { eq, sql } from 'drizzle-orm'
-import { createDb } from '../../../db/client'
+import { and, eq } from 'drizzle-orm'
 import { organization, appUser, role, permission, rolePermission, userRole } from '../../../db/schema'
-import { seedDemoOrganization, DemoSlugConflictError, DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from '../../../db/seed/demo-org'
+import { seedDemoOrganization, DemoSlugConflictError, DEMO_ORG_SLUG } from '../../../db/seed/demo-org'
+import { DEMO_ADMIN_EMAIL, DEMO_PASSWORD } from '../../../server/demo/personas'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
+import { resolveAuthContext } from '../../../server/security/authContext'
 import { PERMISSIONS } from '../../../shared/constants/permissions'
 import { ROLE_DEFINITIONS } from '../../../shared/constants/roles'
-import { requireTestDatabaseUrl } from '../support/testDatabase'
+import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
-const connectionString = requireTestDatabaseUrl()
-
-const client = postgres(connectionString, { max: 1 })
-const rawDb = drizzle(client)
-const db = createDb(connectionString)
+const db = getTestDb()
 
 afterEach(async () => {
-  await rawDb.execute(sql`TRUNCATE TABLE user_role, role_permission, permission, role, app_user, organization RESTART IDENTITY CASCADE`)
+  await truncateAllTables()
 })
 
 afterAll(async () => {
-  await client.end()
+  await closeTestDb()
 })
 
 describe('seedDemoOrganization', () => {
@@ -39,9 +34,12 @@ describe('seedDemoOrganization', () => {
     const roleRows = await db.select().from(role).where(eq(role.organizationId, org.id))
     expect(roleRows.length).toBe(Object.keys(ROLE_DEFINITIONS).length)
 
-    const authResult = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)
+    const authResult = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_PASSWORD)
     expect(authResult).not.toBeNull()
-    expect(authResult?.permissions.slice().sort()).toEqual([...PERMISSIONS].sort())
+
+    // PF-1: authenticate() no longer carries a permission snapshot — re-assert via resolveAuthContext.
+    const ctx = await resolveAuthContext(db, { userId: authResult!.user.id, organizationId: authResult!.user.organizationId })
+    expect([...ctx!.authz.permissions].sort()).toEqual([...PERMISSIONS].sort())
   })
 
   it('is idempotent: running it twice does not create duplicate rows', async () => {
@@ -81,7 +79,7 @@ describe('seedDemoOrganization', () => {
       passwordHash: await hashPassword('foreign-org-password'),
       fullName: 'Foreign User',
     }).returning()
-    await db.insert(userRole).values({ userId: foreignUser.id, roleId: foreignRole.id })
+    await db.insert(userRole).values({ organizationId: foreignOrg.id, userId: foreignUser.id, roleId: foreignRole.id })
 
     const { organizationId: demoOrgId } = await seedDemoOrganization(db)
 
@@ -93,20 +91,23 @@ describe('seedDemoOrganization', () => {
       .where(eq(userRole.userId, foreignUser.id))
     expect(foreignUserRoles).toEqual([{ organizationId: foreignOrg.id, key: 'VIEWER' }])
 
-    // The demo org got its own, separate admin user.
-    const demoAdmins = await db.select().from(appUser).where(eq(appUser.organizationId, demoOrgId))
+    // The demo org got its own, separate admin user (alongside the eight other personas).
+    expect((await db.select().from(appUser).where(eq(appUser.organizationId, demoOrgId))).length).toBe(9)
+    const demoAdmins = await db.select().from(appUser).where(and(eq(appUser.organizationId, demoOrgId), eq(appUser.email, DEMO_ADMIN_EMAIL)))
     expect(demoAdmins.length).toBe(1)
     expect(demoAdmins[0].id).not.toBe(foreignUser.id)
 
     // (b) Logging into the foreign org yields only the foreign org's grants.
     const foreignLogin = await authenticate('foreign-org', DEMO_ADMIN_EMAIL, 'foreign-org-password')
     expect(foreignLogin?.user.organizationId).toBe(foreignOrg.id)
-    expect(foreignLogin?.permissions).toEqual(['booking.view'])
+    const foreignCtx = await resolveAuthContext(db, { userId: foreignLogin!.user.id, organizationId: foreignLogin!.user.organizationId })
+    expect([...foreignCtx!.authz.permissions]).toEqual(['booking.view'])
 
     // And the demo admin login still works with the demo password.
-    const demoLogin = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_ADMIN_PASSWORD)
+    const demoLogin = await authenticate(DEMO_ORG_SLUG, DEMO_ADMIN_EMAIL, DEMO_PASSWORD)
     expect(demoLogin?.user.organizationId).toBe(demoOrgId)
-    expect(demoLogin?.permissions.slice().sort()).toEqual([...PERMISSIONS].sort())
+    const demoCtx = await resolveAuthContext(db, { userId: demoLogin!.user.id, organizationId: demoLogin!.user.organizationId })
+    expect([...demoCtx!.authz.permissions].sort()).toEqual([...PERMISSIONS].sort())
   })
 
   it('refuses to adopt a non-demo organization that occupies the demo slug', async () => {

@@ -6,7 +6,7 @@ import { migrate } from 'drizzle-orm/postgres-js/migrator'
 async function main() {
   const connectionString = process.env.DATABASE_URL
   if (!connectionString) throw new Error('DATABASE_URL is required')
-  const client = postgres(connectionString, { max: 1 })
+  const client = postgres(connectionString, { max: 1, onnotice: () => {} })
   const db = drizzle(client)
   await migrate(db, { migrationsFolder: './db/migrations' })
   await client.end()

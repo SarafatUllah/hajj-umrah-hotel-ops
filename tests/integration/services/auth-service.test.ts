@@ -1,27 +1,23 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import postgres from 'postgres'
-import { drizzle } from 'drizzle-orm/postgres-js'
-import { sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { organization, appUser, role, permission, rolePermission, userRole } from '../../../db/schema'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
-import { requireTestDatabaseUrl } from '../support/testDatabase'
+import { resolveAuthContext } from '../../../server/security/authContext'
+import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
-const connectionString = requireTestDatabaseUrl()
-
-const client = postgres(connectionString, { max: 1 })
-const db = drizzle(client)
+const db = getTestDb()
 
 afterEach(async () => {
-  await db.execute(sql`TRUNCATE TABLE user_role, role_permission, permission, role, app_user, organization RESTART IDENTITY CASCADE`)
+  await truncateAllTables()
 })
 
 afterAll(async () => {
-  await client.end()
+  await closeTestDb()
 })
 
 describe('authenticate', () => {
-  it('returns the user with resolved permissions for correct organization, email, and password', async () => {
+  it('returns only the user\'s identity (PF-1: no permission snapshot — authorization is resolved fresh via resolveAuthContext)', async () => {
     const [org] = await db.insert(organization).values({ name: 'Test Org', slug: 'test-org-auth' }).returning()
     const [managerRole] = await db.insert(role).values({ organizationId: org.id, key: 'HOTEL_MANAGER', name: 'Hotel Manager' }).returning()
     await db.insert(permission).values([
@@ -38,14 +34,17 @@ describe('authenticate', () => {
       passwordHash: await hashPassword('correct-password'),
       fullName: 'Test Manager',
     }).returning()
-    await db.insert(userRole).values({ userId: user.id, roleId: managerRole.id })
+    await db.insert(userRole).values({ organizationId: org.id, userId: user.id, roleId: managerRole.id })
 
     const result = await authenticate('test-org-auth', 'manager@test.com', 'correct-password')
 
     expect(result).not.toBeNull()
     expect(result?.user.email).toBe('manager@test.com')
     expect(result?.user.organizationId).toBe(org.id)
-    expect(result?.permissions.slice().sort()).toEqual(['booking.create', 'booking.view'])
+    expect((result as { permissions?: unknown[] }).permissions).toBeUndefined()
+
+    const ctx = await resolveAuthContext(db, { userId: result!.user.id, organizationId: result!.user.organizationId })
+    expect([...ctx!.authz.permissions].sort()).toEqual(['booking.create', 'booking.view'])
   })
 
   it('returns null for an incorrect password', async () => {
@@ -130,16 +129,33 @@ describe('authenticate', () => {
       passwordHash: await hashPassword('home-password'),
       fullName: 'Home Viewer',
     }).returning()
-    // The legitimate grant, plus a corrupt cross-tenant link that nothing in
-    // the schema currently prevents.
-    await db.insert(userRole).values([
-      { userId: user.id, roleId: homeRole.id },
-      { userId: user.id, roleId: otherAdminRole.id },
-    ])
+    // The legitimate grant.
+    await db.insert(userRole).values({ organizationId: homeOrg.id, userId: user.id, roleId: homeRole.id })
 
-    const result = await authenticate('home-org-auth', 'viewer@home.test', 'home-password')
+    // A corrupt cross-tenant link. Since migration 0001 the composite FK
+    // user_role_org_role_fk rejects it, so it is planted with FK triggers
+    // disabled for this one transaction only (SET LOCAL ends with it). It
+    // must be committed: authenticate() reads through its own connection
+    // pool and could not see an uncommitted row. It is removed right after
+    // the assertion (and afterEach truncates everything regardless).
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SET LOCAL session_replication_role = replica`)
+      await tx.insert(userRole).values({ organizationId: homeOrg.id, userId: user.id, roleId: otherAdminRole.id })
+    })
 
-    expect(result?.permissions).toEqual(['booking.view'])
+    try {
+      const planted = await db.select().from(userRole).where(and(eq(userRole.userId, user.id), eq(userRole.roleId, otherAdminRole.id)))
+      expect(planted.length).toBe(1)
+
+      const result = await authenticate('home-org-auth', 'viewer@home.test', 'home-password')
+      expect(result).not.toBeNull()
+
+      const ctx = await resolveAuthContext(db, { userId: result!.user.id, organizationId: result!.user.organizationId })
+      expect([...ctx!.authz.permissions]).toEqual(['booking.view'])
+    }
+    finally {
+      await db.delete(userRole).where(and(eq(userRole.userId, user.id), eq(userRole.roleId, otherAdminRole.id)))
+    }
   })
 
   it('matches email case-insensitively', async () => {

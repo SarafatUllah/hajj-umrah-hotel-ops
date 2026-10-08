@@ -5,8 +5,8 @@
  * before a single statement runs instead of silently wiping real data.
  *
  * Called from the vitest setup file (so every integration test file is
- * covered, including future ones) and by each test file when it builds its
- * own client.
+ * covered, including future ones), by `testDb.ts`'s shared client, and by
+ * `db/scripts/resetTestDb.ts`.
  */
 export function requireTestDatabaseUrl(): string {
   const connectionString = process.env.DATABASE_URL

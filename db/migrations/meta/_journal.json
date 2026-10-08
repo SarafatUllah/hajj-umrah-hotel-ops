@@ -8,6 +8,55 @@
       "when": 1790197885223,
       "tag": "0000_famous_wallop",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790359160815,
+      "tag": "0001_tenancy_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790608734087,
+      "tag": "0002_hotel_core",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790698229370,
+      "tag": "0003_floors_room_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790779959185,
+      "tag": "0004_rooms_base_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790804552998,
+      "tag": "0005_capacity_periods",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790869721821,
+      "tag": "0006_room_blocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791046092077,
+      "tag": "0007_documents",
+      "breakpoints": true
     }
   ]
 }
