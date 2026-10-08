@@ -108,7 +108,7 @@ export async function uploadHotelDocument(ctx: AuthContext, hotelId: string, inp
       const view = (await hotelScoped.hotelDocuments.findView(asset.id))!
       await recordAudit(tenant.audit, ctx.identity.userId, {
         hotelId: hotel.id,
-        entityType: 'hotel_document',
+        entityType: 'document',
         entityId: asset.id,
         action: 'DOCUMENT_ADDED',
         after: { docType: fields.docType, title: fields.title, originalFilename: asset.originalFilename, mimeType: asset.mimeType, sizeBytes: asset.sizeBytes, sha256 },
@@ -182,7 +182,7 @@ export async function archiveHotelDocument(ctx: AuthContext, hotelId: string, do
 
     await recordAudit(tenant.audit, ctx.identity.userId, {
       hotelId: hotel.id,
-      entityType: 'hotel_document',
+      entityType: 'document',
       entityId: current.document.documentId,
       action: 'DOCUMENT_ARCHIVED',
       before: { archivedAt: null },

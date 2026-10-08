@@ -16,6 +16,8 @@ import type { AuthContext } from '../../../server/security/authContext'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { LocalStorageDriver, type StorageDriver } from '../../../server/storage'
 import { MAX_UPLOAD_BYTES } from '../../../server/storage/uploadValidation'
+import { listHotelAudit } from '../../../server/services/hotelService'
+import { AUDIT_ENTITY_TYPES, listHotelAuditQuerySchema } from '../../../shared/schemas/hotel'
 import { archiveHotelDocument, assertCanUploadDocument, downloadHotelDocument, listHotelDocuments, uploadHotelDocument } from '../../../server/services/documentService'
 import type { Permission } from '../../../shared/constants/permissions'
 import { ROLE_DEFINITIONS } from '../../../shared/constants/roles'
@@ -141,7 +143,7 @@ describe('upload: the successful flow', () => {
     expect(await readAll(await storage.get(asset!.storageKey))).toEqual(Buffer.from(bytes))
 
     const [audit] = await auditRows(hotel.id, 'DOCUMENT_ADDED')
-    expect(audit).toMatchObject({ entityType: 'hotel_document', entityId: dto.id, actorUserId: managerUser.id, organizationId: organization.id })
+    expect(audit).toMatchObject({ entityType: 'document', entityId: dto.id, actorUserId: managerUser.id, organizationId: organization.id })
     expect(audit!.afterData).toMatchObject({ docType: 'LICENSE', title: 'Operating licence', sha256: sha256(bytes), sizeBytes: bytes.byteLength })
     expect(JSON.stringify(audit)).not.toContain(asset!.storageKey)
   })
@@ -316,7 +318,7 @@ describe('archive', () => {
     expect(await storage.exists(key)).toBe(true)
     expect(storage.deletes).toEqual([])
     const [audit] = await auditRows(hotel.id, 'DOCUMENT_ARCHIVED')
-    expect(audit).toMatchObject({ entityType: 'hotel_document', entityId: dto.id, actorUserId: managerUser.id })
+    expect(audit).toMatchObject({ entityType: 'document', entityId: dto.id, actorUserId: managerUser.id })
     expect(audit!.beforeData).toEqual({ archivedAt: null })
   })
 
@@ -361,6 +363,50 @@ describe('archive', () => {
     const rejected = results.find(r => r.status === 'rejected') as PromiseRejectedResult
     expect((rejected.reason as ConflictError).code).toBe('DOCUMENT_ALREADY_ARCHIVED')
     expect(await auditRows(hotel.id, 'DOCUMENT_ARCHIVED')).toHaveLength(1)
+  })
+})
+
+describe('document audit is filterable through the public audit contract (Phase 1 gate fix)', () => {
+  const AUDIT = [...MANAGER, 'audit.view' as Permission]
+
+  it('entityType=document returns DOCUMENT_ADDED and DOCUMENT_ARCHIVED for the document id; the internal table name hotel_document is not a public value; unfiltered still lists the rows', async () => {
+    const { scope, hotel, managerUser } = await setup()
+    const auditor = makeCtx(scope, { userId: managerUser.id, permissions: AUDIT, hotelIds: [hotel.id] })
+    const dto = await upload(auditor, hotel.id)
+
+    const added = await listHotelAudit(auditor, hotel.id, listHotelAuditQuerySchema.parse({ entityType: 'document', entityId: dto.id }))
+    expect(added.items.map(i => [i.action, i.entityType, i.entityId])).toEqual([['DOCUMENT_ADDED', 'document', dto.id]])
+    expect(added.items[0]!.actor).toMatchObject({ id: managerUser.id })
+
+    await archiveHotelDocument(auditor, hotel.id, dto.id)
+    const both = await listHotelAudit(auditor, hotel.id, listHotelAuditQuerySchema.parse({ entityType: 'document', entityId: dto.id }))
+    expect(both.items.map(i => i.action).sort()).toEqual(['DOCUMENT_ADDED', 'DOCUMENT_ARCHIVED'])
+    expect(both.items.every(i => i.entityType === 'document')).toBe(true)
+
+    // The internal table name is not part of the public contract: the query schema keeps rejecting it.
+    expect(listHotelAuditQuerySchema.safeParse({ entityType: 'hotel_document' }).success).toBe(false)
+    expect(AUDIT_ENTITY_TYPES).toContain('document')
+    expect(AUDIT_ENTITY_TYPES).not.toContain('hotel_document')
+
+    // Unfiltered listing still exposes the document rows.
+    const all = await listHotelAudit(auditor, hotel.id, listHotelAuditQuerySchema.parse({}))
+    expect(all.items.filter(i => i.entityId === dto.id).map(i => i.action).sort()).toEqual(['DOCUMENT_ADDED', 'DOCUMENT_ARCHIVED'])
+  })
+
+  it('stays hotel- and organization-scoped: another hotel\'s audit list never shows the document, and another organization gets the plain 404', async () => {
+    const { scope, hotel, managerUser } = await setup()
+    const auditor = makeCtx(scope, { userId: managerUser.id, permissions: AUDIT, allHotels: true })
+    const dto = await upload(auditor, hotel.id)
+    const otherHotel = await makeHotel(db, scope)
+
+    const elsewhere = await listHotelAudit(auditor, otherHotel.id, listHotelAuditQuerySchema.parse({ entityType: 'document' }))
+    expect(elsewhere.items).toEqual([])
+
+    const { scope: foreignScope } = await makeOrg(db)
+    const foreignUser = await makeUser(db, foreignScope)
+    const foreign = makeCtx(foreignScope, { userId: foreignUser.id, permissions: AUDIT, allHotels: true })
+    const error = await catchError(() => listHotelAudit(foreign, hotel.id, listHotelAuditQuerySchema.parse({ entityType: 'document', entityId: dto.id })))
+    expect(error).toBeInstanceOf(NotFoundError)
   })
 })
 

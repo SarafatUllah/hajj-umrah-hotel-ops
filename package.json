@@ -26,7 +26,8 @@
     "db:test:reset": "dotenv run -f .env.test -- tsx db/scripts/resetTestDb.ts",
     "test:integration": "dotenv run -f .env.test -- tsx db/migrate.ts && dotenv run -f .env.test -- vitest run --config vitest.integration.config.ts",
     "test:integration:fresh": "pnpm db:test:reset && pnpm test:integration",
-    "test:http": "dotenv run -f .env.test -- tsx db/migrate.ts && dotenv run -f .env.test -- vitest run --config vitest.http.config.ts"
+    "test:http": "dotenv run -f .env.test -- tsx db/migrate.ts && dotenv run -f .env.test -- vitest run --config vitest.http.config.ts",
+    "verify": "pnpm lint && pnpm typecheck && pnpm typecheck:types && pnpm db:check && pnpm db:drift && pnpm test:unit && pnpm test:integration && pnpm test:http"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.1",
