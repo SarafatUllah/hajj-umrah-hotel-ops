@@ -11,7 +11,13 @@ const emit = defineEmits<{ signedIn: [CustomerSignIn] }>()
 const { t } = useI18n()
 const api = useApi()
 const errorMessage = useErrorMessage()
-const organizationSlug = useRuntimeConfig().public.organizationSlug
+const config = useRuntimeConfig().public
+const organizationSlug = config.organizationSlug
+// The bot check, when the site has a key: each texted code needs a fresh token.
+const needsCheck = !!config.turnstileSiteKey
+const captchaToken = ref<string | null>(null)
+const check = ref<{ reset: () => void } | null>(null)
+const checkPassed = computed(() => !needsCheck || !!captchaToken.value)
 
 const phone = ref(props.fixedPhone ?? '')
 watch(() => props.fixedPhone, (fixed) => { if (fixed) phone.value = fixed })
@@ -21,11 +27,12 @@ const fullName = ref('')
 const needsName = ref(false)
 
 const sendCode = useMutation({
-  mutationFn: () => api<OtpChallengeIssued>('/customer/auth/otp/request', { method: 'POST', body: { organizationSlug, phone: phone.value } }),
+  mutationFn: () => api<OtpChallengeIssued>('/customer/auth/otp/request', { method: 'POST', body: { organizationSlug, phone: phone.value, ...(captchaToken.value ? { captchaToken: captchaToken.value } : {}) } }),
   onSuccess: (issued) => {
     challenge.value = issued
     code.value = ''
   },
+  onSettled: () => check.value?.reset(),
 })
 
 const verify = useMutation({
@@ -53,7 +60,7 @@ function chooseAnotherPhone() {
       <UInput v-model="phone" type="tel" autocomplete="tel" dir="ltr" :disabled="!!fixedPhone" class="w-full" />
     </UFormField>
     <UAlert v-if="sendCode.error.value" color="error" variant="soft" icon="i-lucide-triangle-alert" :title="errorMessage(sendCode.error.value)" role="alert" />
-    <UButton type="submit" :loading="sendCode.isPending.value" :disabled="!phone.trim()" class="self-start">
+    <UButton type="submit" :loading="sendCode.isPending.value" :disabled="!phone.trim() || !checkPassed" class="self-start">
       {{ t('signIn.sendCode') }}
     </UButton>
   </form>
@@ -69,8 +76,10 @@ function chooseAnotherPhone() {
     <UAlert v-if="sendCode.error.value" color="error" variant="soft" icon="i-lucide-triangle-alert" :title="errorMessage(sendCode.error.value)" role="alert" />
     <div class="flex flex-wrap items-center gap-2">
       <UButton type="submit" :loading="verify.isPending.value" :disabled="code.length !== 6">{{ submitLabel ?? t('signIn.verify') }}</UButton>
-      <UButton color="neutral" variant="ghost" :loading="sendCode.isPending.value" @click="sendCode.mutate()">{{ t('signIn.resend') }}</UButton>
+      <UButton color="neutral" variant="ghost" :loading="sendCode.isPending.value" :disabled="!checkPassed" @click="sendCode.mutate()">{{ t('signIn.resend') }}</UButton>
       <UButton v-if="!fixedPhone" color="neutral" variant="ghost" @click="chooseAnotherPhone">{{ t('signIn.otherPhone') }}</UButton>
     </div>
   </form>
+  <!-- One check for both steps: sending the code, and sending it again. -->
+  <TurnstileCheck v-if="needsCheck" ref="check" v-model="captchaToken" class="mt-4" />
 </template>

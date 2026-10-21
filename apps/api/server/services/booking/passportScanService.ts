@@ -124,7 +124,8 @@ async function upload(db: Db, scope: OrganizationScope, booking: BookingRow, fil
       }
       const asset = await tenantRepos(tx, scope).documentAssets.insert({
         storageKey,
-        originalFilename: validated.safeFilename,
+        // Never the name people gave the file: it may name the pilgrim, and it would outlive the image.
+        originalFilename: `passport${validated.extension}`,
         mimeType: validated.mimeType,
         sizeBytes: file.bytes.length,
         // Keyed (not a bare SHA-256): whoever reads the database cannot test whether a known passport photo is stored.

@@ -42,6 +42,8 @@ export const AUDIT_ACTIONS = [
   'TWO_FACTOR_RESET',
   // Agency accounts (entityType 'agency' / 'agency_user'); a self-registration has no staff actor.
   'AGENCY_REGISTERED',
+  // A self-registration repeated a known agency's licence or e-mail (recorded on that agency; nothing was created).
+  'AGENCY_REGISTRATION_REPEATED',
   'AGENCY_CREATED',
   'AGENCY_STATUS_CHANGED',
   'AGENCY_USER_CREATED',

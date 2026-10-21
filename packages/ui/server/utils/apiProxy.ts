@@ -1,11 +1,16 @@
 /**
- * The path a frontend may forward to the API, or null: only under its allowed prefixes (`/api/customer/` …), and
- * never a path that could step out of them once normalized (`..`, encoded dots, backslashes, control characters).
+ * The path a frontend may forward to the API, or null: only under its allowed prefixes (`/api/customer/` …; one
+ * without a trailing slash is a whole resource — itself, below it or its query, never a longer name), and never a
+ * path that could step out of them once normalized (`..`, encoded dots, backslashes, control characters).
  */
 export function forwardablePath(path: string, allow: readonly string[]): string | null {
   if (/\.\.|%2e|%5c|\\/i.test(path) || hasControlCharacter(path)) return null
-  return allow.some(prefix => path.startsWith(prefix)) ? path : null
+  return allow.some(prefix => isUnder(path, prefix)) ? path : null
 }
+
+const isUnder = (path: string, prefix: string): boolean => (prefix.endsWith('/')
+  ? path.startsWith(prefix)
+  : path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`))
 
 /** Tabs, newlines and the other C0 controls: never part of a path the app builds. */
 const FIRST_PRINTABLE = 0x20

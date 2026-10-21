@@ -19,6 +19,8 @@ export default defineNuxtConfig({
       session: { mePath: '/customer/auth/me', signOutPath: '/customer/auth/logout', signOutEverywherePath: '/customer/auth/logout-all', signInPath: '/sign-in', homePath: '/bookings' },
       /** The organization whose hotels this site sells (`NUXT_PUBLIC_ORGANIZATION_SLUG`). */
       organizationSlug: 'demo',
+      /** Cloudflare Turnstile's site key (`NUXT_PUBLIC_TURNSTILE_SITE_KEY`): the bot check before a code is texted; empty = none. */
+      turnstileSiteKey: '',
       siteName: 'Hajj & Umrah Stays',
     },
   },

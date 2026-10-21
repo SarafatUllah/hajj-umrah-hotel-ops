@@ -1639,6 +1639,7 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     expect: 'zero-affected',
   }),
   'PassportScanRepository.expireForBookings': isolationCase({ arrange: arrangeScan, act: (db, scope, ids) => new PassportScanRepository(db, scope).expireForBookings([ids.bookingId], '2027-01-01', new Date()), expect: 'zero-affected' }),
+  'PassportScanRepository.retainUntil': isolationCase({ arrange: arrangeScan, act: (db, scope, ids) => new PassportScanRepository(db, scope).retainUntil(ids.bookingId, '2030-01-01', new Date()), expect: 'zero-affected' }),
   'HotelTaskRepository.clearNotes': isolationCase({
     arrange: async (db, orgA) => {
       const ids = await arrangeConfirmedBooking(db, orgA)

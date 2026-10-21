@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { agencyUser, bookingGuest, bookingSetting, documentAsset, passportScan, piiAccessLog } from '@hajj/db/schema'
+import { agencyUser, booking, bookingGuest, bookingSetting, documentAsset, passportScan, piiAccessLog } from '@hajj/db/schema'
 import type { Database } from '@hajj/db/client'
 import type { Permission } from '@hajj/contracts/constants/permissions'
 import { holdRequestSchema } from '@hajj/contracts/schemas/booking'
@@ -83,7 +83,8 @@ const scanRow = async (scanId: string) => (await db.select().from(passportScan).
 const assetOf = async (scanId: string) => (await db.select().from(documentAsset).where(eq(documentAsset.id, (await scanRow(scanId)).documentId)))[0]!
 
 const ocrReading = (lines: [string, string]) => ({ ocr: { readText: async () => `PASSPORT\n${lines.join('\n')}` }, vision: null })
-const upload = (ctx: AgencyContext, bookingId: string) => uploadAgencyScan(ctx, bookingId, { bytes: PNG, mimeType: 'image/png', filename: 'passport.png' })
+// A filename people chose may name the pilgrim: it is never kept.
+const upload = (ctx: AgencyContext, bookingId: string) => uploadAgencyScan(ctx, bookingId, { bytes: PNG, mimeType: 'image/png', filename: 'Karim MD passport.png' })
 
 describe('passport scans (v7 §13, ticket 1)', () => {
   it('upload → encrypted image, QUEUED, reading enqueued; the reading fills the review card and picks the slot of the passport\'s gender', async () => {
@@ -92,6 +93,7 @@ describe('passport scans (v7 §13, ticket 1)', () => {
     expect(scan).toMatchObject({ status: 'QUEUED', fields: null })
     expect(queued).toEqual([{ organizationId: env.scope.organizationId, scanId: scan.id }])
     const [asset] = await db.select().from(documentAsset)
+    expect(asset!.originalFilename).toBe('passport.png')
     const stored = await getStorageDriver().get(asset!.storageKey)
     const chunks: Buffer[] = []
     for await (const chunk of stored) chunks.push(Buffer.from(chunk as Uint8Array))
@@ -218,6 +220,17 @@ describe('passport scans (v7 §13, ticket 1)', () => {
     expect(await getStorageDriver().exists((await assetOf(kept.id)).storageKey)).toBe(true)
     await expect(agencyScanImage(env.agency, env.bookingId, expired.id)).rejects.toMatchObject({ code: 'SCAN_NOT_FOUND' })
     expect(await purgeExpiredPassportImages(db, [env.scope], NOW)).toBe(0)
+  })
+
+  it('a booking that will not happen (cancelled, or lapsed) loses its passport images at the next sweep, whatever their retention', async () => {
+    const env = await setup()
+    const [lapsed, other] = [await upload(env.agency, env.bookingId), await setup()]
+    const kept = await upload(other.agency, other.bookingId)
+    await db.update(booking).set({ status: 'EXPIRED' }).where(eq(booking.id, env.bookingId))
+
+    expect(await purgeExpiredPassportImages(db, [env.scope, other.scope], NOW)).toBe(1)
+    expect(await getStorageDriver().exists((await assetOf(lapsed.id)).storageKey)).toBe(false)
+    expect(await getStorageDriver().exists((await assetOf(kept.id)).storageKey)).toBe(true)
   })
 
   it('staff with booking.edit upload and confirm; reviewing what was read also needs pilgrim.viewSensitive', async () => {

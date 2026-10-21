@@ -81,6 +81,12 @@ export const booking = pgTable('booking', {
   index('booking_created_by_agency_user_idx').on(t.organizationId, t.agencyId, t.createdByAgencyUserId),
   // The hold sweep (every minute): pending bookings by expiry.
   index('booking_pending_expiry_idx').on(t.holdExpiresAt).where(oneOf(t.status, PENDING_BOOKING_STATUSES)),
+  // The staff list, newest first (all hotels, or one), read backwards with its keyset.
+  index('booking_created_idx').on(t.organizationId, t.createdAt, t.id),
+  index('booking_hotel_created_idx').on(t.organizationId, t.hotelId, t.createdAt, t.id),
+  // The daily jobs: the details reminder (confirmed, not yet reminded, by arrival) and the erasure (by departure).
+  index('booking_details_reminder_idx').on(t.organizationId, t.checkIn, t.id).where(sql`${t.status} = 'CONFIRMED' and ${t.detailsRemindedAt} is null`),
+  index('booking_check_out_idx').on(t.organizationId, t.checkOut, t.id),
   check('booking_booker_type_check', oneOf(t.bookerType, BOOKER_TYPES)),
   check('booking_type_check', oneOf(t.bookingType, BOOKING_TYPES)),
   check('booking_status_check', oneOf(t.status, BOOKING_STATUSES)),
@@ -276,6 +282,8 @@ export const hotelTask = pgTable('hotel_task', {
   index('hotel_task_open_idx').on(t.organizationId, t.hotelId, t.status, t.dueDate),
   index('hotel_task_room_idx').on(t.organizationId, t.hotelId, t.roomId),
   index('hotel_task_booking_idx').on(t.organizationId, t.hotelId, t.bookingId),
+  // A booking's tasks without its hotel (erasure, cancellation, a date change).
+  index('hotel_task_org_booking_idx').on(t.organizationId, t.bookingId),
   check('hotel_task_kind_check', oneOf(t.kind, HOTEL_TASK_KINDS)),
   check('hotel_task_status_check', oneOf(t.status, HOTEL_TASK_STATUSES)),
   check('hotel_task_quantity_check', sql`${t.quantity} between 1 and 5`),

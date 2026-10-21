@@ -116,6 +116,7 @@ const SQLSTATE_MAP: Record<string, { kind: 'conflict' | 'validation' | 'internal
   '23503': { kind: 'validation', code: 'INVALID_REFERENCE' }, // foreign_key_violation
   '23514': { kind: 'validation', code: 'CONSTRAINT_VIOLATION' }, // check_violation
   '55000': { kind: 'internal', code: 'IMMUTABLE_AUDIT_VIOLATION' }, // object_not_in_prerequisite_state (immutable audit rows)
+  '22003': { kind: 'validation', code: 'VALUE_OUT_OF_RANGE' }, // numeric_value_out_of_range (a number too large for its column)
 }
 
 /**

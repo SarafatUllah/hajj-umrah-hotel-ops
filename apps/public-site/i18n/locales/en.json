@@ -28,7 +28,8 @@
     "fullNameHelp": "As on your passport. Needed once, to create your account.",
     "verify": "Sign in",
     "otherPhone": "Use another number",
-    "resend": "Send a new code"
+    "resend": "Send a new code",
+    "checkFailed": "The check could not load. Reload the page, or try again later."
   },
   "book": {
     "title": "Book a stay",

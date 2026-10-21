@@ -13,6 +13,15 @@ describe('GET /api/health (proof 9)', () => {
     expect(res.json.status).toBe('ok')
     expect(res.json.db).toBe('ok')
   })
+
+  it('every response carries the security headers: never framed, no type sniffing, HTTPS only, a short referrer', async () => {
+    const res = await client.request('/api/health')
+    expect(res.headers.get('x-frame-options')).toBe('DENY')
+    expect(res.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(res.headers.get('strict-transport-security')).toContain('max-age=')
+    expect(res.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin')
+  })
 })
 
 describe('Unknown route (proof 9)', () => {

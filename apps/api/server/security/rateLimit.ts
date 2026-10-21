@@ -44,7 +44,11 @@ export const RATE_LIMITS = {
   otpRequestPerIp: { name: 'otp-ip', limit: 30, windowSeconds: 15 * 60 },
   /** Code verifications from one client address (each challenge also allows only OTP_MAX_ATTEMPTS). */
   otpVerifyPerIp: { name: 'otp-verify-ip', limit: 60, windowSeconds: 15 * 60 },
-  /** Code verifications for one phone across every challenge and address (bounds slow distributed guessing). */
+  /**
+   * Code verifications for one phone from one address, across challenges. Per address, so a stranger guessing at
+   * someone's phone never locks its owner out; distributed guessing stays bounded by the codes a phone can be sent
+   * (`otpRequestPerPhone`) times each code's `OTP_MAX_ATTEMPTS`.
+   */
   otpVerifyPerPhone: { name: 'otp-verify-phone', limit: 10, windowSeconds: 60 * 60 },
   /** Quote requests per agency (each takes a reference number and lands in the sellers' queue). */
   quoteRequestPerAgency: { name: 'quote-agency', limit: 30, windowSeconds: 60 * 60 },

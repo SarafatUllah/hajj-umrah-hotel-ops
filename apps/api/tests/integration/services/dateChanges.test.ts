@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { asc, eq } from 'drizzle-orm'
-import { agencyUser, booking, bookingChange, bookingGuest, bookingPriceLine, bookingRoom, guestStay, hotelTask, priceQuote } from '@hajj/db/schema'
+import { agencyUser, booking, bookingChange, bookingGuest, bookingPriceLine, bookingRoom, documentAsset, guestStay, hotelTask, passportScan, priceQuote } from '@hajj/db/schema'
 import type { Database } from '@hajj/db/client'
 import type { Permission } from '@hajj/contracts/constants/permissions'
 import { changeDatesSchema, dateChangeSearchSchema, holdRequestSchema } from '@hajj/contracts/schemas/booking'
@@ -89,6 +89,21 @@ describe('date change (v7 §12)', () => {
     expect(await db.select().from(bookingChange).where(eq(bookingChange.kind, 'DATES_CHANGED'))).toMatchObject([
       { actorKind: 'staff', beforeData: { checkIn: '2027-06-01', checkOut: '2027-06-04' }, afterData: { ...NEW_DATES, priceSource: 'AGENCY_DEFAULT' } },
     ])
+  })
+
+  it('the passport images\' retention follows the new check-out; a discarded image keeps its own date', async () => {
+    const env = await setup()
+    const scanOf = async (status: 'NEEDS_REVIEW' | 'DISCARDED', deleteAfter: string) => {
+      const [asset] = await db.insert(documentAsset).values({ organizationId: env.scope.organizationId, storageKey: `${env.scope.organizationId}/2027/${status}.png`, originalFilename: 'passport.png', mimeType: 'image/png', sizeBytes: 1, sha256: status.padEnd(64, 'a') }).returning()
+      const [scan] = await db.insert(passportScan).values({ organizationId: env.scope.organizationId, bookingId: env.bookingId, documentId: asset!.id, status, uploadedByKind: 'agency', deleteAfter }).returning()
+      return scan!.id
+    }
+    const [kept, discarded] = [await scanOf('NEEDS_REVIEW', '2028-06-04'), await scanOf('DISCARDED', '2027-05-01')]
+
+    await changeDates(env.manager(BOOKED_AT), env.bookingId, changeDatesSchema.parse({ ...NEW_DATES, rooms: ownRooms(env.rooms) }))
+    const deleteAfterOf = async (id: string) => (await db.select().from(passportScan).where(eq(passportScan.id, id)))[0]!.deleteAfter
+    expect(await deleteAfterOf(kept)).toBe('2028-06-05') // 12 months after the new check-out
+    expect(await deleteAfterOf(discarded)).toBe('2027-05-01')
   })
 
   it('all or nothing: a room taken on the new nights refuses the change and leaves the booking as it was', async () => {

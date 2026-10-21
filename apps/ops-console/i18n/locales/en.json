@@ -304,6 +304,7 @@
       "TWO_FACTOR_DISABLED": "Two-factor turned off",
       "TWO_FACTOR_RESET": "Two-factor reset",
       "AGENCY_REGISTERED": "Agency registered",
+      "AGENCY_REGISTRATION_REPEATED": "Registration with this agency's licence or e-mail refused",
       "AGENCY_CREATED": "Agency added",
       "AGENCY_STATUS_CHANGED": "Agency status changed",
       "AGENCY_USER_CREATED": "Agency user added",
@@ -943,7 +944,7 @@
       "APPROVED": {
         "action": "Approve",
         "title": "Approve {name}?",
-        "text": "The agency gets prices and quotes, and can book.",
+        "text": "The agency gets prices and quotes, and can book. Check the licence with the ministry, and that its contact is the ministry's record — not only what was typed here.",
         "done": "{name} approved."
       },
       "SUSPENDED": {

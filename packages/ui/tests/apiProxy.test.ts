@@ -14,6 +14,15 @@ describe('the frontends\' API proxy', () => {
     }
   })
 
+  it('a prefix without a trailing slash is a whole resource: itself, below it or its query — never a longer name', () => {
+    const staff = ['/api/hotels', '/api/bookings']
+    expect(forwardablePath('/api/hotels', staff)).toBe('/api/hotels')
+    expect(forwardablePath('/api/hotels?status=ACTIVE', staff)).toBe('/api/hotels?status=ACTIVE')
+    expect(forwardablePath('/api/hotels/abc/rooms', staff)).toBe('/api/hotels/abc/rooms')
+    expect(forwardablePath('/api/hotels-export', staff)).toBeNull()
+    expect(forwardablePath('/api/bookingsX', staff)).toBeNull()
+  })
+
   it('the visitor\'s address is the connection\'s, or the nearest trusted hop — never one the visitor typed', () => {
     expect(visitorAddress('6.6.6.6', '203.0.113.9', false)).toBe('203.0.113.9')
     expect(visitorAddress('6.6.6.6, 198.51.100.7', '10.0.0.2', true)).toBe('198.51.100.7')

@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import { SECURITY_HEADERS } from '@hajj/contracts/constants/securityHeaders'
 
 /**
  * The shared layer of the three frontends (`extends: ['@hajj/ui']`): Nuxt UI on Tailwind with the design tokens of
@@ -40,5 +41,7 @@ export default defineNuxtConfig({
       session: { mePath: '', signOutPath: '', signOutEverywherePath: '', signInPath: '/login', homePath: '/' },
     },
   },
+  // Every page and proxied API response (an app's own route rules merge with these).
+  routeRules: { '/**': { headers: { ...SECURITY_HEADERS } } },
   typescript: { strict: true },
 })

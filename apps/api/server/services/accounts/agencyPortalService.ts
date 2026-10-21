@@ -30,7 +30,9 @@ export type { AgencyMe }
  * Public self-registration on the agency portal (v7 §15): the agency starts PENDING and gets no agency price,
  * quote or booking until staff approve it after checking the licence. The answer never says whether the licence
  * number or e-mail is already known (no enumeration): a duplicate is silently not created, after the same
- * Argon2 work, and staff see only real new registrations. Rate limited per client address and per
+ * Argon2 work, and staff see only real new registrations — plus, on the known agency's audit, that a registration
+ * repeated its licence or e-mail and from where (someone may be using another agency's licence: staff check the
+ * licence and its contact with the ministry, never only what was typed). Rate limited per client address and per
  * organization; the audit row records the client address. An unknown organization answers like a validation
  * error on the slug (one operator, so this reveals nothing).
  */
@@ -46,10 +48,15 @@ export async function registerAgency(input: AgencyRegistrationInput, request: Lo
 
   await db.transaction(async (tx) => {
     const repos = accountsRepos(tx, tenant.scope)
-    if (await repos.agencies.findByLicenseNo(licenseNo) || await repos.agencyUsers.findByEmail(email)) return
+    const audit = tenantRepos(tx, tenant.scope).audit
+    const byLicence = await repos.agencies.findByLicenseNo(licenseNo)
+    const knownAgencyId = byLicence?.id ?? (await repos.agencyUsers.findByEmail(email))?.agencyId
+    if (knownAgencyId) {
+      await recordAudit(audit, null, { entityType: 'agency', entityId: knownAgencyId, action: 'AGENCY_REGISTRATION_REPEATED', after: { matched: byLicence ? 'licence' : 'email', clientIp: request.clientIp } })
+      return
+    }
     const agencyRow = await repos.agencies.insert({ ...input.agency, licenseNo, email: normalizeEmail(input.agency.email), status: 'PENDING' })
     const user = await repos.agencyUsers.insert({ agencyId: agencyRow.id, email, fullName: input.user.fullName, passwordHash })
-    const audit = tenantRepos(tx, tenant.scope).audit
     await recordAudit(audit, null, { entityType: 'agency', entityId: agencyRow.id, action: 'AGENCY_REGISTERED', after: { ...toAgencyDto(agencyRow), clientIp: request.clientIp } })
     await recordAudit(audit, null, { entityType: 'agency_user', entityId: user.id, action: 'AGENCY_USER_CREATED', after: toAgencyUserDto(user) })
   }).catch((error: unknown) => {

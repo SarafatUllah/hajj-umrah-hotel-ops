@@ -40,7 +40,6 @@ export const bookingGuestDetail = pgTable('booking_guest_detail', {
   // Target of passport_scan_detail_fk: a scan fills only a copy of its own booking's slot.
   unique('booking_guest_detail_org_booking_guest_id_unique').on(t.organizationId, t.bookingId, t.bookingGuestId, t.id),
   foreignKey({ columns: [t.organizationId, t.bookingId, t.bookingGuestId], foreignColumns: [bookingGuest.organizationId, bookingGuest.bookingId, bookingGuest.id], name: 'booking_guest_detail_guest_fk' }),
-  index('booking_guest_detail_booking_idx').on(t.organizationId, t.bookingId, t.bookingGuestId),
   index('booking_guest_detail_lookup_idx').on(t.organizationId, t.passportLookup),
   check('booking_guest_detail_gender_check', sql`${t.gender} is null or ${oneOf(t.gender, GENDERS)}`),
   check('booking_guest_detail_nationality_check', sql`${t.nationality} is null or ${t.nationality} ~ '^[A-Z]{3}$'`),
@@ -82,9 +81,10 @@ export const passportScan = pgTable('passport_scan', {
   foreignKey({ columns: [t.organizationId, t.bookingId, t.bookingGuestId], foreignColumns: [bookingGuest.organizationId, bookingGuest.bookingId, bookingGuest.id], name: 'passport_scan_guest_fk' }),
   foreignKey({ columns: [t.organizationId, t.bookingId, t.bookingGuestId, t.bookingGuestDetailId], foreignColumns: [bookingGuestDetail.organizationId, bookingGuestDetail.bookingId, bookingGuestDetail.bookingGuestId, bookingGuestDetail.id], name: 'passport_scan_detail_fk' }),
   foreignKey({ columns: [t.organizationId, t.documentId], foreignColumns: [documentAsset.organizationId, documentAsset.id], name: 'passport_scan_document_fk' }),
-  index('passport_scan_booking_idx').on(t.organizationId, t.bookingId, t.bookingGuestId),
+  // Also serves a booking's scans and its slot's (the prefixes).
   index('passport_scan_detail_idx').on(t.organizationId, t.bookingId, t.bookingGuestId, t.bookingGuestDetailId),
-  index('passport_scan_retention_idx').on(t.deleteAfter),
+  // The retention sweep runs per organization.
+  index('passport_scan_retention_idx').on(t.organizationId, t.deleteAfter),
   check('passport_scan_method_check', sql`${t.method} is null or ${oneOf(t.method, PASSPORT_SCAN_METHODS)}`),
   check('passport_scan_status_check', oneOf(t.status, PASSPORT_SCAN_STATUSES)),
   check('passport_scan_uploaded_by_check', oneOf(t.uploadedByKind, ACTOR_KINDS)),

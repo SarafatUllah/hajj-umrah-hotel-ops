@@ -141,6 +141,13 @@
       "when": 1792577944037,
       "tag": "0019_customer_account_closure",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792601863882,
+      "tag": "0020_review_indexes",
+      "breakpoints": true
     }
   ]
 }

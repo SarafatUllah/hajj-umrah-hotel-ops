@@ -73,6 +73,12 @@ describe('translateDbError — generic SQLSTATE mapping', () => {
     expect(e?.code).toBe('CONSTRAINT_VIOLATION')
   })
 
+  it('22003 (numeric_value_out_of_range: a number too large for its column) -> ValidationError, never a 500', () => {
+    const e = translateDbError(fakePostgresError({ code: '22003' }))
+    expect(e).toBeInstanceOf(ValidationError)
+    expect(e!.code).toBe('VALUE_OUT_OF_RANGE')
+  })
+
   it('an unknown SQLSTATE code -> null', () => {
     expect(translateDbError(fakePostgresError({ code: '99999' }))).toBeNull()
   })

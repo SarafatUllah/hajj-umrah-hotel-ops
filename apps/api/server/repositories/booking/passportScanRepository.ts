@@ -1,6 +1,6 @@
 import { and, asc, count, eq, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
-import { documentAsset, passportScan } from '@hajj/db/schema'
+import { booking, documentAsset, passportScan } from '@hajj/db/schema'
 import type { OrganizationScope } from '../../security/scope'
 import { OrgQuery } from '../base/scopedQuery'
 
@@ -103,6 +103,12 @@ export class PassportScanRepository {
     return rows.length
   }
 
+  /** The booking's dates changed: its images (a discarded one keeps its own, earlier date) are kept until `deleteAfter`. Returns how many scans changed. */
+  async retainUntil(bookingId: string, deleteAfter: string, at: Date): Promise<number> {
+    const rows = await this.#q.update(passportScan, { deleteAfter, updatedAt: at }, eq(passportScan.bookingId, bookingId), ne(passportScan.status, 'DISCARDED')).returning({ id: passportScan.id })
+    return rows.length
+  }
+
   async countUnresolved(bookingId: string): Promise<number> {
     const [row] = await this.db.select({ n: count() }).from(passportScan)
       .where(this.#q.cond(passportScan, eq(passportScan.bookingId, bookingId), inArray(passportScan.status, UNRESOLVED)))
@@ -114,10 +120,13 @@ export class PassportScanRepository {
    * being read is skipped until its reading ends (or dies), so no reading is stored after its image is gone.
    */
   async imagesDue(today: string, now: Date, limit: number): Promise<ScanImageDue[]> {
+    // A booking that will not happen (cancelled, or lapsed) needs no passport photo: its images are due at once.
+    const bookingEnded = inArray(booking.status, ['CANCELLED', 'EXPIRED'])
     return this.db.select({ scanId: passportScan.id, documentId: passportScan.documentId, storageKey: documentAsset.storageKey })
       .from(passportScan)
       .innerJoin(documentAsset, and(eq(documentAsset.organizationId, passportScan.organizationId), eq(documentAsset.id, passportScan.documentId)))
-      .where(this.#q.cond(passportScan, lte(passportScan.deleteAfter, today), isNull(documentAsset.archivedAt), or(ne(passportScan.status, 'PROCESSING'), staleReading(now))))
+      .innerJoin(booking, and(eq(booking.organizationId, passportScan.organizationId), eq(booking.id, passportScan.bookingId)))
+      .where(this.#q.cond(passportScan, or(lte(passportScan.deleteAfter, today), bookingEnded), isNull(documentAsset.archivedAt), or(ne(passportScan.status, 'PROCESSING'), staleReading(now))))
       .orderBy(asc(passportScan.deleteAfter), asc(passportScan.id))
       .limit(limit)
   }

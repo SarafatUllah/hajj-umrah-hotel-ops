@@ -2,6 +2,7 @@ import type { AgeGroup, BookingStatus, BookingType, ChildSide, GuestStatus, Occu
 import type { ChangeDatesInput, DateChangeSearchInput, StaySearchInput } from '@hajj/contracts/schemas/booking'
 import { type IsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { stayNights } from '../../domain/booking/allocation/stayRooms'
+import { addMonths } from '../../domain/booking/guestRules'
 import { effectiveBookingStatus } from '../../domain/booking/bookingView'
 import { reseatSlots, type SeatedSlot } from '../../domain/booking/guestSlots'
 import { rethrowDbError } from '../../errors/dbErrors'
@@ -114,6 +115,7 @@ export async function changeDates(ctx: AuthContext, bookingId: string, body: Cha
     const ownedByAgency = claimsOwnerKey(booking).startsWith('a:')
     const updated = await org.records.rebook({ booking, checkIn: body.checkIn, checkOut: body.checkOut, quoteId: quote?.id ?? null, priceSource: priced.source, rooms: body.rooms.map(r => ({ ...r, ownedByAgency })), seats, priceLines: priced.lines, at: now })
     if (!updated) throw new NotFoundError('BOOKING_NOT_FOUND')
+    await org.passportScans.retainUntil(booking.id, addMonths(updated.checkOut, settings.passportImageRetentionMonths), now)
     await org.hotelTasks.cancelOpenForBooking(booking.id, now)
     if (updated.status === 'CONFIRMED') {
       await planExtraBedTasks(tx, ctx.scope, updated)

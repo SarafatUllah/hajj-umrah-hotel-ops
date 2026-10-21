@@ -1,5 +1,9 @@
+import { SECURITY_HEADERS } from '@hajj/contracts/constants/securityHeaders'
+
 export default defineNuxtConfig({
   compatibilityDate: '2025-01-01',
+  // Every response (a route that needs its own, such as a passport image's sandbox policy, sets it over these).
+  routeRules: { '/**': { headers: { ...SECURITY_HEADERS } } },
   devtools: { enabled: true },
   modules: ['@nuxt/eslint', 'nuxt-auth-utils'],
   // Nuxt's generated app-level tsconfig (.nuxt/tsconfig.json) does not

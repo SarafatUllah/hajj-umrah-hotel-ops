@@ -360,10 +360,13 @@ export class BookingRecordRepository {
       or exists (select 1 from public.passport_scan s where s.organization_id = "booking"."organization_id" and s.booking_id = "booking"."id"
         and (s.extracted_encrypted is not null or s.delete_after is null or s.delete_after > ${today}::date))
       or exists (select 1 from public.hotel_task t where t.organization_id = "booking"."organization_id" and t.booking_id = "booking"."id" and t.notes is not null))`
+    // A booking that will not happen counts from the day it ended (cancelled, or lapsed), when that came before its stay's end.
+    const ended = sql`coalesce(${booking.cancelledAt}, ${booking.holdExpiresAt}, ${booking.updatedAt})::date`
+    const retentionOver = or(lte(booking.checkOut, cutoff), and(inArray(booking.status, ['CANCELLED', 'EXPIRED']), sql`${ended} <= ${cutoff}::date`))
     return this.db.select({ id: booking.id, checkOut: booking.checkOut }).from(booking)
       .where(this.#q.cond(
         booking,
-        lte(booking.checkOut, cutoff),
+        retentionOver,
         holdsPersonalData,
         after ? sql`(${booking.checkOut}, ${booking.id}) > (${after.checkOut}::date, ${after.id}::uuid)` : undefined,
       ))

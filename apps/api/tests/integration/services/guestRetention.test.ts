@@ -77,6 +77,17 @@ describe('retention of every copy of a pilgrim\'s details (Phase 2a ticket 4)', 
     expect(await eraseExpiredGuestData(db, [env.scope], new Date('2029-06-06T00:00:00Z'))).toBe(0)
   })
 
+  it('a booking that will not happen is erased guestDataRetentionMonths after it ended (cancelled, or lapsed), not after its stay', async () => {
+    const env = await setup()
+    await db.update(booking).set({ status: 'CANCELLED', cancelledAt: new Date('2027-05-01T10:00:00Z') }).where(eq(booking.id, env.bookingId))
+    expect(await eraseExpiredGuestData(db, [env.scope], new Date('2029-04-30T00:00:00Z'))).toBe(0)
+    expect(await eraseExpiredGuestData(db, [env.scope], new Date('2029-05-02T00:00:00Z'))).toBe(3) // a month before the stay's own cutoff
+
+    const lapsed = await setup()
+    await db.update(booking).set({ status: 'EXPIRED', holdExpiresAt: new Date('2027-05-01T10:10:00Z') }).where(eq(booking.id, lapsed.bookingId))
+    expect(await eraseExpiredGuestData(db, [lapsed.scope], new Date('2029-05-02T00:00:00Z'))).toBe(3)
+  })
+
   it('a master another booking still relies on is kept (only that booking\'s slot let go of it)', async () => {
     const env = await setup()
     const [master] = await db.select().from(pilgrim)

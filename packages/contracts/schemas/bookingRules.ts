@@ -4,8 +4,15 @@ import { PRICE_TYPES, PRICE_UNITS } from '../constants/pricing'
 import { isValidIsoDate, toEpochDay } from '../utils/dates'
 import { isoDate, safeText, uuid } from './common'
 
-/** Money in integer halalas (1 SAR = 100); bounded so per-night totals stay well inside 32-bit integers. */
-export const halalas = z.number().int().min(0).max(100_000_000)
+/**
+ * The most a unit price (per person, room or extra bed, a night) may be: 20,000 SAR. A night's price line is its
+ * count times the unit — at most a booking's 600 pilgrims, or 1,000 extra beds (200 rooms × 5) — and must fit the
+ * 32-bit amount column (checked in the money tests).
+ */
+export const MAX_UNIT_HALALAS = 2_000_000
+
+/** Money in integer halalas (1 SAR = 100), at most `MAX_UNIT_HALALAS`. */
+export const halalas = z.number().int().min(0).max(MAX_UNIT_HALALAS)
 
 /** The hotel-level booking rules staff manage (v7 §15), one URL segment each. */
 export const BOOKING_RULE_KINDS = ['rates', 'agency-quotas', 'allocation-rules', 'extra-bed-policies'] as const

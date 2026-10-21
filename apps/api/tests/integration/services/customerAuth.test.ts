@@ -137,12 +137,15 @@ describe('customer sign-in by SMS code', () => {
     await expect(requestCustomerOtp({ organizationSlug: organization.slug, phone: newPhone() }, request())).rejects.toMatchObject({ code: 'SMS_UNAVAILABLE', httpStatus: 503 })
   })
 
-  it('verifications per phone are limited across challenges and addresses (429), and a success clears the count', async () => {
+  it('verifications of one phone from one address are limited across challenges (429); a stranger elsewhere never locks the owner out', async () => {
     const { organization, scope } = await makeOrg(db)
     const issued = await issue(organization.slug)
-    const key = bucketKey(RATE_LIMITS.otpVerifyPerPhone, `${scope.organizationId}\u0000${issued.phone}`)
+    const [stranger, owner] = ['203.0.113.66', '198.51.100.7']
+    const key = bucketKey(RATE_LIMITS.otpVerifyPerPhone, `${scope.organizationId}\u0000${issued.phone}\u0000${stranger}`)
     for (let i = 0; i < RATE_LIMITS.otpVerifyPerPhone.limit; i++) await platformRepos(db).rateLimits.hit(key, windowStartFor(RATE_LIMITS.otpVerifyPerPhone, new Date()))
-    await expect(verifyCustomerOtp({ organizationSlug: organization.slug, challengeId: issued.challengeId, code: issued.code, fullName: 'X' }, request())).rejects.toBeInstanceOf(TooManyRequestsError)
+    const verifyFrom = (clientIp: string) => verifyCustomerOtp({ organizationSlug: organization.slug, challengeId: issued.challengeId, code: issued.code, fullName: 'X' }, request(clientIp))
+    await expect(verifyFrom(stranger)).rejects.toBeInstanceOf(TooManyRequestsError)
+    await expect(verifyFrom(owner)).resolves.toMatchObject({ phone: issued.phone })
   })
 
   it('sign out everywhere ends every session of the customer', async () => {

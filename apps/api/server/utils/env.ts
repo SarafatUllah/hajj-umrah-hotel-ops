@@ -114,12 +114,16 @@ function refineDemoSignIn(env: { APP_ENV: string, DEMO_SIGN_IN_ENABLED: boolean 
  * Production may not run without staff two-factor enforcement (design v7 §21: a launch prerequisite), and no
  * shared environment (anything but development) may write sign-in codes to the log.
  */
-function refineProductionSecurity(env: { APP_ENV: string, STAFF_2FA_ENFORCEMENT: string, SMS_DRIVER: string }, ctx: z.RefinementCtx): void {
+function refineProductionSecurity(env: { APP_ENV: string, STAFF_2FA_ENFORCEMENT: string, SMS_DRIVER: string, CAPTCHA_DRIVER: string }, ctx: z.RefinementCtx): void {
   if (env.APP_ENV === 'production' && env.STAFF_2FA_ENFORCEMENT !== 'required-roles') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['STAFF_2FA_ENFORCEMENT'], message: 'STAFF_2FA_ENFORCEMENT must be required-roles with APP_ENV=production' })
   }
   if (env.APP_ENV !== 'development' && env.SMS_DRIVER === 'log') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['SMS_DRIVER'], message: 'SMS_DRIVER=log is allowed only with APP_ENV=development' })
+  }
+  // Texting sign-in codes in production needs the bot check (SMS pumping; a stranger's phone flooded with codes).
+  if (env.APP_ENV === 'production' && env.SMS_DRIVER !== 'disabled' && env.CAPTCHA_DRIVER !== 'turnstile') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CAPTCHA_DRIVER'], message: 'CAPTCHA_DRIVER must be turnstile when sign-in codes are texted with APP_ENV=production' })
   }
 }
 

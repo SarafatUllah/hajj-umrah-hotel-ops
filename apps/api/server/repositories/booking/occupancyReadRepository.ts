@@ -79,12 +79,15 @@ export class OccupancyReadRepository {
    * still confirmed (a released claim does not count); days without any are absent.
    */
   async movements(range: NightRange): Promise<DayMovement[]> {
+    // A stay lies within its claim, so only claims touching the range can hold its arrivals and departures (the
+    // claims' date index then bounds the read, whatever the hotel's history).
     const stays = sql`
       from public.guest_stay gs
       join public.booking_room br on br.organization_id = gs.organization_id and br.id = gs.booking_room_id
       join public.booking b on b.organization_id = gs.organization_id and b.id = gs.booking_id
       join public.booking_guest g on g.organization_id = gs.organization_id and g.id = gs.booking_guest_id
       where gs.organization_id = ${this.scope.organizationId}::uuid and br.hotel_id = ${this.scope.hotelId}::uuid
+        and br.check_in <= ${range.to}::date and br.check_out >= ${range.from}::date
         and ${CONFIRMED_BOOKING} and br.status in ('CONFIRMED', 'IN_HOUSE', 'COMPLETED') and g.status <> 'REMOVED'`
     const rows = await this.db.execute<{ day: string, arrivals: number, departures: number }>(sql`
       select m.day::text as day, sum(m.arrivals)::integer as arrivals, sum(m.departures)::integer as departures
@@ -136,6 +139,7 @@ export class OccupancyReadRepository {
       left join public.booking_guest_detail d on d.organization_id = g.organization_id and d.booking_guest_id = g.id
       where gs.organization_id = ${this.scope.organizationId}::uuid
         and br.hotel_id = ${this.scope.hotelId}::uuid
+        and br.check_in <= ${night}::date and br.check_out > ${night}::date
         and gs.check_in <= ${night}::date and gs.check_out > ${night}::date
         and br.status in ('HELD', 'REQUESTED', 'CONFIRMED', 'IN_HOUSE')
         and ${LIVE_BOOKING}

@@ -73,6 +73,13 @@ describe('agency self-registration (public)', () => {
     expect(await registerAgency(registration(env.slug, first.user.email), request())).toEqual({ received: true })
     expect(await agencies(env)).toHaveLength(1)
     expect(await db.select().from(agencyUser)).toHaveLength(1)
+
+    // Staff can see each repeat on the known agency (someone may be using another agency's licence): what matched and
+    // from where — nothing else the second applicant typed.
+    const [known] = await agencies(env)
+    const repeats = await db.select().from(auditLog).where(eq(auditLog.action, 'AGENCY_REGISTRATION_REPEATED'))
+    expect(repeats.map(r => [r.entityId, r.afterData])).toEqual([[known!.id, { matched: 'licence', clientIp: expect.any(String) }], [known!.id, { matched: 'email', clientIp: expect.any(String) }]])
+    expect(JSON.stringify(repeats)).not.toContain(PASSWORD)
   })
 
   it('refuses an unknown organization (422) and a flood from one address (429)', async () => {
