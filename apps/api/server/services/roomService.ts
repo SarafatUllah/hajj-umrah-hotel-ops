@@ -10,7 +10,7 @@ import type {
   UpdateRoomInput,
 } from '@hajj/contracts/schemas/room'
 import { addDays, type IsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
-import { normalizeRoomNumber } from '@hajj/contracts/utils/roomNumber'
+import { normalizeRoomNumber, roomNumbersOfRange } from '@hajj/contracts/utils/roomNumber'
 import { type BaseVersionRow, planBaseChange, planReactivate, planRetire } from '../domain/inventory/baseVersions'
 import type { BlockInput } from '../domain/inventory/calendar'
 import type { CapacityOverride } from '../domain/inventory/capacity'
@@ -26,13 +26,9 @@ import { recordAudit } from './audit'
 import { assertBookingsStillFit } from './booking'
 import { calendarOptionsFor } from './calendarOptions'
 import { type PeriodRef, type RoomDetail, type RoomListItem, toBaseVersion, toBlockInput, toCapacityOverride, toRoomDetail, toRoomListItem } from './roomDto'
+import type { RoomListPage } from '@hajj/contracts/types/rooms'
 
-export interface RoomListPage {
-  items: RoomListItem[]
-  page: number
-  pageSize: number
-  total: number
-}
+export type { RoomListPage }
 
 /** Rethrows a caught `InventoryRuleError` as the matching HTTP-mapped `DomainError`; anything else is rethrown unchanged. */
 function rethrowAsDomainError(error: unknown): never {
@@ -549,15 +545,6 @@ export async function reactivateRoom(ctx: AuthContext, hotelId: string, roomId: 
   })
 }
 
-function generateRangeNumbers(range: { prefix?: string, from: number, to: number, pad?: number }): string[] {
-  const out: string[] = []
-  for (let n = range.from; n <= range.to; n++) {
-    const digits = range.pad ? String(n).padStart(range.pad, '0') : String(n)
-    out.push(`${range.prefix ?? ''}${digits}`)
-  }
-  return out
-}
-
 /**
  * Bulk room create (`room.manage`), ALL-OR-NOTHING in one transaction: normalizes every requested
  * number BEFORE duplicate/conflict detection, rejects duplicates within the request, rejects any
@@ -568,7 +555,7 @@ function generateRangeNumbers(range: { prefix?: string, from: number, to: number
 export async function bulkCreateRooms(ctx: AuthContext, hotelId: string, input: BulkCreateRoomsInput): Promise<RoomListItem[]> {
   const { hotel, scope } = await authorizeHotel(ctx, 'room.manage', hotelId)
 
-  const rawNumbers = input.numbers ?? generateRangeNumbers(input.range!)
+  const rawNumbers = input.numbers ?? roomNumbersOfRange(input.range!)
   if (rawNumbers.length > MAX_BULK_ROOMS) {
     throw new ValidationError('TOO_MANY_ROOMS', `A bulk request must not create more than ${MAX_BULK_ROOMS} rooms`)
   }

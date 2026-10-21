@@ -114,6 +114,23 @@
       "FUTURE": "Upcoming",
       "ACTIVE": "Running",
       "ENDED": "Ended"
+    },
+    "inventory": {
+      "AVAILABLE": "Available",
+      "OPERATIONAL_BLOCK": "Blocked",
+      "MAINTENANCE": "Maintenance",
+      "OUT_OF_SERVICE": "Out of service",
+      "NOT_IN_INVENTORY": "Not in inventory",
+      "HELD": "Held",
+      "BOOKED": "Booked",
+      "OCCUPIED": "Occupied"
+    },
+    "block": {
+      "UPCOMING": "Upcoming",
+      "RUNNING": "Running",
+      "ENDED": "Ended",
+      "CANCELLED": "Cancelled",
+      "ENDED_EARLY": "Ended early"
     }
   },
   "problems": {

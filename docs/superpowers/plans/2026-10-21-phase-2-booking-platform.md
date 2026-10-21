@@ -37,7 +37,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
-| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done |
+| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done |
 | 17 | Final review (code, security, database, architecture) and docs | |
 
 ## Local environment note
@@ -641,6 +641,54 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   showing another hotel on an inaccessible page, a refetch never replacing unsaved settings, the collapsed rail with
   tooltips (on the side away from its edge), focus on the code after starting two-factor setup, and the shared toasts
   (`useNotify`). The generic `ALREADY_EXISTS` message is generic again (it named floors).
+- **D-P2-56 (frontends) The ops console, inventory (step 16d, UI-UX-MASTER-DIRECTION §27–§33).** A
+  hotel's rooms as of a night (filters in the URL, search after a pause; capacity always as beds and Haji, a season
+  named; status; next change), add rooms by range or pasted list (previewed as the API will store them — the range
+  numbering is one function in `@hajj/contracts`, `roomNumbersOfRange`, used by the API and the preview; numbers
+  already used are marked and nothing is created) or one room (the number set once, locked afterwards); a room's
+  page (tonight's capacity and its source, the capacity timeline — normal, season, normal again "returns
+  automatically", out of inventory hatched, reading order so right to left in Arabic, Earlier/Later by six months —
+  its normal capacity history, seasons, blocks and history; change capacity from a date, retire listing what stands in
+  the way first (tier 2), return to inventory; each date field starts at the earliest night the API accepts: after
+  the current capacity started, after the last night in service); blocks (now and upcoming, or history with the
+  cancelled; cancel or end early as the server's `cancelAction` says, a reason required; an early end shown to
+  everyone); the block drawer (prefilled rooms, picked by number, or a whole floor; kind with its effect — maintenance
+  that does not stop sales at this hotel says so; the nights; a reason with quick fills; a live impact line, "up to";
+  a bulk conflict names the rooms and offers to save the rest); seasons (running and upcoming, or ended; a new season
+  opens on its page; edit by phase; end a running one after tonight, tier 2; delete an empty upcoming one), the
+  season's rooms (remove a selection while upcoming) and the apply builder (choose rooms with filters, "select all
+  matching" over every page, exact numbers or more than normal, the impact only from the server's preview a moment
+  after the last change, skipped rooms named with the reason and applied in skip mode). The rooms selection blocks
+  several rooms at once and clears, with a toast, when the filters change. Contracts: the room, season, timeline,
+  block, calendar and booking-misfit response types; `BLOCK_PHASES`; room and season notes like hotel details (empty
+  is none). Layer: inventory and block statuses in the registry (available quiet, without an icon). Verified in a
+  browser against the built API and the demo: rooms of a hotel and a new one, a bulk creation and its conflict, a room
+  with a season on its timeline (also in Arabic), a capacity change, retire refused while a season remains and then a
+  retire and return, single and bulk blocks with a conflict and "save the rest", cancel and end early, history, a new
+  season, apply with the preview and a skip, removing a room.
+  The room calendar (§31): every room, every night, from the API's runs of nights — one bar per run, never an element
+  per night; available has no fill, its capacity at the bar's start; a season is a band on top; weekend, past and
+  tonight shaded by one background; header rows (months, seasons, days, sellable rooms per night with the day's
+  counts in a tooltip) and the room column stay in view. The view lives in the URL (first night, 7/14/31/90 nights,
+  floor, type, number, statuses on any or every night, rooms out of inventory, the open cell) — a mistyped link falls
+  back to the default. Rooms load a hundred at a time; more than the API serves at once asks for a narrower filter.
+  One focusable grid (rows, row and column headers, a cell per run of nights) with an active cell — arrows in reading
+  order, Page Up/Down, Home/End, T for tonight, Enter opens it; each move is a new cell for screen readers and is
+  scrolled clear of the sticky headers; keys on a room's checkbox and modified keys are left alone. Each room's row is
+  its own component, so a key renders again only the two rows involved (formatters are built once per language). A
+  click opens the night under the pointer, whatever part of the bar took it; while another range loads, clicks wait.
+  A failed "show more" keeps the rooms shown; a link to a room further down loads on until it is there. The cell
+  drawer says why the night is as it is and blocks from that night; ticked rooms are blocked together (kept across
+  ranges, cleared by a filter). The apply builder loads up to 2,000 rooms (and says so when a hotel has more), takes up
+  to the API's 1,000 per application, and asks for both numbers before its preview.
+  Review outcomes: the bulk preview counts a range before building it (a typo of 999 999 must not freeze the page);
+  the season preview is only ever the preview of the choice on screen, and Apply sends the request that was previewed;
+  the apply builder needs `capacity.manage` and an active hotel; the block drawer finds rooms by number on the server
+  (any hotel size); rooms out of inventory cannot be selected; a scheduled retirement reads "leaves inventory from"
+  and hides the capacity change; an early end shows the hotel's date; drawers and dialogs stay open while they save;
+  URL state, search boxes that follow the URL, and the debounce are one composable each (`useUrlQuery`,
+  `useDebounced`). Layer: after a language switch the names of labelled checkboxes, radios and switches are copied
+  again (Reka copies a label's text once, at mount) — remounting the page instead would lose a half-filled form.
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on

@@ -29,6 +29,10 @@ export const NAVIGATION: NavGroup[] = [
     { key: 'hotels', icon: 'i-lucide-building-2', scope: 'organization', path: '/hotels', permission: 'hotel.view' },
   ] },
   { key: 'inventory', items: [
+    { key: 'calendar', icon: 'i-lucide-calendar-days', scope: 'hotel', path: 'calendar', permission: 'room.view' },
+    { key: 'rooms', icon: 'i-lucide-door-closed', scope: 'hotel', path: 'rooms', permission: 'room.view' },
+    { key: 'seasons', icon: 'i-lucide-calendar-range', scope: 'hotel', path: 'seasons', permission: 'room.view' },
+    { key: 'blocks', icon: 'i-lucide-lock', scope: 'hotel', path: 'blocks', permission: 'room.view' },
     { key: 'roomTypes', icon: 'i-lucide-bed-double', scope: 'organization', path: '/room-types', permission: 'room.view' },
   ] },
   { key: 'admin', items: [

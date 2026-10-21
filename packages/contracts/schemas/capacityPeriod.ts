@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { CAPACITY_PERIOD_KINDS, MAX_BEDS_PER_ROOM, MAX_OVERRIDE_SELECTOR_ROOMS } from '../constants/inventory'
 import { isValidIsoDate, toEpochDay } from '../utils/dates'
-import { dateRange, isoDate, requiredText, safeText, uniqueIds, uuid } from './common'
+import { clearableText, dateRange, isoDate, optionalText, requiredText, safeText, uniqueIds, uuid } from './common'
 
 const capacityValue = z.number().int().min(0).max(MAX_BEDS_PER_ROOM)
 const physicalBedsValue = capacityValue.min(1)
@@ -16,7 +16,7 @@ export const createCapacityPeriodSchema = z.object({
   kind: z.enum(CAPACITY_PERIOD_KINDS),
   startDate: isoDate,
   endDate: isoDate,
-  notes: safeText(2000).optional(),
+  notes: optionalText(2000),
 }).strict().superRefine((body, ctx) => {
   // A length cap (MAX_CAPACITY_PERIOD_DAYS) is the service's job (assertPeriodRange, PF-13-style
   // friendly 422); only the ORDERING is checked here, at the schema layer, the same way `dateRange`
@@ -35,7 +35,7 @@ export const updateCapacityPeriodSchema = z.object({
   kind: z.enum(CAPACITY_PERIOD_KINDS).optional(),
   startDate: isoDate.optional(),
   endDate: isoDate.optional(),
-  notes: safeText(2000).nullable().optional(),
+  notes: clearableText(2000),
 }).strict()
 
 export type UpdateCapacityPeriodInput = z.infer<typeof updateCapacityPeriodSchema>

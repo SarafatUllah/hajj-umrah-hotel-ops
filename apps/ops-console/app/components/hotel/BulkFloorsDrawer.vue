@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/vue-query'
 import { bulkCreateFloorsSchema } from '@hajj/contracts/schemas/floor'
 import type { FloorListItem, HotelSummary } from '@hajj/contracts/types/hotel'
 import { floorLevels } from '../../utils/floors'
+import { heldWhile } from '../../utils/forms'
 
 /**
  * Add floors in bulk (§25): from one level to another, previewed live ("Creates 10 floors: 2, 3 … 11"). All or
@@ -34,7 +35,7 @@ const save = useMutation({
 </script>
 
 <template>
-  <USlideover v-model:open="open" :title="t('floors.addMany')" :description="t('floors.bulkHelp')">
+  <USlideover v-bind="heldWhile(save.isPending.value)" v-model:open="open" :title="t('floors.addMany')" :description="t('floors.bulkHelp')">
     <template #body>
       <UForm :state="form" :validate="validate" class="flex flex-col gap-4" @submit="save.mutate()">
         <HotelStamp :hotel="hotel" />
@@ -58,7 +59,7 @@ const save = useMutation({
         <UAlert v-else-if="save.error.value" color="error" variant="soft" icon="i-lucide-triangle-alert" :title="errorMessage(save.error.value)" role="alert" />
         <div class="flex gap-2">
           <UButton type="submit" :loading="save.isPending.value" :disabled="!levels.length || levels.length > MAX_FLOORS">{{ t('floors.createMany', levels.length) }}</UButton>
-          <UButton color="neutral" variant="ghost" @click="open = false">{{ t('common.cancel') }}</UButton>
+          <UButton color="neutral" variant="ghost" :disabled="save.isPending.value" @click="open = false">{{ t('common.cancel') }}</UButton>
         </div>
       </UForm>
     </template>

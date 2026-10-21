@@ -9,7 +9,7 @@ import type {
   UpdateCapacityPeriodInput,
 } from '@hajj/contracts/schemas/capacityPeriod'
 import { InvalidRangeError, type IsoDate, maxIsoDate, minIsoDate, type NightRange, rangeLength, todayInTimezone } from '@hajj/contracts/utils/dates'
-import { type BaseVersion, baseCapacityAt, type CapacitySegment, capacitySegments, effectiveCapacityAt } from '../domain/inventory/capacity'
+import { type BaseVersion, baseCapacityAt, capacitySegments, effectiveCapacityAt } from '../domain/inventory/capacity'
 import { assertOverridesChangeable, assertPeriodDeletable, assertPeriodPatchAllowed, assertPeriodRange, computeOverrideValues, periodPhase } from '../domain/inventory/capacityPeriodRules'
 import { InventoryRuleError } from '../domain/inventory/rules'
 import { extractPgError, translateDbError } from '../errors/dbErrors'
@@ -21,7 +21,9 @@ import { authorizeHotel } from '../security/authorize'
 import { recordAudit } from './audit'
 import { assertBookingsStillFit } from './booking'
 import { type CapacityValues, type PeriodRef, toBaseVersion, toCapacityOverride } from './roomDto'
-import type { CapacityPeriodDto } from '@hajj/contracts/types/inventory'
+import type { CapacityPeriodDto, AppliedOverridePlan, SkipReason, SkippedOverridePlan, OverridePlan, OverridePreviewTotals, OverrideHotelTotals, OverridePreview, OverrideListItem, CapacityTimelineResult  } from '@hajj/contracts/types/inventory'
+
+export type { AppliedOverridePlan, SkipReason, SkippedOverridePlan, OverridePlan, OverridePreviewTotals, OverrideHotelTotals, OverridePreview, OverrideListItem, CapacityTimelineResult }
 
 export type { CapacityPeriodDto }
 
@@ -420,11 +422,6 @@ async function resolveSelectorRooms(hotelScoped: ReturnType<typeof hotelRepos>, 
 // the previewed rows.
 // ---------------------------------------------------------------------------
 
-export interface AppliedOverridePlan { roomId: string, roomNumber: string, before: CapacityValues, after: CapacityValues }
-export type SkipReason = 'NOT_IN_INVENTORY_FOR_PERIOD' | 'ALREADY_OVERRIDDEN'
-export interface SkippedOverridePlan { roomId: string, roomNumber: string, reason: SkipReason }
-export interface OverridePlan { applied: AppliedOverridePlan[], skipped: SkippedOverridePlan[] }
-
 /**
  * `options.lock` (apply ONLY — `hotelScoped` must then be bound to the apply transaction): the
  * resolved rooms are row-locked (`rooms.lockByIds`, ascending-id order) right after the selector is
@@ -560,10 +557,6 @@ export async function applyOverrides(ctx: AuthContext, hotelId: string, periodId
   })
 }
 
-export interface OverridePreviewTotals { rooms: number, bedsBefore: number, bedsAfter: number, sellableBefore: number, sellableAfter: number }
-export interface OverrideHotelTotals { roomsInInventory: number, sellableBefore: number, sellableDuring: number }
-export interface OverridePreview extends OverridePlan { totals: OverridePreviewTotals, hotelTotals: OverrideHotelTotals }
-
 /**
  * Previews overrides (`capacity.manage` — a step of the write flow, not a read): calls the SAME
  * `planOverrideApplication` read-only, writes NOTHING, records NO audit row. `totals` summarize the
@@ -610,8 +603,6 @@ export async function previewOverrides(ctx: AuthContext, hotelId: string, period
 // ---------------------------------------------------------------------------
 // Single-override read/delete, bulk removal
 // ---------------------------------------------------------------------------
-
-export interface OverrideListItem { id: string, roomId: string, roomNumber: string, physicalBeds: number, sellableCapacity: number, reason: string | null, createdAt: string }
 
 export async function listOverrides(ctx: AuthContext, hotelId: string, periodId: string): Promise<OverrideListItem[]> {
   const { scope } = await authorizeHotel(ctx, 'room.view', hotelId, { allowInactive: true })
@@ -720,13 +711,6 @@ export async function removeOverrides(ctx: AuthContext, hotelId: string, periodI
 // range, resolved against the overrides that were actually in force —
 // NEVER recomputed against today's state for a past range.
 // ---------------------------------------------------------------------------
-
-export interface CapacityTimelineResult {
-  range: { from: IsoDate, to: IsoDate }
-  meta: { today: IsoDate }
-  segments: CapacitySegment[]
-  refs: { periods: Record<string, PeriodRef> }
-}
 
 export async function getRoomCapacityTimeline(ctx: AuthContext, hotelId: string, roomId: string, query: CapacityTimelineQuery): Promise<CapacityTimelineResult> {
   const { hotel, scope } = await authorizeHotel(ctx, 'room.view', hotelId, { allowInactive: true })

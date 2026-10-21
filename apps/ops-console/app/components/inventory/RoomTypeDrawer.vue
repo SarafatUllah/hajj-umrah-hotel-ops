@@ -2,7 +2,7 @@
 import { useMutation } from '@tanstack/vue-query'
 import { createRoomTypeSchema, updateRoomTypeSchema } from '@hajj/contracts/schemas/roomType'
 import type { RoomTypeListItem } from '@hajj/contracts/types/hotel'
-import type { FormRef } from '../../utils/forms'
+import { type FormRef, heldWhile } from '../../utils/forms'
 
 /**
  * Add or edit a room type (§26). The rule this drawer makes impossible to miss: defaults apply to new rooms only —
@@ -48,7 +48,7 @@ const save = useMutation({
 </script>
 
 <template>
-  <USlideover v-model:open="open" :title="roomType ? t('roomTypes.edit', { name: roomType.name }) : t('roomTypes.add')" :description="t('roomTypes.shared')">
+  <USlideover v-bind="heldWhile(save.isPending.value)" v-model:open="open" :title="roomType ? t('roomTypes.edit', { name: roomType.name }) : t('roomTypes.add')" :description="t('roomTypes.shared')">
     <template #body>
       <UForm ref="formRef" :state="form" :validate="validate" class="flex flex-col gap-4" @submit="save.mutate()">
         <UFormField :label="t('roomTypes.name')" name="name" required><UInput v-model="form.name" class="w-full" /></UFormField>
@@ -73,7 +73,7 @@ const save = useMutation({
         <UAlert v-if="save.error.value && toApiError(save.error.value).code !== 'ALREADY_EXISTS'" color="error" variant="soft" icon="i-lucide-triangle-alert" :title="errorMessage(save.error.value)" role="alert" />
         <div class="flex gap-2">
           <UButton type="submit" :loading="save.isPending.value">{{ !roomType ? t('roomTypes.add') : defaultsChanged ? t('roomTypes.saveDefaults') : t('common.save') }}</UButton>
-          <UButton color="neutral" variant="ghost" @click="open = false">{{ t('common.cancel') }}</UButton>
+          <UButton color="neutral" variant="ghost" :disabled="save.isPending.value" @click="open = false">{{ t('common.cancel') }}</UButton>
         </div>
       </UForm>
     </template>

@@ -1,5 +1,8 @@
 import { fromEpochDay, type IsoDate, type NightRange, toEpochDay } from '@hajj/contracts/utils/dates'
 import { buildRoomSegments, type CalendarOptions, type CalendarSegment, type RoomCalendarInput } from '../inventory/calendar'
+import type { MisfitReason, BookingMisfit } from '@hajj/contracts/types/booking'
+
+export type { MisfitReason, BookingMisfit }
 
 /** A seat-holding booking claim on one room (`[checkIn, checkOut)`), with the extra beds it put there. */
 export interface RoomClaim {
@@ -16,18 +19,6 @@ export interface NightSeats {
   roomId: string
   night: IsoDate
   seatsUsed: number
-}
-
-export type MisfitReason = 'NOT_SELLABLE' | 'OVER_CAPACITY'
-
-/** A booking whose claim no longer fits the room on the consecutive nights `from`..`to`, for one reason. */
-export interface BookingMisfit {
-  bookingId: string
-  bookingNo: string
-  roomId: string
-  from: IsoDate
-  to: IsoDate
-  reason: MisfitReason
 }
 
 const key = (roomId: string, day: number) => `${roomId}|${day}`

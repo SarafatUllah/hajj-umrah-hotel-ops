@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { MAX_BEDS_PER_ROOM, MAX_BULK_ROOMS, MAX_ROOMS_PER_PAGE, ROOM_FEATURES } from '../constants/inventory'
-import { isoDate, pagination, safeText, uuid } from './common'
+import { clearableText, isoDate, optionalText, pagination, safeText, uuid } from './common'
 
 /**
  * Room numbers are accepted here only as raw text (a generous length bound, no format check) —
@@ -23,7 +23,7 @@ export const createRoomSchema = z.object({
   physicalBeds: physicalBedsValue.optional(),
   sellableCapacity: capacityValue.optional(),
   features: featureList.default([]),
-  notes: safeText(2000).optional(),
+  notes: optionalText(2000),
 }).strict()
 
 export type CreateRoomInput = z.infer<typeof createRoomSchema>
@@ -42,7 +42,7 @@ export const updateRoomSchema = z.object({
   floorId: uuid.optional(),
   roomTypeId: uuid.optional(),
   features: featureList.optional(),
-  notes: safeText(2000).nullable().optional(),
+  notes: clearableText(2000),
   roomNumber: z.string().optional(),
 }).strict()
 

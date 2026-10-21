@@ -1,8 +1,10 @@
 import { type IsoDate, type NightRange, eachDate, fromEpochDay, toEpochDay } from '@hajj/contracts/utils/dates'
-import { type CapacitySource, type PreparedCapacity, capacityOnDay, cutDays, prepareCapacity } from './capacity'
+import { type PreparedCapacity, capacityOnDay, cutDays, prepareCapacity } from './capacity'
 import { type AverageResult, type RoomCapacityInput, makeAverage } from './averages'
 import { type BlockKind, type InventoryStatus, INVENTORY_STATUSES } from '@hajj/contracts/constants/inventory'
-import type { DailySummary } from '@hajj/contracts/types/inventory'
+import type { DailySummary, CalendarSegment  } from '@hajj/contracts/types/inventory'
+
+export type { CalendarSegment }
 
 export type { DailySummary }
 
@@ -12,19 +14,6 @@ export interface RoomCalendarInput extends RoomCapacityInput { blocks: BlockInpu
 export interface CalendarOptions {
   /** hotel_setting inventory.maintenanceBlocksSales: when false a MAINTENANCE block is shown but the room stays sellable. */
   maintenanceBlocksSales: boolean
-}
-
-export interface CalendarSegment {
-  from: IsoDate
-  to: IsoDate
-  status: InventoryStatus
-  /** Can the room be sold on these nights (in inventory and not covered by a sale-blocking block)? */
-  sellable: boolean
-  physicalBeds: number | null
-  sellableCapacity: number | null
-  capacitySource: CapacitySource | null
-  periodId: string | null
-  blockIds: string[]
 }
 
 const rank = (s: InventoryStatus) => INVENTORY_STATUSES.indexOf(s)

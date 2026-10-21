@@ -114,6 +114,23 @@
       "FUTURE": "قادم",
       "ACTIVE": "جارٍ",
       "ENDED": "منتهٍ"
+    },
+    "inventory": {
+      "AVAILABLE": "متاحة",
+      "OPERATIONAL_BLOCK": "محجوبة",
+      "MAINTENANCE": "صيانة",
+      "OUT_OF_SERVICE": "خارج الخدمة",
+      "NOT_IN_INVENTORY": "خارج المخزون",
+      "HELD": "محجوزة مؤقتًا",
+      "BOOKED": "محجوزة",
+      "OCCUPIED": "مشغولة"
+    },
+    "block": {
+      "UPCOMING": "قادم",
+      "RUNNING": "جارٍ",
+      "ENDED": "منتهٍ",
+      "CANCELLED": "ملغى",
+      "ENDED_EARLY": "انتهى مبكرًا"
     }
   },
   "problems": {

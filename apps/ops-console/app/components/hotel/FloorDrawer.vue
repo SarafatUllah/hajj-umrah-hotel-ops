@@ -2,7 +2,7 @@
 import { useMutation } from '@tanstack/vue-query'
 import { createFloorSchema, updateFloorSchema } from '@hajj/contracts/schemas/floor'
 import type { FloorListItem, HotelSummary } from '@hajj/contracts/types/hotel'
-import type { FormRef } from '../../utils/forms'
+import { type FormRef, heldWhile } from '../../utils/forms'
 
 /**
  * Add a floor, or edit one (§25): level and label — the label follows the level ("Floor 4") until typed, and is then
@@ -56,7 +56,7 @@ const save = useMutation({
 </script>
 
 <template>
-  <USlideover v-model:open="open" :title="editing ? t('floors.edit') : t('floors.addOne')" :description="t('floors.drawerHelp')">
+  <USlideover v-bind="heldWhile(save.isPending.value)" v-model:open="open" :title="editing ? t('floors.edit') : t('floors.addOne')" :description="t('floors.drawerHelp')">
     <template #body>
       <UForm ref="formRef" :state="form" :validate="validate" class="flex flex-col gap-4" @submit="save.mutate()">
         <HotelStamp :hotel="hotel" />
@@ -69,7 +69,7 @@ const save = useMutation({
         <UAlert v-if="save.error.value && toApiError(save.error.value).code !== 'ALREADY_EXISTS'" color="error" variant="soft" icon="i-lucide-triangle-alert" :title="errorMessage(save.error.value)" role="alert" />
         <div class="flex gap-2">
           <UButton type="submit" :loading="save.isPending.value">{{ editing ? t('common.save') : t('floors.addOne') }}</UButton>
-          <UButton color="neutral" variant="ghost" @click="open = false">{{ t('common.cancel') }}</UButton>
+          <UButton color="neutral" variant="ghost" :disabled="save.isPending.value" @click="open = false">{{ t('common.cancel') }}</UButton>
         </div>
       </UForm>
     </template>

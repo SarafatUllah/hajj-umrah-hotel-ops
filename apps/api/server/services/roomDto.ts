@@ -1,4 +1,4 @@
-import type { BaseConfigOrigin, CapacityPeriodKind, InventoryStatus, RoomFeature } from '@hajj/contracts/constants/inventory'
+import type { BaseConfigOrigin, RoomFeature } from '@hajj/contracts/constants/inventory'
 import { type IsoDate, toEpochDay } from '@hajj/contracts/utils/dates'
 import { type BaseVersion, type CapacityOverride, baseCapacityAt, effectiveCapacityAt } from '../domain/inventory/capacity'
 import { type BlockInput, type CalendarOptions, buildRoomSegments } from '../domain/inventory/calendar'
@@ -6,40 +6,14 @@ import { type PeriodPhase, periodPhase } from '../domain/inventory/capacityPerio
 import { nextCapacityChange, type NextChangeCapacity } from '../domain/inventory/nextChange'
 import type { FloorRow, RoomBaseConfigRow, RoomCapacityOverrideRow, RoomOperationalBlockRow, RoomRow } from '../repositories/hotel'
 import type { RoomTypeRow } from '../repositories/tenant'
+import type { PeriodRef, CapacityValues } from '@hajj/contracts/types/inventory'
+import type { EffectiveCapacityDto, NextChangeDto, RoomListItem, RoomDetail } from '@hajj/contracts/types/rooms'
+
+export type { EffectiveCapacityDto, NextChangeDto, RoomListItem, RoomDetail }
+
+export type { PeriodRef, CapacityValues }
 
 export type { PeriodPhase }
-export interface PeriodRef { id: string, name: string, kind: CapacityPeriodKind, startDate: IsoDate, endDate: IsoDate }
-export interface CapacityValues { physicalBeds: number, sellableCapacity: number }
-export interface EffectiveCapacityDto extends CapacityValues { source: 'BASE' | 'PERIOD_OVERRIDE', period: PeriodRef | null }
-export type NextChangeDto =
-  | { kind: 'CAPACITY' | 'ENTERS_INVENTORY', date: IsoDate, capacity: EffectiveCapacityDto }
-  | { kind: 'LEAVES_INVENTORY', date: IsoDate }
-
-export interface RoomListItem {
-  id: string
-  roomNumber: string
-  floor: { id: string, level: number, label: string }
-  roomType: { id: string, code: string, name: string }
-  features: RoomFeature[]
-  asOf: IsoDate
-  inInventory: boolean
-  /** `inServiceFrom` = the first version's `validFrom`; `lastNight` = the latest version's `validTo` (`null` = open-ended). */
-  lifecycle: { inServiceFrom: IsoDate, lastNight: IsoDate | null }
-  base: CapacityValues | null
-  effective: EffectiveCapacityDto | null
-  status: InventoryStatus
-  nextChange: NextChangeDto | null
-}
-
-export interface RoomDetail extends RoomListItem {
-  notes: string | null
-  createdAt: string
-  updatedAt: string
-  /** Full history, oldest first. */
-  baseVersions: Array<{ id: string, validFrom: IsoDate, validTo: IsoDate | null, physicalBeds: number, sellableCapacity: number, origin: BaseConfigOrigin, reason: string | null, createdAt: string }>
-  /** Task 15 fills this from real capacity-period overrides; always `[]` in Task 14. */
-  seasons: Array<{ overrideId: string, period: PeriodRef & { phase: PeriodPhase }, physicalBeds: number, sellableCapacity: number }>
-}
 
 export function toBaseVersion(row: RoomBaseConfigRow): BaseVersion {
   return { validFrom: row.validFrom, validTo: row.validTo, physicalBeds: row.physicalBeds, sellableCapacity: row.sellableCapacity }

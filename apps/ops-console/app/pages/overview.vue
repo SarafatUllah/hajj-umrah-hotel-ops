@@ -99,7 +99,7 @@ const asOf = computed(() => (oneHotel.value ? format.date(oneHotel.value.today, 
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h2 id="outlook-heading" class="text-section">{{ t('overview.outlook', { nights: range }) }}</h2>
           <div class="flex gap-1" role="group" :aria-label="t('overview.range')">
-            <UButton v-for="option in RANGES" :key="option" size="sm" :color="range === option ? 'primary' : 'neutral'" :variant="range === option ? 'soft' : 'ghost'" :aria-pressed="range === option" @click="range = option">{{ t('overview.nights', { count: option }) }}</UButton>
+            <UButton v-for="option in RANGES" :key="option" size="sm" :color="range === option ? 'primary' : 'neutral'" :variant="range === option ? 'soft' : 'ghost'" :aria-pressed="range === option" @click="range = option">{{ t('overview.nights', { count: option }, option) }}</UButton>
           </div>
         </div>
         <ErrorState v-if="outlookError" :error="outlookError" @retry="outlook.forEach(q => q.refetch())" />

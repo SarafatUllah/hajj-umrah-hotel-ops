@@ -1,4 +1,4 @@
-import { type BlockKind, CALENDAR_FILTER_STATUSES, type CalendarFilterStatus, type CapacityPeriodKind, DEFAULT_CALENDAR_PAGE_SIZE, MAX_CALENDAR_RESPONSE_BYTES, MAX_CALENDAR_ROOMS, MAX_ROOMS_PER_PAGE } from '@hajj/contracts/constants/inventory'
+import { CALENDAR_FILTER_STATUSES, type CalendarFilterStatus, DEFAULT_CALENDAR_PAGE_SIZE, MAX_CALENDAR_RESPONSE_BYTES, MAX_CALENDAR_ROOMS, MAX_ROOMS_PER_PAGE } from '@hajj/contracts/constants/inventory'
 import { calendarQueryIssues } from '@hajj/contracts/schemas/roomCalendar'
 import { type IsoDate, type NightRange, isValidIsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { buildRoomSegments, type CalendarOptions, type CalendarSegment, matchesCapacityFilter, matchesStatusFilter, summarizeDaily } from '../domain/inventory/calendar'
@@ -9,36 +9,11 @@ import type { InventoryReadRepository, InventoryRefs, InventoryRoomInput, RoomCa
 import type { AuthContext } from '../security/authContext'
 import { authorizeHotel } from '../security/authorize'
 import type { HotelScope } from '../security/scope'
-import type { CalendarMetaDto, DailySummaryDto } from '@hajj/contracts/types/inventory'
+import type { CalendarMetaDto, DailySummaryDto, CalendarRoomDto, CalendarRefsDto, RoomCalendarDto  } from '@hajj/contracts/types/inventory'
+
+export type { CalendarRoomDto, CalendarRefsDto, RoomCalendarDto }
 
 export type { CalendarMetaDto, DailySummaryDto }
-
-export interface CalendarRoomDto {
-  roomId: string
-  roomNumber: string
-  floor: { id: string, level: number, label: string }
-  roomType: { id: string, code: string, name: string }
-  features: string[]
-  /** Run-length encoded, covering the whole requested range exactly (no gap, no overlap). */
-  segments: CalendarSegment[]
-}
-
-export interface CalendarRefsDto {
-  periods: Record<string, { name: string, kind: CapacityPeriodKind, startDate: IsoDate, endDate: IsoDate }>
-  blocks: Record<string, { kind: BlockKind, startDate: IsoDate, endDate: IsoDate, reason: string }>
-}
-
-export interface RoomCalendarDto {
-  range: NightRange
-  page: number
-  pageSize: number
-  /** Rooms matching every filter (before paging) — exact. */
-  total: number
-  meta: CalendarMetaDto
-  /** EXACTLY the periods and blocks referenced by the segments of `rooms` (this page) — nothing else. */
-  refs: CalendarRefsDto
-  rooms: CalendarRoomDto[]
-}
 
 export interface RoomCalendarQueryInput {
   from: IsoDate

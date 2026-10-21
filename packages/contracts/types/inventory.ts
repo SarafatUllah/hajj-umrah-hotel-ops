@@ -1,5 +1,5 @@
 /** The inventory API's response shapes: averages (Task 17), daily summaries (Task 18), seasons (Task 15). */
-import type { CapacityPeriodKind, PeriodPhase } from '../constants/inventory'
+import type { BlockKind, CapacityPeriodKind, InventoryStatus, PeriodPhase } from '../constants/inventory'
 import type { IsoDate, NightRange } from '../utils/dates'
 
 /** Every average the API returns. `value`/`display` are `null` exactly when `denominator` is 0 — never 0, NaN or Infinity. */
@@ -94,4 +94,78 @@ export interface CapacityPeriodDto {
   nights: number
   overrideCount: number
   impact: { sellableDelta: number, bedsDelta: number }
+}
+
+/** A season as other shapes name it. */
+export interface PeriodRef { id: string, name: string, kind: CapacityPeriodKind, startDate: IsoDate, endDate: IsoDate }
+
+/** Beds and Haji capacity: always the two numbers, never one (§1.4). */
+export interface CapacityValues { physicalBeds: number, sellableCapacity: number }
+
+export type CapacitySource = 'BASE' | 'PERIOD_OVERRIDE'
+
+/** A room's capacity over consecutive nights, and where it comes from (its normal capacity, or a season). */
+export interface CapacitySegment extends NightRange, CapacityValues { source: CapacitySource, periodId: string | null }
+
+/** A room's capacity over a window (`GET …/rooms/:id/capacity-timeline`); nights out of inventory have no segment. */
+export interface CapacityTimelineResult {
+  range: { from: IsoDate, to: IsoDate }
+  meta: { today: IsoDate }
+  segments: CapacitySegment[]
+  refs: { periods: Record<string, PeriodRef> }
+}
+
+/** One room's seasonal capacity in a season. */
+export interface OverrideListItem { id: string, roomId: string, roomNumber: string, physicalBeds: number, sellableCapacity: number, reason: string | null, createdAt: string }
+
+/** Why a room the selection named would not take the season's capacity. */
+export type SkipReason = 'NOT_IN_INVENTORY_FOR_PERIOD' | 'ALREADY_OVERRIDDEN'
+export interface AppliedOverridePlan { roomId: string, roomNumber: string, before: CapacityValues, after: CapacityValues }
+export interface SkippedOverridePlan { roomId: string, roomNumber: string, reason: SkipReason }
+export interface OverridePlan { applied: AppliedOverridePlan[], skipped: SkippedOverridePlan[] }
+export interface OverridePreviewTotals { rooms: number, bedsBefore: number, bedsAfter: number, sellableBefore: number, sellableAfter: number }
+export interface OverrideHotelTotals { roomsInInventory: number, sellableBefore: number, sellableDuring: number }
+
+/** What applying would do (S6), measured on the season's first night — nothing is written. */
+export interface OverridePreview extends OverridePlan { totals: OverridePreviewTotals, hotelTotals: OverrideHotelTotals }
+
+/** A room's inventory over consecutive nights (Task 18): status, capacity and its source, the blocks behind it. */
+export interface CalendarSegment {
+  from: IsoDate
+  to: IsoDate
+  status: InventoryStatus
+  /** Can the room be sold on these nights (in inventory and not covered by a sale-blocking block)? */
+  sellable: boolean
+  physicalBeds: number | null
+  sellableCapacity: number | null
+  capacitySource: CapacitySource | null
+  periodId: string | null
+  blockIds: string[]
+}
+
+export interface CalendarRoomDto {
+  roomId: string
+  roomNumber: string
+  floor: { id: string, level: number, label: string }
+  roomType: { id: string, code: string, name: string }
+  features: string[]
+  /** Run-length encoded, covering the whole requested range exactly (no gap, no overlap). */
+  segments: CalendarSegment[]
+}
+
+export interface CalendarRefsDto {
+  periods: Record<string, { name: string, kind: CapacityPeriodKind, startDate: IsoDate, endDate: IsoDate }>
+  blocks: Record<string, { kind: BlockKind, startDate: IsoDate, endDate: IsoDate, reason: string }>
+}
+
+/** A page of the room calendar (S13): EXACTLY the periods and blocks this page's segments reference are in `refs`. */
+export interface RoomCalendarDto {
+  range: NightRange
+  page: number
+  pageSize: number
+  /** Rooms matching every filter (before paging) — exact. */
+  total: number
+  meta: CalendarMetaDto
+  refs: CalendarRefsDto
+  rooms: CalendarRoomDto[]
 }

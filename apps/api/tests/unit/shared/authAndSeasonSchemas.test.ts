@@ -25,4 +25,10 @@ describe('a season needs a name', () => {
     expect(createCapacityPeriodSchema.safeParse({ ...season, name: ' ' }).success).toBe(false)
     expect(updateCapacityPeriodSchema.safeParse({ name: '' }).success).toBe(false)
   })
+
+  it('empty notes are none: left out on create, cleared on update', () => {
+    const season = { name: 'Hajj 2027', kind: 'HAJJ', startDate: '2027-05-01', endDate: '2027-07-31' }
+    expect(createCapacityPeriodSchema.parse({ ...season, notes: ' ' }).notes).toBeUndefined()
+    expect(updateCapacityPeriodSchema.parse({ notes: '' })).toEqual({ notes: null })
+  })
 })

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { AGENCY_STATUSES } from '@hajj/contracts/constants/accounts'
 import { BOOKING_STATUSES, GUEST_STATUSES, HOTEL_TASK_STATUSES } from '@hajj/contracts/constants/booking'
-import { HOTEL_STATUSES, PERIOD_PHASES } from '@hajj/contracts/constants/inventory'
+import { BLOCK_PHASES, HOTEL_STATUSES, INVENTORY_STATUSES, PERIOD_PHASES } from '@hajj/contracts/constants/inventory'
 import { PASSPORT_SCAN_STATUSES } from '@hajj/contracts/constants/pilgrimData'
 import { QUOTE_STATUSES } from '@hajj/contracts/constants/pricing'
 import { STATUS_REGISTRY, type StatusDomain } from '../app/utils/statusRegistry'
@@ -58,7 +58,7 @@ describe('locales (§13, acceptance 11)', () => {
   it('every status value has a look in the registry and a label in both languages', () => {
     const statuses: Record<StatusDomain, readonly string[]> = {
       booking: BOOKING_STATUSES, guest: GUEST_STATUSES, quote: QUOTE_STATUSES, hotel: HOTEL_STATUSES,
-      agency: AGENCY_STATUSES, scan: PASSPORT_SCAN_STATUSES, task: HOTEL_TASK_STATUSES, season: PERIOD_PHASES,
+      agency: AGENCY_STATUSES, scan: PASSPORT_SCAN_STATUSES, task: HOTEL_TASK_STATUSES, season: PERIOD_PHASES, inventory: INVENTORY_STATUSES, block: BLOCK_PHASES,
     }
     for (const [domain, values] of Object.entries(statuses) as Array<[StatusDomain, readonly string[]]>) {
       expect(Object.keys(STATUS_REGISTRY[domain]).sort()).toEqual([...values].sort())

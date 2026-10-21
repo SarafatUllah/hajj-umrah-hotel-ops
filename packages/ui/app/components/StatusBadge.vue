@@ -12,7 +12,7 @@ const label = computed(() => {
 </script>
 
 <template>
-  <UBadge :color="look.tone" :variant="look.variant" :icon="look.icon" size="md" class="text-caption">
+  <UBadge :color="look.tone" :variant="look.variant" :icon="look.icon || undefined" size="md" class="text-caption">
     {{ label }}
   </UBadge>
 </template>

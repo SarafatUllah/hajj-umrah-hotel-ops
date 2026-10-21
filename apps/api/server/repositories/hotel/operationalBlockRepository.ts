@@ -6,6 +6,9 @@ import type { HotelScope } from '../../security/scope'
 import type { BlockKind } from '@hajj/contracts/constants/inventory'
 import type { IsoDate, NightRange } from '@hajj/contracts/utils/dates'
 import { HotelQuery } from '../base/scopedQuery'
+import type { BlockActor } from '@hajj/contracts/types/rooms'
+
+export type { BlockActor }
 
 export type RoomOperationalBlockRow = typeof roomOperationalBlock.$inferSelect
 /**
@@ -14,8 +17,6 @@ export type RoomOperationalBlockRow = typeof roomOperationalBlock.$inferSelect
  */
 export type NewRoomOperationalBlock = Omit<typeof roomOperationalBlock.$inferInsert,
   'id' | 'organizationId' | 'hotelId' | 'createdAt' | 'cancelledAt' | 'cancelledBy' | 'cancelReason' | 'endedEarlyAt' | 'endedEarlyBy' | 'originalEndDate'>
-
-export interface BlockActor { id: string, fullName: string }
 
 /** A block row plus what its DTO needs to display it: the room's number and the actors' names (same-organization join, S3 pattern). */
 export interface RoomOperationalBlockView {

@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/vue-query'
 import { DOC_TYPES, DOCUMENT_MIME_TYPES, MAX_UPLOAD_BYTES } from '@hajj/contracts/constants/documents'
 import { uploadDocumentFieldsSchema } from '@hajj/contracts/schemas/document'
 import type { DocumentDto, HotelSummary } from '@hajj/contracts/types/hotel'
+import { heldWhile } from '../../utils/forms'
 
 /** Upload a hotel document (§23, Task 19): its type, title and file — the limits stated before choosing it. */
 const props = defineProps<{ hotel: HotelSummary }>()
@@ -48,7 +49,7 @@ const limits = computed(() => t('documents.limits', { size: formatBytes(MAX_UPLO
 </script>
 
 <template>
-  <USlideover v-model:open="open" :title="t('documents.upload')" :description="limits">
+  <USlideover v-bind="heldWhile(save.isPending.value)" v-model:open="open" :title="t('documents.upload')" :description="limits">
     <template #body>
       <UForm :state="form" :validate="validate" class="flex flex-col gap-4" @submit="save.mutate()">
         <HotelStamp :hotel="hotel" />
@@ -73,7 +74,7 @@ const limits = computed(() => t('documents.limits', { size: formatBytes(MAX_UPLO
         <UAlert v-if="save.error.value" color="error" variant="soft" icon="i-lucide-triangle-alert" :title="errorMessage(save.error.value)" role="alert" />
         <div class="flex gap-2">
           <UButton type="submit" :loading="save.isPending.value" :disabled="!file">{{ t('documents.upload') }}</UButton>
-          <UButton color="neutral" variant="ghost" @click="open = false">{{ t('common.cancel') }}</UButton>
+          <UButton color="neutral" variant="ghost" :disabled="save.isPending.value" @click="open = false">{{ t('common.cancel') }}</UButton>
         </div>
       </UForm>
     </template>

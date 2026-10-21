@@ -29,3 +29,16 @@ export function normalizeRoomNumber(input: string): string | null {
   const mapped = mapArabicIndicDigits(trimmed).toUpperCase()
   return ROOM_NUMBER_PATTERN.test(mapped) ? mapped : null
 }
+
+/** A bulk creation's number range (`POST …/rooms/bulk`): a prefix, then each number from `from` to `to`, padded to `pad` digits. */
+export interface RoomNumberRange { prefix?: string, from: number, to: number, pad?: number }
+
+/** The room numbers a range creates, before normalization — the API's own list, and the form's preview of it. */
+export function roomNumbersOfRange(range: RoomNumberRange): string[] {
+  const out: string[] = []
+  for (let n = range.from; n <= range.to; n++) {
+    const digits = range.pad ? String(n).padStart(range.pad, '0') : String(n)
+    out.push(`${range.prefix ?? ''}${digits}`)
+  }
+  return out
+}

@@ -14,6 +14,9 @@ import { recordAudit } from './audit'
 import { assertBookingsStillFit } from './booking'
 import { type BlockListItem, toBlockListItem } from './blockDto'
 import { toBaseVersion } from './roomDto'
+import type { BlockListPage, BlockConflict } from '@hajj/contracts/types/rooms'
+
+export type { BlockListPage, BlockConflict }
 
 type HotelScoped = ReturnType<typeof hotelRepos>
 
@@ -26,13 +29,6 @@ type HotelScoped = ReturnType<typeof hotelRepos>
  * Phase 2 seam (documented, not built): creating a block over nights that hold a booking/hold will be
  * rejected HERE, next to the BLOCK_OVERLAP pre-check; the block tables need no change for it.
  */
-
-export interface BlockListPage {
-  items: BlockListItem[]
-  page: number
-  pageSize: number
-  total: number
-}
 
 /** Rethrows a domain rule error as its HTTP-mapped `DomainError`. `InvalidRangeError` (from `makeRange` when `endDate < startDate` reaches the service directly) is a 422 too. */
 function rethrowAsDomainError(error: unknown): never {
@@ -212,8 +208,6 @@ export async function createRoomBlock(ctx: AuthContext, hotelId: string, roomId:
 // ---------------------------------------------------------------------------
 // Bulk create
 // ---------------------------------------------------------------------------
-
-export interface BlockConflict { roomId: string, roomNumber: string, reason: 'ROOM_NOT_IN_INVENTORY_FOR_BLOCK' | 'BLOCK_OVERLAP' }
 
 /**
  * Resolves the selector inside this hotel and ROW-LOCKS the candidate rooms (`rooms.lockByIds`: one

@@ -23,9 +23,21 @@ const DATE_OPTIONS: Record<DateStyle, Intl.DateTimeFormatOptions> = {
   long: { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' },
 }
 
+// One formatter per language and style: building an `Intl.DateTimeFormat` costs far more than using one, and a
+// calendar formats hundreds of dates per render.
+const dateFormatters = new Map<string, Intl.DateTimeFormat>()
+function dateFormatter(locale: string, style: DateStyle): Intl.DateTimeFormat {
+  const key = `${locale}|${style}`
+  const known = dateFormatters.get(key)
+  if (known) return known
+  const formatter = new Intl.DateTimeFormat(localeTag(locale), { ...DATE_OPTIONS[style], timeZone: 'UTC' })
+  dateFormatters.set(key, formatter)
+  return formatter
+}
+
 /** "1 Jun 2027" (medium), "1 Jun" (short), "Tue, 1 June 2027" (long). */
 export function formatDate(isoDate: string, locale: string, style: DateStyle = 'medium'): string {
-  return new Intl.DateTimeFormat(localeTag(locale), { ...DATE_OPTIONS[style], timeZone: 'UTC' }).format(utcDate(isoDate))
+  return dateFormatter(locale, style).format(utcDate(isoDate))
 }
 
 /** The nights of a stay `[checkIn, checkOut)`. */
@@ -35,7 +47,7 @@ export function nightsBetween(checkIn: string, checkOut: string): number {
 
 /** A stay as dates: "1–4 Jun 2027" (the check-out day is the end: the guests leave that morning). */
 export function formatStay(checkIn: string, checkOut: string, locale: string): string {
-  return new Intl.DateTimeFormat(localeTag(locale), { ...DATE_OPTIONS.medium, timeZone: 'UTC' }).formatRange(utcDate(checkIn), utcDate(checkOut))
+  return dateFormatter(locale, 'medium').formatRange(utcDate(checkIn), utcDate(checkOut))
 }
 
 /** Money in halalas as Saudi riyals with the currency code and two decimals: "SAR 12,500.00". */

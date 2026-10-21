@@ -2,36 +2,12 @@ import type { BlockKind } from '@hajj/contracts/constants/inventory'
 import { type IsoDate, rangeLength } from '@hajj/contracts/utils/dates'
 import { type BlockPhase, blockPhase, planBlockCancellation } from '../domain/inventory/blockRules'
 import { InventoryRuleError } from '../domain/inventory/rules'
-import type { BlockActor, RoomOperationalBlockView } from '../repositories/hotel'
+import type { RoomOperationalBlockView } from '../repositories/hotel'
+import type { BlockListItem } from '@hajj/contracts/types/rooms'
+
+export type { BlockListItem }
 
 export type { BlockPhase }
-
-/**
- * S10/S11 block list item — the shape of the list, create and cancel responses. `phase` (display) and
- * `cancelAction` (which confirmation the UI offers) are computed here with the hotel's today; the UI
- * never compares dates to decide either. A block starting tonight is `phase: 'RUNNING'` yet
- * `cancelAction: 'CANCEL'` (the verified rule: start >= today -> full cancel).
- */
-export interface BlockListItem {
-  id: string
-  room: { id: string, roomNumber: string }
-  kind: BlockKind
-  startDate: IsoDate
-  /** The block's ACTUAL last night (after an early end, the shortened one; the plan is in `endedEarly.originalEndDate`). */
-  endDate: IsoDate
-  nights: number
-  reason: string
-  phase: BlockPhase
-  cancelAction: 'CANCEL' | 'END_EARLY' | null
-  createdBy: BlockActor | null
-  createdAt: string
-  /** Cancellation only — all three are `null` for a block that was ended early (that is reported under `endedEarly`). */
-  cancelledAt: string | null
-  cancelledBy: BlockActor | null
-  cancelReason: string | null
-  /** S11: visible to everyone who can see the block (not only `audit.view` holders). */
-  endedEarly: { at: string, by: BlockActor | null, originalEndDate: IsoDate, reason: string } | null
-}
 
 /** `planBlockCancellation`'s answer as a value: `null` exactly when it would throw (already ended / already cancelled). */
 function cancelActionOf(view: RoomOperationalBlockView, today: IsoDate): BlockListItem['cancelAction'] {

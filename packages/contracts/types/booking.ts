@@ -159,3 +159,18 @@ export interface PassportScanDto {
   failureReason: string | null
   createdAt: string
 }
+
+export type MisfitReason = 'NOT_SELLABLE' | 'OVER_CAPACITY'
+
+/**
+ * A booking whose claim no longer fits a room on the consecutive nights `from`..`to` (409 `BOOKING_CONFLICT`,
+ * `details.bookings`): an inventory change would leave it without a sellable room or with too little capacity.
+ */
+export interface BookingMisfit {
+  bookingId: string
+  bookingNo: string
+  roomId: string
+  from: string
+  to: string
+  reason: MisfitReason
+}

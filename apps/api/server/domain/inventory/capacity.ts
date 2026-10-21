@@ -1,10 +1,11 @@
 import { type IsoDate, type NightRange, containsDate, fromEpochDay, rangeLength, toEpochDay } from '@hajj/contracts/utils/dates'
+import type { CapacitySource, CapacitySegment } from '@hajj/contracts/types/inventory'
+
+export type { CapacitySource, CapacitySegment }
 
 export interface BaseVersion { validFrom: IsoDate, validTo: IsoDate | null, physicalBeds: number, sellableCapacity: number }
 export interface CapacityOverride { periodId: string, validFrom: IsoDate, validTo: IsoDate, physicalBeds: number, sellableCapacity: number }
-export type CapacitySource = 'BASE' | 'PERIOD_OVERRIDE'
 export interface EffectiveCapacity { physicalBeds: number, sellableCapacity: number, source: CapacitySource, periodId: string | null }
-export interface CapacitySegment extends NightRange, EffectiveCapacity {}
 
 function baseCovers(v: BaseVersion, date: IsoDate): boolean {
   const e = toEpochDay(date)

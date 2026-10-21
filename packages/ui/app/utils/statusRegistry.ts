@@ -4,7 +4,8 @@ export type StatusTone = 'primary' | 'secondary' | 'success' | 'info' | 'warning
 /** How a status looks wherever it appears: tone, icon (Lucide) and badge variant; the label comes from `status.<domain>.<value>`. */
 export interface StatusLook { tone: StatusTone, icon: string, variant: 'soft' | 'outline' | 'solid' }
 
-const look = (tone: StatusTone, icon: string, variant: StatusLook['variant'] = 'soft'): StatusLook => ({ tone, icon: `i-lucide-${icon}`, variant })
+/** `icon` empty: a status that stays quiet (available is the normal state, §11.6). */
+const look = (tone: StatusTone, icon: string, variant: StatusLook['variant'] = 'soft'): StatusLook => ({ tone, icon: icon ? `i-lucide-${icon}` : '', variant })
 
 /**
  * The one status registry (§19): the server sends a value, this decides its look. Green is for action and selection,
@@ -52,6 +53,24 @@ export const STATUS_REGISTRY = {
     CONFIRMED: look('success', 'circle-check'),
     FAILED: look('error', 'triangle-alert'),
     DISCARDED: look('neutral', 'trash-2'),
+  },
+  // A room on a night (§19.1): available is quiet; only exceptions get colour. Also a block's kind.
+  inventory: {
+    AVAILABLE: look('neutral', '', 'outline'),
+    OPERATIONAL_BLOCK: look('neutral', 'lock'),
+    MAINTENANCE: look('warning', 'wrench'),
+    OUT_OF_SERVICE: look('error', 'ban'),
+    NOT_IN_INVENTORY: look('neutral', 'circle-dashed', 'outline'),
+    HELD: look('info', 'clock', 'outline'),
+    BOOKED: look('primary', 'calendar-check'),
+    OCCUPIED: look('primary', 'user-round', 'solid'),
+  },
+  block: {
+    UPCOMING: look('info', 'calendar-clock'),
+    RUNNING: look('warning', 'play'),
+    ENDED: look('neutral', 'history'),
+    CANCELLED: look('neutral', 'circle-x'),
+    ENDED_EARLY: look('neutral', 'square'),
   },
   // A season (§19.1): indigo is the season layer's own colour, used for nothing else.
   season: {

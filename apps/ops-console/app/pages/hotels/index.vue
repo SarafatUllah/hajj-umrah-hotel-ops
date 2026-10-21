@@ -8,7 +8,7 @@ import type { OrganizationAveragesDto } from '@hajj/contracts/types/inventory'
  */
 definePageMeta({ middleware: 'auth' })
 const { t } = useI18n()
-const route = useRoute()
+const { queryOf, setQuery } = useUrlQuery()
 const router = useRouter()
 const api = useApi()
 const access = useAccess()
@@ -20,16 +20,11 @@ const averages = useApiQuery(['capacity-averages'], () => api<OrganizationAverag
 const averageOf = (hotelId: string) => averages.data.value?.perHotel.find(p => p.hotelId === hotelId)
 
 type StatusFilter = 'ACTIVE' | 'INACTIVE' | 'ALL'
-const filterOf = (name: string, fallback: string) => (typeof route.query[name] === 'string' ? route.query[name] as string : fallback)
-const q = computed({ get: () => filterOf('q', ''), set: value => setFilter('q', value) })
-const status = computed<StatusFilter>({ get: () => filterOf('status', 'ACTIVE') as StatusFilter, set: value => setFilter('status', value === 'ACTIVE' ? '' : value) })
+const q = computed({ get: () => queryOf('q') ?? '', set: value => setQuery({ q: value }) })
+const status = computed<StatusFilter>({ get: () => (queryOf('status') ?? 'ACTIVE') as StatusFilter, set: value => setQuery({ status: value === 'ACTIVE' ? undefined : value }) })
 // A select item cannot have an empty value: "all cities" is `ALL`, and leaves the URL without `city`.
 const ALL = 'ALL'
-const city = computed({ get: () => filterOf('city', ALL), set: value => setFilter('city', value === ALL ? '' : value) })
-function setFilter(name: string, value: string): void {
-  const { [name]: _old, ...rest } = route.query
-  void router.replace({ query: value ? { ...rest, [name]: value } : rest })
-}
+const city = computed({ get: () => queryOf('city') ?? ALL, set: value => setQuery({ city: value === ALL ? undefined : value }) })
 const clearFilters = () => router.replace({ query: {} })
 
 const cities = computed(() => [...new Set(hotels.items.value.map(h => h.city))].sort())

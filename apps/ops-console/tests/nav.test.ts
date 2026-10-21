@@ -8,6 +8,8 @@ describe('the navigation (§2.2, §6.2)', () => {
   it('shows an item only with its read permission, a group only with an item, demo data only in the demo', () => {
     const accountant = visibleNavigation(NAVIGATION, accessWith('hotel.view'), false)
     expect(accountant.flatMap(g => g.items.map(i => i.key))).toEqual(['hotels'])
+    const reception = visibleNavigation(NAVIGATION, accessWith('hotel.view', 'room.view'), true)
+    expect(reception.flatMap(g => g.items.map(i => i.key))).toEqual(['overview', 'hotels', 'calendar', 'rooms', 'seasons', 'blocks', 'roomTypes'])
 
     const admin = visibleNavigation(NAVIGATION, accessWith('hotel.view', 'room.view', 'organization.resetDemo'), true)
     expect(admin.map(g => g.key)).toContain('admin')

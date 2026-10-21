@@ -1,5 +1,8 @@
 import { type IsoDate, addDays, makeRange, rangeLength, toEpochDay } from '@hajj/contracts/utils/dates'
 import { InventoryRuleError } from './rules'
+import type { BlockPhase } from '@hajj/contracts/types/rooms'
+
+export type { BlockPhase }
 
 export const MAX_BLOCK_DAYS = 731
 
@@ -24,7 +27,6 @@ export function planBlockCancellation(block: { startDate: IsoDate, endDate: IsoD
   return { kind: 'END_EARLY', newEndDate: addDays(today, -1) }
 }
 
-export type BlockPhase = 'UPCOMING' | 'RUNNING' | 'ENDED' | 'CANCELLED' | 'ENDED_EARLY'
 export function blockPhase(block: { startDate: IsoDate, endDate: IsoDate, cancelledAt: Date | null, endedEarlyAt: Date | null }, today: IsoDate): BlockPhase {
   if (block.cancelledAt) return 'CANCELLED'
   if (block.endedEarlyAt) return 'ENDED_EARLY'
