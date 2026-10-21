@@ -37,8 +37,8 @@ afterAll(async () => {
 const codeIn = (message: SmsMessage | undefined) => /(\d{6})/.exec(message?.text ?? '')![1]!
 
 /** Issues a code (`minutesLater` keeps repeated requests for one phone past the one-per-minute cooldown). */
-async function issue(slug: string, phone = newPhone(), minutesLater = 0) {
-  const issued = await requestCustomerOtp({ organizationSlug: slug, phone }, request(undefined, new Date(Date.now() + minutesLater * 61_000)))
+async function issue(slug: string, phone = newPhone(), minutesLater = 0, from = Date.now()) {
+  const issued = await requestCustomerOtp({ organizationSlug: slug, phone }, request(undefined, new Date(from + minutesLater * 61_000)))
   return { ...issued, phone, code: codeIn(sent.at(-1)) }
 }
 
@@ -113,11 +113,14 @@ describe('customer sign-in by SMS code', () => {
   it('one code per phone per minute and 3 per 15 minutes; a new code closes the older ones', async () => {
     const { organization } = await makeOrg(db)
     const phone = newPhone()
-    const first = await issue(organization.slug, phone)
-    await expect(requestCustomerOtp({ organizationSlug: organization.slug, phone }, request())).rejects.toBeInstanceOf(TooManyRequestsError)
-    const second = await issue(organization.slug, phone, 1)
-    await issue(organization.slug, phone, 2)
-    await expect(requestCustomerOtp({ organizationSlug: organization.slug, phone }, request(undefined, new Date(Date.now() + 3 * 61_000)))).rejects.toBeInstanceOf(TooManyRequestsError)
+    // The limits are fixed 15-minute windows: start the requests at the beginning of one, so the four of them
+    // (three minutes apart at most) never straddle a boundary whatever the time the suite runs.
+    const windowStart = Math.ceil(Date.now() / 900_000) * 900_000
+    const first = await issue(organization.slug, phone, 0, windowStart)
+    await expect(requestCustomerOtp({ organizationSlug: organization.slug, phone }, request(undefined, new Date(windowStart)))).rejects.toBeInstanceOf(TooManyRequestsError)
+    const second = await issue(organization.slug, phone, 1, windowStart)
+    await issue(organization.slug, phone, 2, windowStart)
+    await expect(requestCustomerOtp({ organizationSlug: organization.slug, phone }, request(undefined, new Date(windowStart + 3 * 61_000)))).rejects.toBeInstanceOf(TooManyRequestsError)
 
     for (const older of [first, second]) {
       await expect(verifyCustomerOtp({ organizationSlug: organization.slug, challengeId: older.challengeId, code: older.code, fullName: 'X' }, request())).rejects.toMatchObject({ code: 'OTP_INVALID' })

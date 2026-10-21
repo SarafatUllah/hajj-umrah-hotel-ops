@@ -76,4 +76,21 @@ describe('bookings over HTTP (v7 §7, §9–10)', () => {
     expect(confirmed.json.status).toBe('CONFIRMED')
     expect((await client.request(`/api/bookings/${held.json.id}/receipt`, { cookie: env.staffCookie })).json.qrToken).toBe(confirmed.json.receiptToken)
   })
+
+  it('the agency enters a pilgrim\'s details (PUT), sees them in full; a woman in a men\'s slot is 422', async () => {
+    const env = await setup()
+    const search = await client.request('/api/agency/stays/search', { method: 'POST', cookie: env.agencyCookie, body: stay(env.hotel.id) })
+    const held = await client.request('/api/agency/bookings', { method: 'POST', cookie: env.agencyCookie, body: { ...stay(env.hotel.id), rooms: chosen(search.json.options[0]) } })
+    const slots = await client.request(`/api/agency/bookings/${held.json.id}/guests`, { cookie: env.agencyCookie })
+    const man = slots.json.find((s: { gender: string }) => s.gender === 'MALE')
+    const details = { fullName: 'Md. Karim', gender: 'MALE', nationality: 'BGD', dateOfBirth: '1980-01-01', passportNo: 'A1234567', passportExpiry: '2030-01-01' }
+    const saved = await client.request(`/api/agency/bookings/${held.json.id}/guests/${man.id}`, { method: 'PUT', cookie: env.agencyCookie, body: details })
+    expect(saved.json).toMatchObject({ status: 'READY', details: { passportNo: '•••567' } })
+    const mine = await client.request(`/api/agency/bookings/${held.json.id}/guests`, { cookie: env.agencyCookie })
+    expect(mine.json.find((s: { id: string }) => s.id === man.id).details.passportNo).toBe('A1234567')
+    expectStandardError(await client.request(`/api/agency/bookings/${held.json.id}/guests/${man.id}`, { method: 'PUT', cookie: env.agencyCookie, body: { ...details, gender: 'FEMALE' } }), { status: 422, code: 'GUEST_DETAILS_REJECTED' })
+    // Staff without pilgrim.view cannot see the slots at all.
+    const staffView = await client.request(`/api/bookings/${held.json.id}/guests`, { cookie: env.staffCookie })
+    expect(staffView.status).toBe(403)
+  })
 })

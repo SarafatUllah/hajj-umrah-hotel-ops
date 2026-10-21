@@ -52,6 +52,10 @@ export const RATE_LIMITS = {
   staySearchPerAgency: { name: 'stay-search-agency', limit: 600, windowSeconds: 60 * 60 },
   /** Holds per agency (each locks rooms for the hold minutes; the quota bounds the seats, this bounds the churn). */
   holdPerAgency: { name: 'hold-agency', limit: 120, windowSeconds: 60 * 60 },
+  /** Full views of a booking's passport data per staff user (each is logged; this bounds bulk export by a stolen session). */
+  piiRevealPerStaff: { name: 'pii-reveal-staff', limit: 60, windowSeconds: 60 * 60 },
+  /** Full views of its own guest lists per agency user (the same bound for the agency portal). */
+  guestListPerAgencyUser: { name: 'guest-list-agency-user', limit: 300, windowSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>
 
 /** Buckets are kept this long after their window started (far beyond the longest window), then purged. */

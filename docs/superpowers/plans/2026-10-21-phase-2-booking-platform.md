@@ -34,7 +34,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 10d | 2a: WhatsApp quotes and price resolution (quote → agency default → public, per night) | done |
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | done |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | done |
-| 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | |
+| 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | 13a guest details done |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | |
@@ -288,6 +288,29 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   stays declined; the booking keeps its frozen price). Sellers confirm too (`booking.create`; no separate confirm
   permission). List filters use the effective status. The receipt token only finds a booking for authenticated
   staff (check-in, step 13); it admits no one by itself.
+- **D-P2-39 (booking) Pilgrim details.** One form for agencies (`GET|PUT /api/agency/bookings/:id/guests[/:guestId]`,
+  their own bookings only) and staff (`GET /api/bookings/:id/guests` with `pilgrim.view`, `PUT …` with
+  `booking.edit` — reception enters details on arrival). Only the name is needed to save; a slot is READY once name,
+  gender, nationality, date of birth, passport number and expiry are there. The age group comes from the date of
+  birth on the check-in day; refused (422 `GUEST_DETAILS_REJECTED`): in a GROUP someone the child age or older on
+  the other gender's side (a "child" who turns out to be 11 included), an infant slot for anyone older (infants have
+  no seat); the same passport twice in one booking (422). Warned: a passport valid less than the minimum after
+  check-in; staff only (v7 §13, §16): the same passport in another live booking on overlapping nights. Passport
+  number and extras are encrypted with contexts bound to the slot (`booking_guest_detail.*:<booking_guest_id>`);
+  `passport_lookup` = blind index of nationality|number. Agencies get their own copies in full; staff see numbers
+  masked (`•••567`) unless `?reveal=passport` with `pilgrim.viewSensitive`; every full read is a
+  `pii_access_log` row. Saves answer masked (no PII echo). Agencies cannot change a slot once checked in (409
+  `GUEST_LOCKED`); details never change on a closed booking (409 `BOOKING_CLOSED`). `DETAILS_UPDATED` changes carry
+  slot numbers and statuses only. Security review outcomes: details never cross the seat line (an infant slot for
+  someone older, or a seated slot for an infant — the latter would leave the quota and the price; the hotel changes
+  the slot instead, step 14) and implausible dates are refused (born after check-in or before 1900, a passport
+  valid 20+ years); only staff link a slot to the staff master (an agency's typed passport proves nothing; its
+  change of passport unlinks), and the master is created on first sight and never overwritten — a difference comes
+  back as `MASTER_DIFFERS`; duplicate-passport warnings name only bookings in hotels the viewer can see; full views
+  are rate limited (staff reveals 60/h, agency lists 300/h per user); saves lock the booking row first (duplicate
+  checks cannot race, the status is current); one undecryptable row shows `DETAILS_UNREADABLE` instead of failing
+  the list; passport numbers must be ASCII before case folding. Accepted: an agency may correct its READY details
+  until check-in.
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

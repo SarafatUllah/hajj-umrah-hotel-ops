@@ -180,8 +180,9 @@ export class BookingRecordRepository {
     this.#q = new OrgQuery(db, scope)
   }
 
-  async findById(id: string): Promise<BookingRow | null> {
-    const [row] = await this.#q.select(booking, eq(booking.id, id), { limit: 1 })
+  /** `forUpdate` (inside a transaction) row-locks the booking: changes to its slots serialize behind it. */
+  async findById(id: string, options: { forUpdate?: boolean } = {}): Promise<BookingRow | null> {
+    const [row] = await this.#q.select(booking, eq(booking.id, id), { limit: 1, forUpdate: options.forUpdate })
     return row ?? null
   }
 

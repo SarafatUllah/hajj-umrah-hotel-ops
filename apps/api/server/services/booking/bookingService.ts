@@ -5,12 +5,13 @@ import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { HoldRequestInput, ListBookingsQuery, StaffHoldRequestInput, StaffStaySearchInput, StaySearchInput } from '@hajj/contracts/schemas/booking'
 import { toEpochDay } from '@hajj/contracts/utils/dates'
 import { effectiveBookingStatus, type ReceiptLine, receiptLines } from '../../domain/booking/bookingView'
-import { ConflictError, NotFoundError } from '../../errors/domainError'
+import { ConflictError } from '../../errors/domainError'
 import { bookingOrgRepos, tenantRepos } from '../../repositories'
 import type { BookingListRow, BookingRoomLine, BookingRow } from '../../repositories/booking'
 import type { AgencyContext } from '../../security/agencyContext'
 import type { AuthContext } from '../../security/authContext'
 import { authorizeHotel, requireOrgPermission } from '../../security/authorize'
+import { loadForAgency, loadForStaff } from './bookingAccess'
 import { consumeRateLimit, RATE_LIMITS } from '../../security/rateLimit'
 import type { OrganizationScope } from '../../security/scope'
 import { findAgencyBrief } from '../accounts'
@@ -186,13 +187,6 @@ async function receiptOf(db: Db, scope: OrganizationScope, row: BookingRow): Pro
 
 const agencyBooker = (ctx: AgencyContext): Booker => ({ kind: 'AGENCY', agencyId: ctx.scope.agencyId, agencyUserId: ctx.identity.agencyUserId, staffUserId: null })
 
-/** An agency sees only its own bookings; another agency's booking is "not found". */
-async function loadForAgency(ctx: AgencyContext, bookingId: string): Promise<BookingRow> {
-  const row = await bookingOrgRepos(ctx.db, ctx.scope).records.findById(bookingId)
-  if (!row || row.agencyId !== ctx.scope.agencyId) throw new NotFoundError('BOOKING_NOT_FOUND')
-  return row
-}
-
 /** v7 §9: the agency's room options for a stay (rate limited per agency: each search runs the allocator). */
 export async function searchAgencyStay(ctx: AgencyContext, input: StaySearchInput): Promise<StaySearchResult> {
   await consumeRateLimit(ctx.db, RATE_LIMITS.staySearchPerAgency, ctx.scope.agencyId, ctx.now())
@@ -226,20 +220,6 @@ export async function agencyBookingReceipt(ctx: AgencyContext, bookingId: string
 
 const onBehalfOf = (ctx: AuthContext, agencyId: string): Booker => ({ kind: 'AGENCY', agencyId, agencyUserId: null, staffUserId: ctx.identity.userId })
 
-/**
- * A booking of a hotel the caller cannot access is "not found" (the hotel's 404 rule). Reading works for an inactive
- * hotel; confirming does not (409 `HOTEL_INACTIVE`).
- */
-async function loadForStaff(ctx: AuthContext, bookingId: string, permission: 'booking.view' | 'booking.create'): Promise<BookingRow> {
-  const row = await bookingOrgRepos(ctx.db, ctx.scope).records.findById(bookingId)
-  if (!row) throw new NotFoundError('BOOKING_NOT_FOUND')
-  await authorizeHotel(ctx, permission, row.hotelId, { allowInactive: permission === 'booking.view' }).catch((error: unknown) => {
-    if (error instanceof NotFoundError) throw new NotFoundError('BOOKING_NOT_FOUND')
-    throw error
-  })
-  return row
-}
-
 /** v7 §6: a seller or manager searches on an agency's behalf (`booking.create` on the hotel). */
 export async function searchStayForAgency(ctx: AuthContext, input: StaffStaySearchInput): Promise<StaySearchResult> {
   await authorizeHotel(ctx, 'booking.create', input.hotelId)
@@ -260,7 +240,7 @@ export async function listBookings(ctx: AuthContext, query: ListBookingsQuery): 
 }
 
 export async function getBooking(ctx: AuthContext, bookingId: string): Promise<BookingDetailDto> {
-  return detailOf(ctx.db, ctx.scope, await loadForStaff(ctx, bookingId, 'booking.view'), ctx.now())
+  return detailOf(ctx.db, ctx.scope, await loadForStaff(ctx, bookingId, 'booking.view', { allowInactive: true }), ctx.now())
 }
 
 /** Staff with `booking.create` on the hotel (sellers and managers) confirm an agency's hold or an individual's request (v7 §7). */
@@ -270,5 +250,5 @@ export async function confirmBooking(ctx: AuthContext, bookingId: string): Promi
 }
 
 export async function bookingReceipt(ctx: AuthContext, bookingId: string): Promise<ReceiptDto> {
-  return receiptOf(ctx.db, ctx.scope, await loadForStaff(ctx, bookingId, 'booking.view'))
+  return receiptOf(ctx.db, ctx.scope, await loadForStaff(ctx, bookingId, 'booking.view', { allowInactive: true }))
 }

@@ -10,3 +10,4 @@ export { createQuoteForAgency, declineQuote, expireOfferedQuotes, getAgencyQuote
 export { expireLapsedBookings, placeHold, searchStay, type HeldBooking, type StayOption, type StayOptionRoom, type StaySearchResult } from './holdService'
 export type { Booker } from './stayFacts'
 export { agencyBookingReceipt, bookingReceipt, confirmAgencyBooking, confirmBooking, getAgencyBooking, getBooking, holdAgencyStay, holdStayForAgency, listAgencyBookings, listBookings, searchAgencyStay, searchStayForAgency, type BookingDetailDto, type BookingDto, type BookingPage, type ReceiptDto } from './bookingService'
+export { listAgencyGuests, listGuests, saveAgencyGuest, saveGuest, type GuestDetailsDto, type GuestSlotDto, type GuestWarning } from './guestService'

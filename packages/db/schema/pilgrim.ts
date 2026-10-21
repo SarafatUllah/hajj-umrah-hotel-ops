@@ -9,7 +9,8 @@ import { idColumn, oneOf, organizationColumn, timestampColumns } from './columns
  * The staff-only MASTER identity of a pilgrim (v7 §16): one row per passport per organization, linked
  * silently by the backend from the bookers' own copies (`booking_guest_detail`) via `passport_lookup`.
  * No agency or customer ever reads it. The passport number is encrypted (PII cipher, context
- * `pilgrim.passport_no:<id>`); `passport_lookup` = HMAC(lookup key, nationality + normalized number).
+ * `pilgrim.passport_no:<passport_lookup>`, unique per organization); `passport_lookup` = HMAC(lookup key,
+ * nationality + normalized number).
  * Name, gender, nationality and dates stay in clear text: the calendar, check-in and age rules need them,
  * and they never leave the access-controlled tables (logs keep only ids).
  */

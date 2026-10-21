@@ -12,7 +12,8 @@ import { documentAsset } from './documents'
  * reception entered for this booking. An agency reads and edits only its own copies; the backend links the
  * copy to the staff master `pilgrim` by `passport_lookup` (not unique here: two bookers may enter the same
  * passport). Passport number and the free-form extras (address, place of birth, issue data, phone) are
- * encrypted (PII cipher, contexts `booking_guest_detail.passport_no:<id>` / `.details:<id>`).
+ * encrypted (PII cipher, contexts `booking_guest_detail.passport_no:<booking_guest_id>` / `.details:<booking_guest_id>`:
+ * one copy per slot, so the slot id binds the ciphertext to its row and is known before the first insert).
  */
 export const bookingGuestDetail = pgTable('booking_guest_detail', {
   id: idColumn(),
