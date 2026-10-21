@@ -1,7 +1,7 @@
-import { and, asc, count, desc, eq, getTableColumns, gte, inArray, isNull, like, lte, or, type SQL, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, getTableColumns, gte, inArray, isNotNull, isNull, like, lte, or, type SQL, sql } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
 import { booking, bookingChange, bookingGuest, bookingPriceLine, bookingRoom, floor, guestStay, room } from '@hajj/db/schema'
-import { type AgeGroup, type BookingChangeKind, type BookingStatus, type Gender, type Occupancy, PENDING_BOOKING_STATUSES } from '@hajj/contracts/constants/booking'
+import { type AgeGroup, type BookingChangeKind, type BookingStatus, type Gender, type Occupancy, PENDING_BOOKING_STATUSES, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { IsoDate } from '@hajj/contracts/utils/dates'
 import type { HotelScope, OrganizationScope } from '../../security/scope'
@@ -71,6 +71,13 @@ export interface NewHold {
   guests: ReadonlyArray<{ slotNo: number, gender: Gender | null, ageGroup: AgeGroup, isExtraBed: boolean, roomId: string }>
   priceLines: readonly NewPriceLine[]
   actor: { kind: ActorKind, id: string | null }
+}
+
+/** Pilgrims joining a booking (v7 §12): the rooms they sleep in and their slots (slot numbers after the booking's last). */
+export interface GuestAddition {
+  booking: BookingRow
+  rooms: NewHold['rooms']
+  guests: NewHold['guests']
 }
 
 /** The later of the application's clock and the database's: the moment a hold is judged lapsed (or still valid) at. */
@@ -161,6 +168,37 @@ export class BookingRepository {
       actorId: hold.actor.id,
     })
     return created
+  }
+
+  /**
+   * v7 §12 add pilgrims: their slots join the booking with their stays for its dates — in its own claim when the
+   * booking already has the room (extra beds go only in new rooms), otherwise in a new claim; the database checks the
+   * rest (owner and occupancy per room-night, stays within claims at commit).
+   */
+  async appendGuests(addition: GuestAddition): Promise<void> {
+    const b = addition.booking
+    const current = await this.#q.select(bookingRoom, and(eq(bookingRoom.bookingId, b.id), inArray(bookingRoom.status, [...SEAT_HOLDING_STATUSES]))!)
+    const claimOfRoom = new Map(current.map(c => [c.roomId, c.id]))
+    for (const r of addition.rooms) {
+      if (claimOfRoom.has(r.roomId)) continue
+      const [claim] = await this.#q.insert(bookingRoom, {
+        bookingId: b.id,
+        roomId: r.roomId,
+        ownerAgencyId: r.ownedByAgency ? b.agencyId : null,
+        ownerBookingId: r.ownedByAgency ? null : b.id,
+        occupancy: r.occupancy,
+        checkIn: b.checkIn,
+        checkOut: b.checkOut,
+        status: b.status,
+        extraBeds: r.extraBeds,
+      }).returning({ id: bookingRoom.id })
+      claimOfRoom.set(r.roomId, claim!.id)
+    }
+    if (addition.guests.length === 0) return
+    const guests = await this.#org.insertMany(bookingGuest, addition.guests.map(g => ({ bookingId: b.id, slotNo: g.slotNo, gender: g.gender, ageGroup: g.ageGroup, isExtraBed: g.isExtraBed })))
+      .returning({ id: bookingGuest.id, slotNo: bookingGuest.slotNo })
+    const roomOfSlot = new Map(addition.guests.map(g => [g.slotNo, g.roomId]))
+    await this.#org.insertMany(guestStay, guests.map(g => ({ bookingId: b.id, bookingGuestId: g.id, bookingRoomId: claimOfRoom.get(roomOfSlot.get(g.slotNo)!)!, checkIn: b.checkIn, checkOut: b.checkOut })))
   }
 
   /** v7 §10 step 3: pending bookings with a claim on these (already locked) rooms whose hold lapsed become EXPIRED. Returns their ids. */
@@ -355,6 +393,53 @@ export class BookingRecordRepository {
       if (claim.checkIn >= day && end === null) await this.#q.update(bookingRoom, { status: 'RELEASED', updatedAt: at }, eq(bookingRoom.id, claimId))
       else await this.#q.update(bookingRoom, { checkOut: end !== null && end > day ? end : day, updatedAt: at }, eq(bookingRoom.id, claimId))
     }
+  }
+
+  /**
+   * v7 §12 add pilgrims: their price lines join the booking's — a night already priced for that kind and room type
+   * keeps its frozen unit price (only the quantity grows), any other is added as priced now. Returns the halalas added.
+   */
+  async mergePriceLines(bookingId: string, lines: readonly NewPriceLine[]): Promise<number> {
+    if (lines.length === 0) return 0
+    const key = (l: { night: string, kind: string, roomTypeId?: string | null }) => `${l.night}|${l.kind}|${l.roomTypeId ?? ''}`
+    const existing = new Map((await this.#q.select(bookingPriceLine, eq(bookingPriceLine.bookingId, bookingId))).map(l => [key(l), l]))
+    let added = 0
+    for (const line of lines) {
+      const frozen = existing.get(key(line))
+      if (!frozen) {
+        await this.#q.insert(bookingPriceLine, { ...line, bookingId })
+        added += line.amountHalalas
+        continue
+      }
+      const amount = line.quantity * frozen.unitAmountHalalas
+      await this.#q.update(bookingPriceLine, { quantity: frozen.quantity + line.quantity, amountHalalas: frozen.amountHalalas + amount }, eq(bookingPriceLine.id, frozen.id))
+      added += amount
+    }
+    return added
+  }
+
+  /** v7 §12: the booking's head count after pilgrims joined or left (the caller holds the row lock). */
+  async setCounts(id: string, counts: { maleCount: number, femaleCount: number, childCount: number, infantCount: number, totalCount: number }, at: Date): Promise<BookingRow | null> {
+    const [row] = await this.#q.update(booking, { ...counts, updatedAt: at }, eq(booking.id, id)).returning()
+    return row ?? null
+  }
+
+  /**
+   * v7 §12: a room the booking itself owns (a family's or an individual's — never an agency's, whose free seats stay
+   * the agency's) that nobody still on the booking sleeps in is let go (RELEASED). Returns how many.
+   */
+  async releaseEmptyClaims(bookingId: string, at: Date): Promise<number> {
+    // Outer columns written out in full (inside a subquery Drizzle would render them unqualified).
+    const rows = await this.#q.update(
+      bookingRoom,
+      { status: 'RELEASED', updatedAt: at },
+      eq(bookingRoom.bookingId, bookingId),
+      isNotNull(bookingRoom.ownerBookingId),
+      inArray(bookingRoom.status, [...SEAT_HOLDING_STATUSES]),
+      sql`not exists (select 1 from public.guest_stay gs join public.booking_guest g on g.organization_id = gs.organization_id and g.id = gs.booking_guest_id
+        where gs.organization_id = "booking_room"."organization_id" and gs.booking_room_id = "booking_room"."id" and g.status <> 'REMOVED')`,
+    ).returning({ id: bookingRoom.id })
+    return rows.length
   }
 
   /** Every pending booking of the organization whose hold lapsed becomes EXPIRED, in batches. Returns their ids. */

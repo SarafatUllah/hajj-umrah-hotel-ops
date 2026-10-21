@@ -21,7 +21,13 @@ export interface ExtraBedPrice { roomTypeId: string, amountHalalas: number, vatI
 export interface UnitPrice { source: PriceSource, amountHalalas: number, vatIncluded: boolean }
 
 /** One room of an allocation: its type, the pilgrims seated in it (infants excluded) and its extra beds. */
-export interface PricedRoom { roomTypeId: string, seats: number, extraBeds: number }
+export interface PricedRoom {
+  roomTypeId: string
+  seats: number
+  extraBeds: number
+  /** The booking already pays for this room (pilgrims added to it): per room it is not charged again. */
+  alreadyPaid?: boolean
+}
 
 export interface PriceLine {
   night: IsoDate
@@ -73,7 +79,7 @@ export function priceStay(args: {
   const byType = new Map<string, { seats: number, rooms: number, extraBeds: number }>()
   for (const room of args.rooms) {
     const t = byType.get(room.roomTypeId) ?? { seats: 0, rooms: 0, extraBeds: 0 }
-    byType.set(room.roomTypeId, { seats: t.seats + room.seats, rooms: t.rooms + 1, extraBeds: t.extraBeds + room.extraBeds })
+    byType.set(room.roomTypeId, { seats: t.seats + room.seats, rooms: t.rooms + (room.alreadyPaid ? 0 : 1), extraBeds: t.extraBeds + room.extraBeds })
   }
   const lines: PriceLine[] = []
   const missing: UnpricedStay['missing'] = []

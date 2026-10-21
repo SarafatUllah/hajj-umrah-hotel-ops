@@ -27,6 +27,8 @@ export interface PlannerInput {
   rooms: readonly PlannerRoom[]
   /** The agency's owner key (`a:<agencyId>`): its GROUP bookings fill its own rooms first. null for anyone else. */
   ownerKey: string | null
+  /** Pilgrims added to a booking (v7 §12): its own rooms come first whatever its type (`ownerKey` = the booking's own). */
+  ownRoomsAnyType?: boolean
   mixRules: readonly MixRule[]
   /** Per room type: the most extra beds one booking may take there (v7 §11; absent = none). */
   extraBedLimits: ReadonlyMap<string, number>
@@ -62,6 +64,11 @@ export function stayNeeds(headcount: StayHeadcount): SideNeed[] {
   ].filter(side => side.need > 0)
 }
 
+/** Whether the booker's own rooms take its pilgrims first: an agency's GROUP, or pilgrims added to any booking. */
+export function usesOwnRooms(input: Pick<PlannerInput, 'ownerKey' | 'headcount' | 'ownRoomsAnyType'>): boolean {
+  return input.ownerKey !== null && (input.headcount.bookingType === 'GROUP' || input.ownRoomsAnyType === true)
+}
+
 /** The room-mix cap for a GROUP side of `need` pilgrims (§23 Q11: per side); FAMILY has none (v7 §9.3). */
 export function mixCapFor(input: Pick<PlannerInput, 'headcount' | 'mixRules'>, need: number): MixCap | null {
   if (input.headcount.bookingType !== 'GROUP') return null
@@ -76,7 +83,7 @@ const toPickable = (r: PlannerRoom): PickableRoom => ({ id: r.id, roomNumber: r.
 
 /** Step 3 for one side: the booker's own rooms (same owner, gender and dates) take its pilgrims first. */
 function ownRoomsFirst(input: PlannerInput, side: SideNeed): Side {
-  const own = input.ownerKey && input.headcount.bookingType === 'GROUP'
+  const own = usesOwnRooms(input)
     ? input.rooms.filter(r => isOwnRoomFor(r, input.ownerKey!, side.occupancy, input.stay))
     : []
   const filled = fillOwnRooms(side.need, own.map(r => ({ roomId: r.id, freeSeats: r.freeSeats })))

@@ -1,5 +1,5 @@
 import type { Occupancy } from '@hajj/contracts/constants/booking'
-import { mixCapFor, type PlannerInput, type SideNeed, stayNeeds } from './planner'
+import { mixCapFor, type PlannerInput, type SideNeed, stayNeeds, usesOwnRooms } from './planner'
 import { isFreeForStay, isOwnRoomFor, type StayRoom } from './stayRooms'
 
 /** A room of the option the booker chose (v7 §9.2 step 7), as sent back to be held. */
@@ -21,7 +21,7 @@ function roomProblems(input: PlannerInput, chosen: ChosenRoom, room: StayRoom, o
   if (!occupancies.has(chosen.occupancy)) return [at('WRONG_OCCUPANCY')]
   if (!room.sellable) return [at('ROOM_NOT_SELLABLE')]
   const existing = room.claims.length > 0
-  if (existing && !(input.ownerKey && input.headcount.bookingType === 'GROUP' && isOwnRoomFor(room, input.ownerKey, chosen.occupancy, input.stay))) return [at('ROOM_TAKEN')]
+  if (existing && !(usesOwnRooms(input) && isOwnRoomFor(room, input.ownerKey!, chosen.occupancy, input.stay))) return [at('ROOM_TAKEN')]
   if (!existing && !isFreeForStay(room)) return [at('ROOM_NOT_SELLABLE')]
 
   const problems: PlanProblem[] = []
@@ -43,7 +43,7 @@ function sideProblems(input: PlannerInput, side: SideNeed, ofSide: readonly Chos
   if (newRooms.length === 0) return []
   const problems: PlanProblem[] = []
   const at = (code: PlanProblemCode): PlanProblem => ({ code, occupancy: side.occupancy })
-  if (input.ownerKey && input.headcount.bookingType === 'GROUP') {
+  if (usesOwnRooms(input)) {
     const chosenSeats = new Map(ofSide.map(c => [c.roomId, c.seats]))
     const own = input.rooms.filter(r => isOwnRoomFor(r, input.ownerKey!, side.occupancy, input.stay))
     if (own.some(r => chosenSeats.get(r.id) !== r.freeSeats)) problems.push(at('OWN_ROOMS_FIRST'))

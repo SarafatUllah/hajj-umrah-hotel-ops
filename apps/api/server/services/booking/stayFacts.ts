@@ -73,6 +73,8 @@ export async function loadStayFacts(args: {
   settings: Pick<BookingSettingRow, 'individualMaxRooms'>
   quote: QuoteTerms | null
   roomIds?: readonly string[]
+  /** The owner whose rooms are "own" (default: the agency's, for an agency); pilgrims added to a booking pass its own. */
+  ownerKey?: string | null
 }): Promise<StayFacts> {
   const stay = { checkIn: args.input.checkIn, checkOut: args.input.checkOut }
   const nights = stayNights(stay)
@@ -114,13 +116,15 @@ export async function loadStayFacts(args: {
     return price === null || price === undefined ? [] : [{ ...room, price: perPerson ? price * room.capacity : price }]
   })
 
-  const ownerKey = args.booker.kind === 'AGENCY' ? agencyOwnerKey(args.booker.agencyId) : null
+  const ownerKey = args.ownerKey !== undefined ? args.ownerKey : args.booker.kind === 'AGENCY' ? agencyOwnerKey(args.booker.agencyId) : null
   const byId = new Map(rooms.map(r => [r.id, r]))
   const planner: PlannerInput = {
     stay,
     headcount: args.headcount,
     rooms: priced,
     ownerKey,
+    // Pilgrims added to a booking pass its owner: its own rooms come first whatever its type.
+    ownRoomsAnyType: args.ownerKey !== undefined,
     mixRules: mixRows.map((r): MixRule => ({ groupMin: r.groupMin, groupMax: r.groupMax, minSeats: r.minSeats, maxRooms: r.maxRooms })),
     extraBedLimits: new Map(policies.map(p => [p.roomTypeId, p.maxPerBooking])),
     maxRooms: args.booker.kind === 'INDIVIDUAL' ? args.settings.individualMaxRooms : null,

@@ -98,3 +98,28 @@ export const cancelBookingSchema = z.object({
   reason: safeText(500).refine(value => value.length >= 3, 'Give the reason for the cancellation'),
 }).strict()
 export type CancelBookingInput = z.infer<typeof cancelBookingSchema>
+
+/**
+ * v7 §12 "add a pilgrim": who joins an existing booking — in a GROUP men, women and children (each counted in the
+ * total), in a FAMILY only the seated total — infants apart (at least one person). Checked against the booking's type
+ * by the service.
+ */
+const additionFields = {
+  maleCount: counts.default(0),
+  femaleCount: counts.default(0),
+  childCount: counts.default(0),
+  infantCount: z.number().int().min(0).max(100).default(0),
+  totalCount: counts.default(0),
+}
+
+function additionRules(body: { totalCount: number, infantCount: number }, ctx: z.RefinementCtx): void {
+  if (body.totalCount + body.infantCount === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['totalCount'], message: 'Add at least one pilgrim' })
+}
+
+/** `POST /api/…/bookings/:id/guests/search`: where the joining pilgrims can sleep (the booking's own rooms first). */
+export const guestAdditionSearchSchema = z.object(additionFields).strict().superRefine(additionRules)
+export type GuestAdditionSearchInput = z.infer<typeof guestAdditionSearchSchema>
+
+/** `POST /api/…/bookings/:id/guests`: add them, in the rooms of the chosen option (none when only infants join). */
+export const addGuestsSchema = z.object({ ...additionFields, rooms: z.array(chosenRoomSchema).max(MAX_BOOKING_ROOMS).default([]) }).strict().superRefine(additionRules)
+export type AddGuestsInput = z.infer<typeof addGuestsSchema>

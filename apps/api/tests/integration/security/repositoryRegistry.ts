@@ -1561,6 +1561,22 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     expect: 'rejects',
     rejection: foreignKeyViolation,
   }),
+  // Step 14b: pilgrims joining a booking never land in, or price, another organization's booking.
+  'BookingRepository.appendGuests': isolationCase({
+    arrange: async (db, orgA) => {
+      const ids = await arrangeConfirmedBooking(db, orgA)
+      const [row] = await db.select().from(booking).where(eq(booking.id, ids.bookingId))
+      return { ...ids, booking: row! }
+    },
+    act: (db, scope, ids) => new BookingRepository(db, trustedHotelScope(scope, ids.hotelId)).appendGuests({
+      booking: ids.booking,
+      rooms: [{ roomId: ids.roomId, occupancy: 'MALE', extraBeds: 0, ownedByAgency: true }],
+      guests: [{ slotNo: 9, gender: 'MALE', ageGroup: 'ADULT', isExtraBed: false, roomId: ids.roomId }],
+    }),
+    expect: 'rejects',
+    // The claim's status guard (it reads the booking within org B: none) or the booking foreign key refuses it.
+    rejection: error => foreignKeyViolation(error) || pgCode(error) === '23514',
+  }),
   'BookingRepository.expireLapsedHolds': isolationCase({
     arrange: arrangeLapsedHold,
     act: (db, scope, ids) => new BookingRepository(db, trustedHotelScope(scope, ids.hotelId)).expireLapsedHolds([ids.roomId], new Date()),
@@ -1670,6 +1686,24 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     },
     act: (db, scope, ids) => new GuestRepository(db, scope).endStaysFrom(ids.bookingId, ids.guestId, '2027-06-03'),
     expect: 'empty',
+  }),
+  'BookingRecordRepository.setCounts': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new BookingRecordRepository(db, scope).setCounts(ids.bookingId, { maleCount: 1, femaleCount: 0, childCount: 0, infantCount: 0, totalCount: 1 }, new Date()), expect: 'null' }),
+  'BookingRecordRepository.releaseEmptyClaims': isolationCase({
+    arrange: async (db, orgA) => {
+      const { hotel, rooms } = await makeHotelWithRooms(db, orgA, 1)
+      const customerRow = await makeCustomer(db, orgA)
+      const b = await makeBooking(db, orgA, hotel.id, { bookerType: 'INDIVIDUAL', customerId: customerRow.id, bookingType: 'FAMILY', maleCount: 0, totalCount: 1, status: 'CONFIRMED' })
+      await makeBookingRoom(db, orgA, b, rooms[0]!.id, { occupancy: 'FAMILY' })
+      return { bookingId: b.id }
+    },
+    act: (db, scope, ids) => new BookingRecordRepository(db, scope).releaseEmptyClaims(ids.bookingId, new Date()),
+    expect: 'zero-affected',
+  }),
+  'BookingRecordRepository.mergePriceLines': isolationCase({
+    arrange: arrangeConfirmedBooking,
+    act: (db, scope, ids) => new BookingRecordRepository(db, scope).mergePriceLines(ids.bookingId, [{ night: '2027-06-01', kind: 'PERSON', roomTypeId: null, quantity: 1, unitAmountHalalas: 100, amountHalalas: 100, vatIncluded: true }]),
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
   }),
   'BookingRecordRepository.findByReceiptToken': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new BookingRecordRepository(db, scope).findByReceiptToken(ids.receiptToken), expect: 'null' }),
   'BookingRecordRepository.setStatus': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new BookingRecordRepository(db, scope).setStatus(ids.bookingId, 'IN_HOUSE', new Date()), expect: 'null' }),

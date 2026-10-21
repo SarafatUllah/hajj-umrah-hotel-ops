@@ -35,7 +35,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | done |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | done |
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
-| 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | 14a cancellation, early checkout, no-show policy done |
+| 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims done |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | |
 | 17 | Final review (code, security, database, architecture) and docs | |
@@ -424,6 +424,28 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   (RELEASED if it had not begun), so the remaining nights are free — the frozen price is not changed (refunds are the client's policy). A no-show keeps its seats by
   default (it is usually paid); with `noShowReleasesSeats` (booking setting, migration 0017) it frees them from that
   day the same way. Follow-up: an early departure's extra-bed removal task keeps its original due date.
+- **D-P2-47 (booking) Removing and adding pilgrims (v7 §12, step 14b).** Removing is a partial cancellation:
+  staff with `booking.cancel` (`DELETE /api/bookings/:id/guests/:guestId`); under the booking's row lock the slot
+  (PENDING_DETAILS or READY — someone in the house is checked out instead, 409 `GUEST_STATUS`) becomes REMOVED (its
+  seat is free at once: removed slots never count), the head count is recounted from the slots as they are now (a
+  passport may have made an "adult" slot a child: never decremented into a negative), a room the booking itself owns that
+  nobody still on it sleeps in is RELEASED (an agency's group room stays the agency's — its free seat is for the
+  agency's other bookings of the same dates, v7 §12), and `GUEST_REMOVED` is logged (slot number, age group: no
+  personal data). Refused: the last seated pilgrim (409 `LAST_PILGRIM`: cancel the booking) and children or infants
+  left without an adult on their side (422 `CHILDREN_NEED_AN_ADULT`). The price is not changed (refunds are the
+  client's policy). Only the booking row and the slot are locked: a removal frees seats, never takes any. Adding is
+  two steps, like a booking — agencies on their own bookings (v7 §12: they add pilgrims
+  themselves) and staff with `booking.edit`, for bookings not started (HELD, REQUESTED, CONFIRMED; a companion
+  arriving mid-stay gets a booking of their own): `POST …/guests/search` runs the allocation for the joining head
+  count on the booking's dates with the booking's own rooms as "own" (an agency's GROUP: any of its rooms of the same
+  dates; otherwise the booking's — for any booking type, `ownRoomsAnyType`), so its free seats come first, priced at
+  the booking's quote or the rates (a room the booking already pays for is not charged again per room), within what is
+  left of the per-booking limits (an individual's rooms, each type's extra beds count the booking's own); `POST …/guests` re-checks the chosen option under v7
+  §10's locks (quota, rooms, then the booking) and against the booking-wide limits, appends the slots and their stays
+  (the booking's own claim when it has the room — extra beds only in new rooms — else a new claim), merges the price (a night already priced keeps its frozen
+  unit price, only the quantity grows; anything else is priced now), updates the head count and logs `GUEST_ADDED`.
+  Infants alone need no rooms (they join the first room of their side). The shared stay checks (quota, option
+  errors, pricing) moved from the hold service to `stayChecks.ts`, so a hold and an addition apply the same ones.
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

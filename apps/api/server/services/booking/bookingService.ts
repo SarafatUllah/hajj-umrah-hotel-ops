@@ -18,7 +18,8 @@ import { planExtraBedTasks } from './hotelTaskService'
 import { consumeRateLimit, RATE_LIMITS } from '../../security/rateLimit'
 import type { OrganizationScope } from '../../security/scope'
 import { findAgencyBrief } from '../accounts'
-import { type HeldBooking, placeHold, searchStay, type StaySearchResult } from './holdService'
+import { type HeldBooking, placeHold, searchStay } from './holdService'
+import type { StaySearchResult } from './stayChecks'
 import type { Booker } from './stayFacts'
 
 type Db = Parameters<typeof bookingOrgRepos>[0]
