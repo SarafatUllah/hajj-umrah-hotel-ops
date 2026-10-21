@@ -7,6 +7,12 @@ settings:
 importers:
 
   .:
+    devDependencies:
+      turbo:
+        specifier: ^2.11.10
+        version: 2.11.10
+
+  apps/api:
     dependencies:
       '@node-rs/argon2':
         specifier: ^2.2.1
@@ -48,9 +54,6 @@ importers:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
-      turbo:
-        specifier: ^2.11.10
-        version: 2.11.10
       typescript:
         specifier: ^6.0.0
         version: 6.0.3
