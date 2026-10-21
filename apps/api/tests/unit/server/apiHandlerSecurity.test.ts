@@ -8,6 +8,12 @@ vi.mock('../../../server/utils/requireAuth', () => ({
   requireAuthContext: (...args: unknown[]) => requireAuthContextMock(...args),
 }))
 
+const requireAgencyContextMock = vi.fn()
+vi.mock('../../../server/utils/requireAgency', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../server/utils/requireAgency')>()),
+  requireAgencyContext: (...args: unknown[]) => requireAgencyContextMock(...args),
+}))
+
 const { defineApiHandler } = await import('../../../server/utils/apiHandler')
 
 function makeEvent(): { event: H3Event, headers: Map<string, unknown> } {
@@ -66,5 +72,29 @@ describe('defineApiHandler: two-factor enrollment gate', () => {
     const handler = defineApiHandler({ auth: 'required', handler: async () => 'ran' })
 
     await expect(handler(makeEvent().event)).resolves.toBe('ran')
+  })
+})
+
+describe('defineApiHandler: agency routes require an APPROVED agency by default', () => {
+  beforeEach(() => {
+    requireAgencyContextMock.mockReset()
+  })
+
+  it.each(['PENDING', 'SUSPENDED', 'REJECTED'])('auth: agency answers a %s agency 403 AGENCY_NOT_APPROVED without running the handler', async (status) => {
+    requireAgencyContextMock.mockResolvedValue({ agency: { id: 'a', name: 'A', status } })
+    const inner = vi.fn(async () => 'ran')
+
+    const error = await capture(defineApiHandler({ auth: 'agency', handler: inner })(makeEvent().event))
+
+    expect(error.statusCode).toBe(403)
+    expect(error.data.code).toBe('AGENCY_NOT_APPROVED')
+    expect(inner).not.toHaveBeenCalled()
+  })
+
+  it('auth: agency runs for an APPROVED agency; agency-any-status runs for any status', async () => {
+    requireAgencyContextMock.mockResolvedValue({ agency: { id: 'a', name: 'A', status: 'APPROVED' } })
+    await expect(defineApiHandler({ auth: 'agency', handler: async () => 'ran' })(makeEvent().event)).resolves.toBe('ran')
+    requireAgencyContextMock.mockResolvedValue({ agency: { id: 'a', name: 'A', status: 'PENDING' } })
+    await expect(defineApiHandler({ auth: 'agency-any-status', handler: async () => 'ran' })(makeEvent().event)).resolves.toBe('ran')
   })
 })

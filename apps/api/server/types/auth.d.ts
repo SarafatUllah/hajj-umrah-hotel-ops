@@ -10,6 +10,8 @@ declare module '#auth-utils' {
     kind?: PrincipalKind
     /** The user's `session_version` at sign-in (absent before Phase 2 = 1). */
     sessionVersion?: number
+    /** Agency sessions only: the agency the signed-in agency user belongs to. */
+    agencyId?: string
   }
 
   /**

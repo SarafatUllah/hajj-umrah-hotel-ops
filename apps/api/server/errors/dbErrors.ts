@@ -53,6 +53,9 @@ export function extractPgError(err: unknown): PgErrorInfo | null {
 export const CONSTRAINT_MESSAGES: Record<string, { kind: 'conflict' | 'validation', code: string, message: string }> = {
   organization_slug_unique: { kind: 'conflict', code: 'ORGANIZATION_SLUG_TAKEN', message: 'An organization with this slug already exists' },
   app_user_org_email_unique: { kind: 'conflict', code: 'USER_EMAIL_TAKEN', message: 'A user with this email already exists in this organization' },
+  // Phase 2a accounts: an agency's licence number and an agency user's e-mail are unique per organization.
+  agency_org_license_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'An agency with this licence number is already registered' },
+  agency_user_org_email_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'An agency user with this e-mail already exists' },
   // Unique violation (23505) -> kind must be 'conflict' to agree with the SQLSTATE-derived generic
   // kind, or translateDbError rejects this entry outright (Task 5 rule). Code is the generic
   // ALREADY_EXISTS (Task 12 ruling PF-13-adjacent) rather than a bespoke HOTEL_CODE_TAKEN, so every
@@ -137,4 +140,9 @@ export function translateDbError(err: unknown): DomainError | null {
   const message = specific?.message ?? code
 
   return generic.kind === 'conflict' ? new ConflictError(code, message) : new ValidationError(code, message)
+}
+
+/** For a `.catch()` around a write: a known constraint violation becomes its DomainError, anything else is rethrown unchanged. */
+export function rethrowDbError(error: unknown): never {
+  throw translateDbError(error) ?? error
 }

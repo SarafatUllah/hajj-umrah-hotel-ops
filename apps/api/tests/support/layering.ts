@@ -150,9 +150,9 @@ export const SCOPE_MINTING_ALLOWED = ['server/security/', 'db/seed/', 'tests/'] 
  * Phase 2 business modules (ticket 5): each owns `server/{services,domain,repositories}/<module>/`. Only its
  * own files reach those internals; every other file uses its public service `server/services/<module>/index.ts`.
  * The repository factory (`server/repositories/index.ts`) wires `<module>Repos`, which only the module itself
- * may call.
+ * and server/security (principal resolution) may call.
  */
-export const BUSINESS_MODULES = ['booking'] as const
+export const BUSINESS_MODULES = ['booking', 'accounts'] as const
 
 function crossesModuleBoundary(ref: ImportRef, file: string): boolean {
   return BUSINESS_MODULES.some((module) => {
@@ -160,7 +160,8 @@ function crossesModuleBoundary(ref: ImportRef, file: string): boolean {
     if (insideModule) return false
     const internal = new RegExp(`^server/(services|domain|repositories)/${module}(/|$)`).test(ref.target) && ref.target !== `server/services/${module}`
     const factoryWiring = file === 'server/repositories/index.ts' && ref.target === `server/repositories/${module}`
-    const factoryCall = ref.target === 'server/repositories' && (ref.namespace || ref.names.includes(`${module}Repos`))
+    // server/security resolves principals (staff, agency, customer) itself, so it may use a module's factory.
+    const factoryCall = ref.target === 'server/repositories' && !file.startsWith('server/security/') && (ref.namespace || ref.names.includes(`${module}Repos`))
     return (internal && !factoryWiring) || factoryCall
   })
 }

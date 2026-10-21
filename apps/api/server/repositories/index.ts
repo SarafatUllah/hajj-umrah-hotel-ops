@@ -1,5 +1,6 @@
 import type { DbOrTx } from '@hajj/db/client'
 import type { HotelScope, OrganizationScope } from '../security/scope'
+import { AgencyRepository, AgencyUserRepository } from './accounts'
 import { BookingInventoryRepository } from './booking'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from './hotel'
 import { PlatformOrganizationRepository } from './platform/organizationRepository'
@@ -10,6 +11,7 @@ import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleReposito
 export type * from './tenant'
 export type * from './hotel'
 export type * from './booking'
+export type * from './accounts'
 export type { OrganizationRow, NewOrganization } from './platform/organizationRepository'
 export type { PermissionRow } from './platform/permissionCatalogRepository'
 
@@ -64,6 +66,14 @@ export function hotelRepos(db: DbOrTx, scope: HotelScope) {
   })
 }
 
+/** Accounts-module repositories (agencies and their users) for one organization; used by server/services/accounts and server/security. */
+export function accountsRepos(db: DbOrTx, scope: OrganizationScope) {
+  return lazy({
+    agencies: () => new AgencyRepository(db, scope),
+    agencyUsers: () => new AgencyUserRepository(db, scope),
+  })
+}
+
 /** Booking-module repositories for one hotel (organization_id AND hotel_id); used only inside server/services/booking. */
 export function bookingRepos(db: DbOrTx, scope: HotelScope) {
   return lazy({
@@ -75,3 +85,4 @@ export type PlatformRepos = ReturnType<typeof platformRepos>
 export type TenantRepos = ReturnType<typeof tenantRepos>
 export type HotelRepos = ReturnType<typeof hotelRepos>
 export type BookingRepos = ReturnType<typeof bookingRepos>
+export type AccountsRepos = ReturnType<typeof accountsRepos>

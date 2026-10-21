@@ -32,6 +32,10 @@ export const RATE_LIMITS = {
   loginPerIdentity: { name: 'login-identity', limit: 30, windowSeconds: 15 * 60 },
   /** Second-factor codes for one user (login and disabling 2FA); a correct code clears it. Needs the password first. */
   twoFactorAttemptsPerUser: { name: '2fa-user', limit: 5, windowSeconds: 15 * 60 },
+  /** Agency self-registrations from one client address (the public agency portal form). */
+  agencyRegistrationPerIp: { name: 'agency-register', limit: 5, windowSeconds: 60 * 60 },
+  /** Agency self-registrations per organization from anywhere (caps a PENDING-queue flood from many addresses). */
+  agencyRegistrationPerOrganization: { name: 'agency-register-org', limit: 50, windowSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>
 
 /** Buckets are kept this long after their window started (far beyond the longest window), then purged. */

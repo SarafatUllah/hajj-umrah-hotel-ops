@@ -35,7 +35,8 @@ function toJsonb(value: unknown): unknown {
  * The single writer for `audit_log` (D-invariant: every audit row is written through this
  * function, never a raw repository call, so redaction can never be forgotten at a call site).
  */
-export async function recordAudit(audit: AuditRepository, actorUserId: string, entry: AuditEntry): Promise<void> {
+/** `actorUserId` is the staff user who acted, or null for an action without one (a public agency self-registration). */
+export async function recordAudit(audit: AuditRepository, actorUserId: string | null, entry: AuditEntry): Promise<void> {
   await audit.record({
     hotelId: entry.hotelId ?? null,
     actorUserId,

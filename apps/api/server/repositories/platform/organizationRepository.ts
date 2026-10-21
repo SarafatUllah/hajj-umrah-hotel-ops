@@ -21,6 +21,11 @@ export class PlatformOrganizationRepository {
     return row ?? null
   }
 
+  /** Every organization's id (platform maintenance, e.g. the RBAC sync script). */
+  async listIds(): Promise<string[]> {
+    return (await this.db.select({ id: organization.id }).from(organization).orderBy(organization.createdAt)).map(r => r.id)
+  }
+
   async findById(id: string): Promise<OrganizationRow | null> {
     const [row] = await this.db.select().from(organization).where(eq(organization.id, id)).limit(1)
     return row ?? null

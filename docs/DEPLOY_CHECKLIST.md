@@ -49,6 +49,10 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
 - [ ] `pnpm db:check` and `pnpm db:drift` are clean on the commit being deployed (CI `static` job green).
 - [ ] `pnpm db:migrate` has **succeeded before the new application version receives traffic**; a failed migration
       stops the deploy (the script exits non-zero). Migrations are forward-only.
+- [ ] `pnpm rbac:sync` has run after the migrations: it upserts the permission catalog and gives every organization's
+      built-in roles the permissions and 2FA flags of this release (additive and idempotent — it never removes a
+      grant). Without it, permissions added by a release (e.g. Phase 2's `agency.manage`) are missing everywhere.
+      It also resets the built-in roles' `requires_two_factor` flags to their definitions.
 - [ ] Database backups/point-in-time recovery are enabled by the database provider (`ARCHITECTURE.md` §19).
 
 ## Document storage

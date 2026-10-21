@@ -29,6 +29,15 @@ export const PERMISSIONS = [
   'user.manage',
   'audit.view',
   'organization.resetDemo',
+  // Phase 2 booking platform (design v7 §6, §13–§15, §20).
+  'agency.view',
+  'agency.manage',
+  'quote.manage',
+  'pilgrim.view',
+  'pilgrim.viewSensitive',
+  'booking.checkIn',
+  'occupancy.view',
+  'booking.settings',
 ] as const
 
 export type Permission = typeof PERMISSIONS[number]
@@ -72,4 +81,12 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   'user.manage': 'Manage users, roles, and hotel access assignments',
   'audit.view': 'View the audit log for hotels the user can access',
   'organization.resetDemo': 'Reset the demo organization to its seeded baseline',
+  'agency.view': 'View agencies and their users',
+  'agency.manage': 'Approve, suspend or reject agencies and manage their users',
+  'quote.manage': 'Set the price of WhatsApp quotes or decline them',
+  'pilgrim.view': 'View pilgrim names and booking guest details',
+  'pilgrim.viewSensitive': 'View passport numbers and passport images (every view is logged)',
+  'booking.checkIn': 'Check pilgrims in and out',
+  'occupancy.view': 'View the occupancy calendar',
+  'booking.settings': 'Manage booking settings, rates, quotas, room-mix rules and extra-bed policies',
 }

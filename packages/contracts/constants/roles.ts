@@ -31,6 +31,8 @@ export const ROLE_DEFINITIONS: Record<string, RoleDefinition> = {
       'compliance.view', 'compliance.manage',
       'report.view', 'report.export',
       'audit.view',
+      'agency.view', 'agency.manage', 'quote.manage', 'pilgrim.view', 'pilgrim.viewSensitive',
+      'booking.checkIn', 'occupancy.view', 'booking.settings',
     ],
   },
   RESERVATION_MANAGER: {
@@ -40,6 +42,7 @@ export const ROLE_DEFINITIONS: Record<string, RoleDefinition> = {
       'booking.view', 'booking.create', 'booking.edit', 'booking.cancel',
       'rate.view', 'payment.view', 'payment.create',
       'report.view',
+      'agency.view', 'quote.manage', 'pilgrim.view', 'booking.checkIn', 'occupancy.view',
     ],
   },
   ACCOUNTANT: {
@@ -69,6 +72,8 @@ export const ROLE_DEFINITIONS: Record<string, RoleDefinition> = {
       'hotel.view', 'room.view',
       'booking.view', 'booking.create', 'booking.edit',
       'payment.view', 'payment.create',
+      // v7 §23 Q28: reception sees the occupancy day view (read-only), never passport numbers.
+      'pilgrim.view', 'booking.checkIn', 'occupancy.view',
     ],
   },
   READ_ONLY_MANAGEMENT: {

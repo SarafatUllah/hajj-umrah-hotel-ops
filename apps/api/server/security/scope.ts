@@ -17,3 +17,12 @@ export function trustedOrganizationScope(organizationId: string): OrganizationSc
 export function trustedHotelScope(org: OrganizationScope, hotelId: string): HotelScope {
   return { organizationId: org.organizationId, hotelId } as unknown as HotelScope
 }
+
+declare const agencyBrand: unique symbol
+
+/** Proof that the caller is a signed-in, active user of THIS agency (agency portal). Minted only by server/security. */
+export interface AgencyScope extends OrganizationScope { readonly [agencyBrand]: true, readonly agencyId: string }
+
+export function trustedAgencyScope(org: OrganizationScope, agencyId: string): AgencyScope {
+  return { organizationId: org.organizationId, agencyId } as unknown as AgencyScope
+}

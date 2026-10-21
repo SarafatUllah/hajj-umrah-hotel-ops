@@ -1,7 +1,7 @@
 import { useDb } from '../utils/db'
 import { tenantRepos, type TenantRepos } from '../repositories'
 import type { UserRow } from '../repositories/tenant/userRepository'
-import { clearRateLimit, consumeRateLimit, RATE_LIMITS } from '../security/rateLimit'
+import { beginLoginAttempt, clearLoginAttempt, type LoginRequest } from '../security/loginThrottle'
 import { resolveTenantBySlug } from '../security/tenantResolver'
 import { verifyPassword, TIMING_SAFETY_DUMMY_HASH } from '../utils/password'
 import { normalizeEmail } from '@hajj/contracts/utils/email'
@@ -32,10 +32,7 @@ export interface LoginInput {
   totpCode?: string
 }
 
-export interface LoginRequest {
-  clientIp: string
-  now: Date
-}
+export type { LoginRequest }
 
 export type LoginOutcome =
   | { status: 'ok', user: AuthenticatedUser, session: LoginSession }
@@ -87,23 +84,14 @@ export async function authenticate(organizationSlug: string, email: string, pass
   return verified ? { user: toAuthenticatedUser(verified.user) } : null
 }
 
-/** The rate-limit subject of one login identity (organization slug + normalized email). */
-const loginIdentity = (input: LoginInput) => `${input.organizationSlug.trim().toLowerCase()}\u0000${normalizeEmail(input.email)}`
-
 /**
- * The staff login (design v7 §21). Every attempt first takes a slot per client address, per (identity,
- * client address) and per identity (see RATE_LIMITS; atomic, so parallel guesses never pass more checks
- * than the limits) — an over-limit caller gets 429 before any password is checked. Then the password, then
- * — for an enrolled user — the TOTP code (its own per-user attempt limit). A success clears the identity's
- * counters.
+ * The staff login (design v7 §21): every attempt first takes its rate-limit slots (`beginLoginAttempt`; 429
+ * before any password is checked), then the password, then — for an enrolled user — the TOTP code (its own
+ * per-user attempt limit). A success clears the identity's counters.
  */
 export async function login(input: LoginInput, request: LoginRequest): Promise<LoginOutcome> {
   const db = useDb()
-  const identity = loginIdentity(input)
-  const clientIdentity = `${identity}\u0000${request.clientIp}`
-  await consumeRateLimit(db, RATE_LIMITS.loginPerIp, request.clientIp, request.now)
-  await consumeRateLimit(db, RATE_LIMITS.loginPerClientIdentity, clientIdentity, request.now)
-  await consumeRateLimit(db, RATE_LIMITS.loginPerIdentity, identity, request.now)
+  const attempt = await beginLoginAttempt(db, 'staff', input.organizationSlug, input.email, request)
 
   const verified = await verifyCredentials(db, input.organizationSlug, input.email, input.password)
   if (!verified) return { status: 'invalid-credentials' }
@@ -112,7 +100,6 @@ export async function login(input: LoginInput, request: LoginRequest): Promise<L
   if (secondFactor === 'required') return { status: 'two-factor-required' }
   if (secondFactor === 'invalid') return { status: 'invalid-two-factor' }
 
-  await clearRateLimit(db, RATE_LIMITS.loginPerClientIdentity, clientIdentity)
-  await clearRateLimit(db, RATE_LIMITS.loginPerIdentity, identity)
+  await clearLoginAttempt(db, attempt)
   return { status: 'ok', user: toAuthenticatedUser(verified.user), session: { sessionVersion: verified.user.sessionVersion } }
 }

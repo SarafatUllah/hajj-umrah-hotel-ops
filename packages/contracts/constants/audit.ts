@@ -40,6 +40,12 @@ export const AUDIT_ACTIONS = [
   'TWO_FACTOR_DISABLED',
   // An administrator removed another user's second factor (lost device); `reason` says why.
   'TWO_FACTOR_RESET',
+  // Agency accounts (entityType 'agency' / 'agency_user'); a self-registration has no staff actor.
+  'AGENCY_REGISTERED',
+  'AGENCY_CREATED',
+  'AGENCY_STATUS_CHANGED',
+  'AGENCY_USER_CREATED',
+  'AGENCY_USER_UPDATED',
 ] as const
 
 export type AuditAction = typeof AUDIT_ACTIONS[number]

@@ -28,7 +28,10 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 7 | 2a: security prerequisites (rate limit, CSRF origin check, principal kinds, staff 2FA, PII crypto) | done |
 | 8 | 2a: booking-platform schema (agency, customer, pricing, pilgrim, booking*, guest_stay, view, constraints) | done |
 | 9 | 2a: inventory ↔ booking conflict rules + Phase 1 lock gaps (floor deactivate, room reactivate, period delete) | done |
-| 10 | 2a: accounts (agency approval, agency users, customers + OTP), admin settings, pricing & quotes | |
+| 10a | 2a: agency accounts — registration, staff approval, agency users, agency sign-in (`AgencyScope`), RBAC sync | done |
+| 10b | 2a: customers — phone OTP sign-up/sign-in (`CustomerScope`) | |
+| 10c | 2a: booking settings, rates, quotas, room-mix rules, extra-bed policies (staff admin) | |
+| 10d | 2a: WhatsApp quotes and price resolution (quote → agency default → public, per night) | |
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | |
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | |
@@ -151,6 +154,27 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
 - **D-P2-24 (architecture) Ticket 5 module boundary.** `BUSINESS_MODULES = ['booking']`: only a module's own
   `server/{services,domain,repositories}/<module>/` files reach its internals; everything else imports
   `server/services/<module>/index.ts`. Phase 1's flat services are not a module.
+
+- **D-P2-25 (accounts) Agencies.** The `accounts` module owns `agency`, `agency_user` (and `customer`, 10b).
+  Self-registration is public, rate limited per address (5/h) and per organization (50/h), and always answers
+  202 `{ received: true }`: a licence number (compared upper-cased, trimmed) or e-mail already known is silently
+  not registered again, after the same Argon2 work (security review: no enumeration, no PENDING squatting
+  signal); the audit row records the client address. The agency starts PENDING. Staff with
+  `agency.manage` approve, suspend or reject with a reason (PENDING→APPROVED|REJECTED, APPROVED→SUSPENDED,
+  SUSPENDED→APPROVED|REJECTED, REJECTED→APPROVED), or create an agency verified offline (APPROVED at once). An
+  agency user may sign in whatever the agency's status (to see it); `auth: 'agency'` routes require an APPROVED
+  agency by default (403 `AGENCY_NOT_APPROVED`) and only `auth: 'agency-any-status'` (the portal's `me`) opts
+  out. The staff's `statusReason` stays internal (never in the agency's `me`). Sign-in shares the staff throttle
+  (`security/loginThrottle.ts`), with counters keyed by principal kind. Agency sessions carry `kind: 'agency'`,
+  the agency id and a session version (deactivating a user ends its sessions); `/api/agency/**` routes use
+  `auth: 'agency'`, staff routes refuse agency sessions and vice versa. `server/security` may call a module's
+  repository factory (principal resolution), nothing else outside the module may.
+- **D-P2-25b (accounts) Follow-ups.** Agency-user password change/reset and invitations (staff currently set the
+  first password) come with the agency portal UI (step 16). `agency.view` is organization-wide by design
+  (agencies are not hotel-scoped).
+- **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
+  `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
+  idempotent; run after migrations).
 
 ## Step 7 design (security prerequisites, v7 §21)
 

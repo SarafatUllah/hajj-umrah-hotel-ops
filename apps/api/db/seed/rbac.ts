@@ -34,3 +34,14 @@ export async function seedOrganizationRoles(db: DbOrTx, organizationId: string, 
 
   return roleIdByKey
 }
+
+/**
+ * The deploy-time RBAC sync (db/scripts/syncRbac.ts): the permission catalog, then every organization's built-in
+ * roles. Additive and idempotent (grants are never removed). Returns how many organizations were synced.
+ */
+export async function syncRbacForAllOrganizations(db: DbOrTx): Promise<number> {
+  await seedPermissionCatalog(db)
+  const organizationIds = await platformRepos(db).organizations.listIds()
+  for (const organizationId of organizationIds) await seedOrganizationRoles(db, organizationId)
+  return organizationIds.length
+}

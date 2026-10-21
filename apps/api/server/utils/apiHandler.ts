@@ -3,18 +3,27 @@ import { createError, defineEventHandler, getQuery, getRouterParams, isError, re
 import { z, ZodError, type ZodIssue } from 'zod'
 import { DomainError, ForbiddenError, TooManyRequestsError, ValidationError } from '../errors/domainError'
 import { translateDbError } from '../errors/dbErrors'
+import type { AgencyContext } from '../security/agencyContext'
 import type { AuthContext } from '../security/authContext'
+import { requireAgencyContext, requireApprovedAgency } from './requireAgency'
 import { requireAuthContext } from './requireAuth'
 
-export type AuthRequirement = 'none' | 'required'
+/**
+ * `'required'` = a staff session (operations console); `'agency'` = an agency-portal session of an APPROVED
+ * agency (the safe default for every agency route); `'agency-any-status'` = any agency session, for the few
+ * routes a pending or suspended agency may still use (its own `me`).
+ */
+export type AuthRequirement = 'none' | 'required' | 'agency' | 'agency-any-status'
+
+type ContextFor<A extends AuthRequirement> = A extends 'required' ? AuthContext : A extends 'agency' | 'agency-any-status' ? AgencyContext : undefined
 
 export interface ApiHandlerArgs<P, Q, B, A extends AuthRequirement = 'none'> {
   event: H3Event
   params: P
   query: Q
   body: B
-  /** Only populated (and only typed as a real `AuthContext`) when `auth: 'required'`. */
-  ctx: A extends 'required' ? AuthContext : undefined
+  /** `AuthContext` with `auth: 'required'`, `AgencyContext` with `auth: 'agency'`, otherwise undefined. */
+  ctx: ContextFor<A>
 }
 
 export interface DefineApiHandlerOptions<P, Q, B, R, A extends AuthRequirement = 'none'> {
@@ -165,6 +174,16 @@ function handleError(event: H3Event, error: unknown): never {
   throw createError({ statusCode: 500, statusMessage: 'Internal server error', data: { code: 'INTERNAL_ERROR' } })
 }
 
+async function contextFor(event: H3Event, auth: AuthRequirement | undefined): Promise<AuthContext | AgencyContext | undefined> {
+  if (auth === 'required') return requireAuthContext(event)
+  if (auth === 'agency' || auth === 'agency-any-status') {
+    const ctx = await requireAgencyContext(event)
+    if (auth === 'agency') requireApprovedAgency(ctx)
+    return ctx
+  }
+  return undefined
+}
+
 /**
  * Wraps a Nitro event handler with shared Zod validation and error
  * translation, so no individual route hand-rolls try/catch for a known
@@ -187,8 +206,8 @@ export function defineApiHandler<P = void, Q = void, B = void, R = unknown, A ex
       const params = paramsSchema ? parseOrThrow(paramsSchema, getRouterParams(event)) : (undefined as P)
       const query = querySchema ? parseOrThrow(querySchema, getQuery(event)) : (undefined as Q)
       const body = bodySchema ? parseOrThrow(bodySchema, await readBody(event)) : (undefined as B)
-      const ctx = (opts.auth === 'required' ? await requireAuthContext(event) : undefined) as ApiHandlerArgs<P, Q, B, A>['ctx']
-      if (ctx?.twoFactorEnrollmentPending && !opts.allowTwoFactorEnrollmentPending) {
+      const ctx = await contextFor(event, opts.auth) as ApiHandlerArgs<P, Q, B, A>['ctx']
+      if (ctx && 'twoFactorEnrollmentPending' in ctx && ctx.twoFactorEnrollmentPending && !opts.allowTwoFactorEnrollmentPending) {
         throw new ForbiddenError('TWO_FACTOR_ENROLLMENT_REQUIRED', 'Set up two-factor authentication to continue')
       }
       return await opts.handler({ event, params, query, body, ctx })

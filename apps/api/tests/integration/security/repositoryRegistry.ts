@@ -1,9 +1,10 @@
 import { and, eq, isNotNull, isNull } from 'drizzle-orm'
-import { appUser, auditLog, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
+import { agency, agencyUser, appUser, auditLog, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
 import type { DbOrTx } from '@hajj/db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
+import { AgencyRepository, AgencyUserRepository } from '../../../server/repositories/accounts'
 import { BookingInventoryRepository } from '../../../server/repositories/booking'
 import { makeAgency, makeBooking, makeBookingRoom, makeGuest, makeHotelWithRooms, makeStay } from '../../support/bookingFixtures'
 import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeHotelDocument, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
@@ -54,6 +55,13 @@ async function arrangeBookedRoom(db: DbOrTx, orgA: OrganizationScope) {
   const guest = await makeGuest(db, orgA, b.id, 1)
   await makeStay(db, orgA, b.id, guest.id, claim.id, b.checkIn, b.checkOut)
   return { hotelId: hotel.id, roomId: rooms[0]!.id }
+}
+
+/** Phase 2a: org A's approved agency with one active user. */
+async function arrangeAgencyUser(db: DbOrTx, orgA: OrganizationScope) {
+  const agencyRow = await makeAgency(db, orgA)
+  const user = await new AgencyUserRepository(db, orgA).insert({ agencyId: agencyRow.id, email: `agent-${agencyRow.id}@example.test`, passwordHash: 'h', fullName: 'Agent' })
+  return { agencyId: agencyRow.id, userId: user.id, email: user.email }
 }
 
 async function assertNoRows(rows: unknown[], what: string) {
@@ -1395,6 +1403,83 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
   'BookingInventoryRepository.seatsUsed': isolationCase({
     arrange: arrangeBookedRoom,
     act: (db, scope, ids) => new BookingInventoryRepository(db, trustedHotelScope(scope, ids.hotelId)).seatsUsed([ids.roomId], { from: '2027-01-01', to: '2027-12-31' }),
+    expect: 'empty',
+  }),
+  // Phase 2a accounts (Organization scope): org B can neither read nor change org A's agencies and agency users,
+  // and an insert can never land in org A.
+  'AgencyRepository.insert': isolationCase({
+    arrange: async (_db, orgA) => ({ orgAId: orgA.organizationId }),
+    act: async (db, scope, ids) => {
+      await new AgencyRepository(db, scope).insert({ organizationId: ids.orgAId, name: 'Planted', licenseNo: 'PLANTED', contactName: 'X', phone: '+966500000001', email: 'p@example.test' } as never)
+      return db.select().from(agency).where(and(eq(agency.organizationId, ids.orgAId), eq(agency.licenseNo, 'PLANTED')))
+    },
+    expect: 'empty',
+  }),
+  'AgencyRepository.findById': isolationCase({
+    arrange: arrangeAgencyUser,
+    act: (db, scope, ids) => new AgencyRepository(db, scope).findById(ids.agencyId),
+    expect: 'null',
+  }),
+  'AgencyRepository.findByLicenseNo': isolationCase({
+    arrange: async (db, orgA) => ({ licenseNo: (await makeAgency(db, orgA)).licenseNo }),
+    act: (db, scope, ids) => new AgencyRepository(db, scope).findByLicenseNo(ids.licenseNo),
+    expect: 'null',
+  }),
+  'AgencyRepository.list': isolationCase({
+    arrange: arrangeAgencyUser,
+    act: async (db, scope) => (await new AgencyRepository(db, scope).list({ page: 1, pageSize: 50 })).rows,
+    expect: 'empty',
+  }),
+  'AgencyRepository.setStatus': isolationCase({
+    arrange: arrangeAgencyUser,
+    act: async (db, scope, ids) => {
+      await new AgencyRepository(db, scope).setStatus(ids.agencyId, { status: 'SUSPENDED', reason: 'planted', at: new Date(), by: ids.userId })
+      return db.select().from(agency).where(and(eq(agency.id, ids.agencyId), eq(agency.status, 'SUSPENDED')))
+    },
+    expect: 'empty',
+  }),
+  'AgencyUserRepository.insert': isolationCase({
+    arrange: arrangeAgencyUser,
+    act: async (db, scope, ids) => {
+      await new AgencyUserRepository(db, scope).insert({ organizationId: (await db.select().from(agency).where(eq(agency.id, ids.agencyId)))[0]!.organizationId, agencyId: ids.agencyId, email: 'planted@example.test', passwordHash: 'h', fullName: 'Planted' } as never).catch(() => null)
+      return db.select().from(agencyUser).where(eq(agencyUser.email, 'planted@example.test'))
+    },
+    expect: 'empty',
+  }),
+  'AgencyUserRepository.findById': isolationCase({
+    arrange: arrangeAgencyUser,
+    act: (db, scope, ids) => new AgencyUserRepository(db, scope).findById(ids.userId),
+    expect: 'null',
+  }),
+  'AgencyUserRepository.findByEmail': isolationCase({
+    arrange: arrangeAgencyUser,
+    act: (db, scope, ids) => new AgencyUserRepository(db, scope).findByEmail(ids.email),
+    expect: 'null',
+  }),
+  'AgencyUserRepository.findActiveByEmail': isolationCase({
+    arrange: arrangeAgencyUser,
+    act: (db, scope, ids) => new AgencyUserRepository(db, scope).findActiveByEmail(ids.email),
+    expect: 'null',
+  }),
+  'AgencyUserRepository.listByAgency': isolationCase({
+    arrange: arrangeAgencyUser,
+    act: (db, scope, ids) => new AgencyUserRepository(db, scope).listByAgency(ids.agencyId),
+    expect: 'empty',
+  }),
+  'AgencyUserRepository.setActive': isolationCase({
+    arrange: arrangeAgencyUser,
+    act: async (db, scope, ids) => {
+      await new AgencyUserRepository(db, scope).setActive(ids.userId, ids.agencyId, false, new Date())
+      return db.select().from(agencyUser).where(and(eq(agencyUser.id, ids.userId), eq(agencyUser.isActive, false)))
+    },
+    expect: 'empty',
+  }),
+  'AgencyUserRepository.recordLogin': isolationCase({
+    arrange: arrangeAgencyUser,
+    act: async (db, scope, ids) => {
+      await new AgencyUserRepository(db, scope).recordLogin(ids.userId, new Date())
+      return db.select().from(agencyUser).where(and(eq(agencyUser.id, ids.userId), isNotNull(agencyUser.lastLoginAt)))
+    },
     expect: 'empty',
   }),
   'HotelDocumentRepository.list': isolationCase({

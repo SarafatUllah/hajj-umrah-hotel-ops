@@ -27,7 +27,8 @@
     "test:integration:fresh": "pnpm db:test:reset && pnpm test:integration",
     "test:http": "dotenv run -f .env.test -- pnpm --filter @hajj/db migrate && dotenv run -f .env.test -- vitest run --config vitest.http.config.ts",
     "verify": "pnpm lint && pnpm typecheck && pnpm typecheck:types && pnpm db:check && pnpm db:drift && pnpm test:unit && pnpm test:integration && pnpm test:http",
-    "worker": "tsx worker/index.ts"
+    "worker": "tsx worker/index.ts",
+    "rbac:sync": "tsx db/scripts/syncRbac.ts"
   },
   "dependencies": {
     "@hajj/contracts": "workspace:*",
