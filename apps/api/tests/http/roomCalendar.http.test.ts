@@ -92,18 +92,19 @@ describe('room calendar / daily summary — success through the real database an
     expect(parsed.refs).toEqual({
       periods: { [h.periodId]: { name: 'Hajj 2027', kind: 'HAJJ', startDate: '2027-05-01', endDate: '2027-07-31' } },
       blocks: { [h.blockId]: { kind: 'OPERATIONAL_BLOCK', startDate: '2027-06-03', endDate: '2027-06-04', reason: 'VIP group' } },
+      bookings: {},
     })
     expect(parsed.rooms).toEqual([
       {
         roomId: h.r101, roomNumber: '101', floor: { id: h.floor.id, level: 1, label: 'First' }, roomType: { id: h.type.id, code: 'QUAD', name: 'Quad' }, features: [],
-        segments: [{ from: '2027-06-01', to: '2027-06-07', status: 'AVAILABLE', sellable: true, physicalBeds: 6, sellableCapacity: 6, capacitySource: 'PERIOD_OVERRIDE', periodId: h.periodId, blockIds: [] }],
+        segments: [{ from: '2027-06-01', to: '2027-06-07', status: 'AVAILABLE', sellable: true, physicalBeds: 6, sellableCapacity: 6, capacitySource: 'PERIOD_OVERRIDE', periodId: h.periodId, blockIds: [], bookingIds: [] }],
       },
       {
         roomId: h.r102, roomNumber: '102', floor: { id: h.floor.id, level: 1, label: 'First' }, roomType: { id: h.type.id, code: 'QUAD', name: 'Quad' }, features: [],
         segments: [
-          { from: '2027-06-01', to: '2027-06-02', status: 'AVAILABLE', sellable: true, physicalBeds: 5, sellableCapacity: 5, capacitySource: 'BASE', periodId: null, blockIds: [] },
-          { from: '2027-06-03', to: '2027-06-04', status: 'OPERATIONAL_BLOCK', sellable: false, physicalBeds: 5, sellableCapacity: 5, capacitySource: 'BASE', periodId: null, blockIds: [h.blockId] },
-          { from: '2027-06-05', to: '2027-06-07', status: 'AVAILABLE', sellable: true, physicalBeds: 5, sellableCapacity: 5, capacitySource: 'BASE', periodId: null, blockIds: [] },
+          { from: '2027-06-01', to: '2027-06-02', status: 'AVAILABLE', sellable: true, physicalBeds: 5, sellableCapacity: 5, capacitySource: 'BASE', periodId: null, blockIds: [], bookingIds: [] },
+          { from: '2027-06-03', to: '2027-06-04', status: 'OPERATIONAL_BLOCK', sellable: false, physicalBeds: 5, sellableCapacity: 5, capacitySource: 'BASE', periodId: null, blockIds: [h.blockId], bookingIds: [] },
+          { from: '2027-06-05', to: '2027-06-07', status: 'AVAILABLE', sellable: true, physicalBeds: 5, sellableCapacity: 5, capacitySource: 'BASE', periodId: null, blockIds: [], bookingIds: [] },
         ],
       },
     ])
@@ -182,7 +183,7 @@ describe('room calendar / daily summary — 422', () => {
       `${cal}?${r}&pageSize=201`,
       `${cal}?${r}&page=0`,
       `${cal}?${r}&status=BOGUS`,
-      `${cal}?${r}&status=BOOKED`,
+      `${cal}?${r}&status=SOLD`,
       `${cal}?${r}&minCapacity=-1`,
       `${cal}?${r}&minCapacity=5&maxCapacity=4`,
       `${cal}?${r}&statusMatch=some`,

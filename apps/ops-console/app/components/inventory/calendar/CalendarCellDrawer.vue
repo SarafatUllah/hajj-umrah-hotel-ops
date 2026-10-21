@@ -3,18 +3,25 @@ import type { HotelSummary } from '@hajj/contracts/types/hotel'
 import type { CalendarRefsDto, CalendarRoomDto } from '@hajj/contracts/types/inventory'
 
 /**
- * One room on one night (§31.4): its status that night with the block's dates and reason, its capacity (both numbers)
- * and where it comes from, its capacity over time, and what to do next — block it from this night, open the room.
+ * One room on one night (§31.4): its status that night with the block's dates and reason, the bookings holding it
+ * (each opens on its page, with `booking.view`), its capacity (both numbers) and where it comes from, its capacity
+ * over time, and what to do next — block it from this night, open the room.
  */
 const props = defineProps<{ hotel: HotelSummary, room: CalendarRoomDto | null, night: string | null, refs: CalendarRefsDto, canBlock: boolean }>()
 const emit = defineEmits<{ close: [], block: [CalendarRoomDto, string] }>()
 const { t } = useI18n()
 const format = useFormat()
+const access = useAccess()
+const opensBookings = computed(() => access.value.canInHotel('booking.view', props.hotel.id))
 const segment = computed(() => (props.room && props.night ? props.room.segments.find(s => s.from <= props.night! && props.night! <= s.to) : undefined))
 const season = computed(() => (segment.value?.periodId ? props.refs.periods[segment.value.periodId] : undefined))
 const blocks = computed(() => (segment.value?.blockIds ?? []).flatMap((id) => {
   const block = props.refs.blocks[id]
   return block ? [{ id, ...block }] : []
+}))
+const bookings = computed(() => (segment.value?.bookingIds ?? []).flatMap((id) => {
+  const booking = props.refs.bookings[id]
+  return booking ? [{ id, ...booking }] : []
 }))
 const canBlockHere = computed(() => props.canBlock && !!props.night && props.night >= props.hotel.today && segment.value?.status !== 'NOT_IN_INVENTORY')
 </script>
@@ -32,6 +39,17 @@ const canBlockHere = computed(() => props.canBlock && !!props.night && props.nig
             <li v-for="block in blocks" :key="block.id">{{ t(`status.inventory.${block.kind}`) }} · <NightsRange :from="block.startDate" :to="block.endDate" /> · <bdi>{{ block.reason }}</bdi></li>
           </ul>
         </div>
+        <section v-if="bookings.length" aria-labelledby="night-bookings" class="flex flex-col gap-2">
+          <h3 id="night-bookings" class="text-subsection">{{ t('calendar.nightBookings') }}</h3>
+          <ul class="flex flex-col gap-2 text-small">
+            <li v-for="booking in bookings" :key="booking.id" class="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <NuxtLink v-if="opensBookings" :to="`/bookings/${booking.id}`" class="font-semibold tabular text-(--primary) hover:underline" dir="ltr">{{ booking.bookingNo }}</NuxtLink>
+              <span v-else class="font-semibold tabular" dir="ltr">{{ booking.bookingNo }}</span>
+              <bdi>{{ booking.agencyName ?? t('calendar.customer') }}</bdi>
+              <StayDates :check-in="booking.checkIn" :check-out="booking.checkOut" class="text-(--fg-muted)" />
+            </li>
+          </ul>
+        </section>
         <div v-if="segment.sellableCapacity !== null" class="flex flex-col gap-1">
           <CapacityValue :haji="segment.sellableCapacity" :beds="segment.physicalBeds" class="text-section" />
           <span class="text-small" :class="season ? 'text-(--season)' : 'text-(--fg-muted)'">{{ season ? t('rooms.seasonSource', { season: season.name }) : t('rooms.normalSource') }}</span>

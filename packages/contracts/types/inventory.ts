@@ -141,6 +141,8 @@ export interface CalendarSegment {
   capacitySource: CapacitySource | null
   periodId: string | null
   blockIds: string[]
+  /** The live bookings holding the room on these nights (named in `refs.bookings`), whatever the status shown. */
+  bookingIds: string[]
 }
 
 export interface CalendarRoomDto {
@@ -156,6 +158,8 @@ export interface CalendarRoomDto {
 export interface CalendarRefsDto {
   periods: Record<string, { name: string, kind: CapacityPeriodKind, startDate: IsoDate, endDate: IsoDate }>
   blocks: Record<string, { kind: BlockKind, startDate: IsoDate, endDate: IsoDate, reason: string }>
+  /** A booking: its number, who holds it (the agency's name, or null for a customer), its stay `[checkIn, checkOut)`. */
+  bookings: Record<string, { bookingNo: string, agencyName: string | null, checkIn: IsoDate, checkOut: IsoDate }>
 }
 
 /** A page of the room calendar (S13): EXACTLY the periods and blocks this page's segments reference are in `refs`. */

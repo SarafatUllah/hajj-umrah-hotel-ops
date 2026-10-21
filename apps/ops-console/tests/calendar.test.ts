@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barContent, calendarRange, COLUMN_WIDTH, monthsOf, moveCell, nightIndexAt, placeOf, weekendColumns } from '../app/utils/calendar'
+import { barContent, bookingLabel, calendarRange, COLUMN_WIDTH, monthsOf, moveCell, nightIndexAt, placeOf, weekendColumns } from '../app/utils/calendar'
 
 describe('the room calendar layout (§31)', () => {
   it('starts the default range yesterday, so tonight has a night of context', () => {
@@ -45,5 +45,15 @@ describe('a click on a bar', () => {
     expect(nightIndexAt({ x: 460 - 36 * 2 - 1, left: 100, right: 460, rtl: true }, 36, 10)).toBe(2)
     expect(nightIndexAt({ x: 470, left: 100, right: 460, rtl: false }, 36, 10)).toBe(9)
     expect(nightIndexAt({ x: 90, left: 100, right: 460, rtl: false }, 36, 10)).toBe(0)
+  })
+})
+
+describe('a booked run of nights on the room calendar (UI-UX §31.2)', () => {
+  const refs = { b1: { bookingNo: 'B-2027-0004' }, b2: { bookingNo: 'B-2027-0009' } }
+  it('reads its booking\'s number, "+n" when more bookings share the room, nothing without one', () => {
+    expect(bookingLabel({ bookingIds: ['b1'] }, refs)).toBe('B-2027-0004')
+    expect(bookingLabel({ bookingIds: ['b1', 'b2'] }, refs)).toBe('B-2027-0004 +1')
+    expect(bookingLabel({ bookingIds: [] }, refs)).toBeNull()
+    expect(bookingLabel({ bookingIds: ['gone'] }, refs)).toBeNull()
   })
 })

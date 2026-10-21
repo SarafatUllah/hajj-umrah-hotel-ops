@@ -121,9 +121,9 @@ function refineProductionSecurity(env: { APP_ENV: string, STAFF_2FA_ENFORCEMENT:
   if (env.APP_ENV !== 'development' && env.SMS_DRIVER === 'log') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['SMS_DRIVER'], message: 'SMS_DRIVER=log is allowed only with APP_ENV=development' })
   }
-  // Texting sign-in codes in production needs the bot check (SMS pumping; a stranger's phone flooded with codes).
-  if (env.APP_ENV === 'production' && env.SMS_DRIVER !== 'disabled' && env.CAPTCHA_DRIVER !== 'turnstile') {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CAPTCHA_DRIVER'], message: 'CAPTCHA_DRIVER must be turnstile when sign-in codes are texted with APP_ENV=production' })
+  // Texting sign-in codes outside development needs the bot check (SMS pumping; a stranger's phone flooded with codes).
+  if (env.APP_ENV !== 'development' && env.SMS_DRIVER !== 'disabled' && env.SMS_DRIVER !== 'log' && env.CAPTCHA_DRIVER !== 'turnstile') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CAPTCHA_DRIVER'], message: 'CAPTCHA_DRIVER must be turnstile when sign-in codes are texted outside APP_ENV=development' })
   }
 }
 

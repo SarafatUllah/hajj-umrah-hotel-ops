@@ -66,7 +66,7 @@ describe('what staff are offered on a pilgrim at the desk', () => {
 
 describe('what a booking\'s change shows in', () => {
   it('every screen that reads bookings, and the booking\'s own page when named', () => {
-    expect(bookingChangeKeys()).toEqual([['bookings'], ['occupancy'], ['occupancy-day'], ['tasks'], ['quotes'], ['quote']])
+    expect(bookingChangeKeys()).toEqual([['bookings'], ['occupancy'], ['occupancy-day'], ['tasks'], ['quotes'], ['quote'], ['calendar'], ['daily-summary']])
     expect(bookingChangeKeys('b1').slice(0, 3)).toEqual([['booking', 'b1'], ['booking-guests', 'b1'], ['booking-receipt', 'b1']])
   })
 })

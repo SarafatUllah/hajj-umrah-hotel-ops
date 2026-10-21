@@ -1,9 +1,10 @@
 import { CALENDAR_FILTER_STATUSES, type CalendarFilterStatus, DEFAULT_CALENDAR_PAGE_SIZE, MAX_CALENDAR_RESPONSE_BYTES, MAX_CALENDAR_ROOMS, MAX_ROOMS_PER_PAGE } from '@hajj/contracts/constants/inventory'
 import { calendarQueryIssues } from '@hajj/contracts/schemas/roomCalendar'
 import { type IsoDate, type NightRange, isValidIsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
-import { buildRoomSegments, type CalendarOptions, type CalendarSegment, matchesCapacityFilter, matchesStatusFilter, summarizeDaily } from '../domain/inventory/calendar'
+import { buildRoomSegments, type CalendarOptions, type CalendarSegment, type ClaimInput, matchesCapacityFilter, matchesStatusFilter, summarizeDaily } from '../domain/inventory/calendar'
 import { ValidationError } from '../errors/domainError'
 import { hotelRepos } from '../repositories'
+import { type RoomCalendarClaim, roomCalendarClaims } from './booking'
 import { calendarOptionsFor } from './calendarOptions'
 import type { InventoryReadRepository, InventoryRefs, InventoryRoomInput, RoomCandidate, RoomCandidateFilter } from '../repositories/hotel'
 import type { AuthContext } from '../security/authContext'
@@ -99,7 +100,7 @@ async function relevantCandidates(inventory: InventoryReadRepository, range: Nig
  * without a version in the range are dropped by the inventory load below), and the request continues
  * in a FIXED number of statements: the settings read together with one inventory load of three
  * statements (the rooms' rows are already loaded, so no rooms statement) — 6 with the hotel read of
- * `authorizeHotel`, whatever the room or night count. 5,001 rows: with `includeOutOfInventory` every
+ * `authorizeHotel`, whatever the room or night count (the room calendar then reads the rooms' bookings: two more). 5,001 rows: with `includeOutOfInventory` every
  * structural candidate counts, so that is already the 422 `TOO_MANY_ROOMS` (never a truncated answer;
  * paging happens later and cannot get around it) after 2 statements — before any settings, version,
  * override or block read; without it only rooms in inventory in the range count (`relevantCandidates`).
@@ -172,13 +173,19 @@ export async function getRoomCalendar(ctx: AuthContext, hotelId: string, q: Room
   const pageSize = q.pageSize ?? DEFAULT_CALENDAR_PAGE_SIZE
   const statuses = q.status ?? []
   const statusMatch = q.statusMatch ?? 'any'
-  const { candidates, rooms, refs, options } = await derive(ctx, scope, range, {
+  const derived = await derive(ctx, scope, range, {
     floorId: q.floorId,
     roomTypeId: q.roomTypeId,
     q: q.q,
     includeOutOfInventory: q.includeOutOfInventory ?? false,
     withRefs: true,
   })
+  const { candidates, refs, options } = derived
+  // The bookings on these rooms (UI-UX §31.2: held, booked, in the house), from the booking module: two more
+  // statements whatever the size, none for a hotel without rooms.
+  const claims = derived.rooms.length > 0 ? await roomCalendarClaims(ctx.db, scope, range) : []
+  const rooms = withClaims(derived.rooms, claims)
+  const bookings = bookingRefsOf(claims)
 
   // `rooms` keeps the candidates' order (floor level, natural room number, id). Segments are derived
   // for every candidate only when a derived filter needs them; otherwise only for the page.
@@ -193,6 +200,7 @@ export async function getRoomCalendar(ctx: AuthContext, hotelId: string, q: Room
   const pageRows = matching.slice((page - 1) * pageSize, page * pageSize)
   const periodRefs = new Map<string, CalendarRefsDto['periods'][string]>()
   const blockRefs = new Map<string, CalendarRefsDto['blocks'][string]>()
+  const bookingRefs = new Map<string, CalendarRefsDto['bookings'][string]>()
   const pageRooms = pageRows.map(({ room, segments }) => {
     const segs = segments ?? buildRoomSegments(room, range, options)
     for (const s of segs) {
@@ -204,6 +212,10 @@ export async function getRoomCalendar(ctx: AuthContext, hotelId: string, q: Room
         if (blockRefs.has(blockId)) continue
         const block = refs.blocks.get(blockId)
         if (block) blockRefs.set(blockId, { kind: block.kind, startDate: block.startDate, endDate: block.endDate, reason: block.reason })
+      }
+      for (const bookingId of s.bookingIds) {
+        const booking = bookings.get(bookingId)
+        if (booking && !bookingRefs.has(bookingId)) bookingRefs.set(bookingId, booking)
       }
     }
     const candidate = candidates.get(room.roomId)!
@@ -223,11 +235,34 @@ export async function getRoomCalendar(ctx: AuthContext, hotelId: string, q: Room
     pageSize,
     total: matching.length,
     meta: { today: todayInTimezone(hotel.timezone, ctx.now()), maintenanceBlocksSales: options.maintenanceBlocksSales },
-    refs: { periods: Object.fromEntries(periodRefs), blocks: Object.fromEntries(blockRefs) },
+    refs: { periods: Object.fromEntries(periodRefs), blocks: Object.fromEntries(blockRefs), bookings: Object.fromEntries(bookingRefs) },
     rooms: pageRooms,
   }
   assertCalendarResponseWithinBudget(dto)
   return dto
+}
+
+/** Each room with the bookings' claims on it, as the calendar derivation reads them (the grouping map is local). */
+function withClaims(rooms: InventoryRoomInput[], claims: readonly RoomCalendarClaim[]): InventoryRoomInput[] {
+  const byRoom = new Map<string, ClaimInput[]>()
+  for (const c of claims) {
+    const list = byRoom.get(c.roomId) ?? []
+    list.push({ bookingId: c.bookingId, status: c.status, from: c.from, to: c.to })
+    byRoom.set(c.roomId, list)
+  }
+  return rooms.map(room => ({ ...room, claims: byRoom.get(room.roomId) ?? [] }))
+}
+
+/** Each booking once, for `refs`: its number, whose it is and its whole stay over its claims (how it shows is each segment's). */
+function bookingRefsOf(claims: readonly RoomCalendarClaim[]): Map<string, CalendarRefsDto['bookings'][string]> {
+  const refs = new Map<string, CalendarRefsDto['bookings'][string]>()
+  for (const c of claims) {
+    const known = refs.get(c.bookingId)
+    refs.set(c.bookingId, known
+      ? { ...known, checkIn: c.checkIn < known.checkIn ? c.checkIn : known.checkIn, checkOut: c.checkOut > known.checkOut ? c.checkOut : known.checkOut }
+      : { bookingNo: c.bookingNo, agencyName: c.agencyName, checkIn: c.checkIn, checkOut: c.checkOut })
+  }
+  return refs
 }
 
 /**

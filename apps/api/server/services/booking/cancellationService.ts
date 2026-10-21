@@ -46,6 +46,8 @@ async function cancel(db: Db, scope: OrganizationScope, row: BookingRow, actor: 
     if (actor.kind !== 'staff' && status === 'CONFIRMED') throw new ConflictError('CANCEL_BY_HOTEL', 'Ask the hotel to cancel a confirmed booking')
     if (!allowed.includes(status)) throw new ConflictError('BOOKING_NOT_CANCELLABLE', `A booking that is ${status} cannot be cancelled`)
     const updated = (await repos.records.cancel(locked.id, { at: now, by: actor.kind === 'staff' ? actor.id : null, reason }))!
+    // A booking that will not happen needs no passport photo: its readings go now, its images at the next sweep.
+    await repos.passportScans.expireForBookings([locked.id], todayInTimezone('UTC', now), now)
     await repos.hotelTasks.cancelOpenForBooking(locked.id, now)
     // The quote it used is spent either way (never reusable): ACCEPTED, as a confirmation would have marked it.
     if (locked.quoteId) await repos.quotes.markAccepted(locked.quoteId, now)

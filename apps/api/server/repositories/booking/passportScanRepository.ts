@@ -1,6 +1,6 @@
 import { and, asc, count, eq, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
-import { booking, documentAsset, passportScan } from '@hajj/db/schema'
+import { documentAsset, passportScan } from '@hajj/db/schema'
 import type { OrganizationScope } from '../../security/scope'
 import { OrgQuery } from '../base/scopedQuery'
 
@@ -120,13 +120,11 @@ export class PassportScanRepository {
    * being read is skipped until its reading ends (or dies), so no reading is stored after its image is gone.
    */
   async imagesDue(today: string, now: Date, limit: number): Promise<ScanImageDue[]> {
-    // A booking that will not happen (cancelled, or lapsed) needs no passport photo: its images are due at once.
-    const bookingEnded = inArray(booking.status, ['CANCELLED', 'EXPIRED'])
+    // A cancelled or lapsed booking's scans were made due when it ended (`delete_after` today): the date index drives this.
     return this.db.select({ scanId: passportScan.id, documentId: passportScan.documentId, storageKey: documentAsset.storageKey })
       .from(passportScan)
       .innerJoin(documentAsset, and(eq(documentAsset.organizationId, passportScan.organizationId), eq(documentAsset.id, passportScan.documentId)))
-      .innerJoin(booking, and(eq(booking.organizationId, passportScan.organizationId), eq(booking.id, passportScan.bookingId)))
-      .where(this.#q.cond(passportScan, or(lte(passportScan.deleteAfter, today), bookingEnded), isNull(documentAsset.archivedAt), or(ne(passportScan.status, 'PROCESSING'), staleReading(now))))
+      .where(this.#q.cond(passportScan, lte(passportScan.deleteAfter, today), isNull(documentAsset.archivedAt), or(ne(passportScan.status, 'PROCESSING'), staleReading(now))))
       .orderBy(asc(passportScan.deleteAfter), asc(passportScan.id))
       .limit(limit)
   }

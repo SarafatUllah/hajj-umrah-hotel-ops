@@ -84,3 +84,14 @@ export function moveCell(cell: CalendarCell, key: string, grid: { rows: number, 
   if (key === 'End') return { ...cell, night: grid.nights - 1 }
   return null
 }
+
+/** The bookings a run of nights names, as `refs.bookings` keys. */
+interface BookingNamed { bookingIds: readonly string[] }
+type BookingRefs = Readonly<Record<string, { bookingNo: string }>>
+
+/** A booked run's bar label (UI-UX §31.2): its first booking's number, "+n" when more share the room. */
+export function bookingLabel(segment: BookingNamed, bookings: BookingRefs): string | null {
+  const numbers = segment.bookingIds.flatMap(id => (bookings[id] ? [bookings[id].bookingNo] : []))
+  if (!numbers.length) return null
+  return numbers.length === 1 ? numbers[0]! : `${numbers[0]} +${numbers.length - 1}`
+}

@@ -14,8 +14,10 @@ const failed = ref(false)
 let turnstile: TurnstileApi | undefined
 let widgetId: string | undefined
 
-onMounted(async () => {
+/** Loads the check and shows it; a failed load (the network) can be tried again. */
+async function start(): Promise<void> {
   if (!siteKey || !container.value) return
+  failed.value = false
   try {
     turnstile = await loadTurnstile()
     widgetId = turnstile.render(container.value, {
@@ -29,7 +31,8 @@ onMounted(async () => {
   catch {
     failed.value = true
   }
-})
+}
+onMounted(start)
 onBeforeUnmount(() => { if (turnstile && widgetId) turnstile.remove(widgetId) })
 
 function reset(): void {
@@ -42,6 +45,9 @@ defineExpose({ reset })
 <template>
   <div v-if="siteKey" class="flex flex-col gap-2">
     <div ref="container" />
-    <p v-if="failed" class="text-small text-(--danger)" role="alert">{{ t('signIn.checkFailed') }}</p>
+    <div v-if="failed" class="flex flex-wrap items-center gap-2" role="alert">
+      <p class="text-small text-(--danger)">{{ t('signIn.checkFailed') }}</p>
+      <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-refresh-cw" @click="start">{{ t('signIn.checkRetry') }}</UButton>
+    </div>
   </div>
 </template>

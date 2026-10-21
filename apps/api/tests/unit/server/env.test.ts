@@ -268,9 +268,14 @@ describe('getEnv: Phase 2a security settings', () => {
     Object.assign(process.env, { SMS_DRIVER: 'webhook', SMS_WEBHOOK_URL: 'http://sms.example.test' })
     expect(() => getEnv()).toThrow(/SMS_WEBHOOK_URL \(https\)/)
     resetEnvCache()
-    // Texting codes in production needs the bot check (SMS pumping, a stranger's phone flooded).
+    // Texting codes outside development needs the bot check (SMS pumping, a stranger's phone flooded) — staging too.
     process.env.SMS_WEBHOOK_URL = 'https://sms.example.test'
     expect(() => getEnv()).toThrow(/CAPTCHA_DRIVER must be turnstile/)
+    resetEnvCache()
+    process.env.APP_ENV = 'staging'
+    expect(() => getEnv()).toThrow(/CAPTCHA_DRIVER must be turnstile/)
+    resetEnvCache()
+    process.env.APP_ENV = 'production'
     resetEnvCache()
     Object.assign(process.env, { CAPTCHA_DRIVER: 'turnstile', CAPTCHA_SECRET: 'turnstile-secret' })
     expect(getEnv().SMS_DRIVER).toBe('webhook')

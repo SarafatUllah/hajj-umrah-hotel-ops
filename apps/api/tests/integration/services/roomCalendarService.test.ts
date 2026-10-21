@@ -56,7 +56,7 @@ function calendar(ctx: AuthContext, hotelId: string, q: Partial<RoomCalendarQuer
 }
 
 const numbers = (r: RoomCalendarDto) => r.rooms.map(x => x.roomNumber)
-const seg = (from: string, to: string, rest: Partial<RoomCalendarDto['rooms'][number]['segments'][number]>) => ({ from, to, status: 'AVAILABLE', sellable: true, capacitySource: 'BASE', periodId: null, blockIds: [], ...rest })
+const seg = (from: string, to: string, rest: Partial<RoomCalendarDto['rooms'][number]['segments'][number]>) => ({ from, to, status: 'AVAILABLE', sellable: true, capacitySource: 'BASE', periodId: null, blockIds: [], bookingIds: [], ...rest })
 
 /** A JSON round trip leaves the payload unchanged and the text has no NaN/Infinity token. */
 function expectJsonSafe(payload: unknown) {
@@ -102,6 +102,7 @@ describe('1. three-room calendar with Phase 1 states (exact segments, run-length
           [h.b402.id]: { kind: 'OPERATIONAL_BLOCK', startDate: '2027-06-03', endDate: '2027-06-04', reason: 'VIP group' },
           [h.b403.id]: { kind: 'OUT_OF_SERVICE', startDate: '2027-06-05', endDate: '2027-06-06', reason: 'Broken AC' },
         },
+        bookings: {},
       },
       rooms: [
         {
@@ -204,7 +205,7 @@ describe('2. every filter', () => {
     expect(all.total).toBe(7)
     const withOut = await calendar(h.ctx, h.hotel.id, { ...MARCH, includeOutOfInventory: true })
     expect(numbers(withOut)).toEqual(['B1', '101', '102', '110', '4', '40', '41', '401'])
-    expect(withOut.rooms.find(r => r.roomNumber === '41')!.segments).toEqual([{ from: '2027-03-01', to: '2027-03-31', status: 'NOT_IN_INVENTORY', sellable: false, physicalBeds: null, sellableCapacity: null, capacitySource: null, periodId: null, blockIds: [] }])
+    expect(withOut.rooms.find(r => r.roomNumber === '41')!.segments).toEqual([{ from: '2027-03-01', to: '2027-03-31', status: 'NOT_IN_INVENTORY', sellable: false, physicalBeds: null, sellableCapacity: null, capacitySource: null, periodId: null, blockIds: [], bookingIds: [] }])
   })
 
   it('floor, room type, and a foreign / unknown floor or type id (nothing, never an error that leaks)', async () => {
@@ -378,7 +379,7 @@ describe('3. Hajj visible in the calendar; retirement and commissioning boundari
       seg('2027-05-01', '2027-07-31', { physicalBeds: 6, sellableCapacity: 6, capacitySource: 'PERIOD_OVERRIDE', periodId: hajj.id }),
       seg('2027-08-01', '2027-08-02', { physicalBeds: 4, sellableCapacity: 4 }),
     ])
-    const out = { status: 'NOT_IN_INVENTORY', sellable: false, physicalBeds: null, sellableCapacity: null, capacitySource: null, periodId: null, blockIds: [] }
+    const out = { status: 'NOT_IN_INVENTORY', sellable: false, physicalBeds: null, sellableCapacity: null, capacitySource: null, periodId: null, blockIds: [], bookingIds: [] }
     expect(rows.get('402')).toEqual([seg('2027-04-29', '2027-05-31', { physicalBeds: 5, sellableCapacity: 5 }), { from: '2027-06-01', to: '2027-08-02', ...out }])
     expect(rows.get('404')).toEqual([{ from: '2027-04-29', to: '2027-07-14', ...out }, seg('2027-07-15', '2027-08-02', { physicalBeds: 2, sellableCapacity: 2 })])
     expect(r.refs.periods).toEqual({ [hajj.id]: { name: 'Hajj 2027', kind: 'HAJJ', startDate: '2027-05-01', endDate: '2027-07-31' } })
@@ -587,7 +588,7 @@ describe('5. invariants over a generated hotel', () => {
 })
 
 describe('6. validation', () => {
-  it('schema: 401 days, from > to, 2027-02-30, pageSize=201, page=0, status=BOGUS, minCapacity=-1, statusMatch=some, half a range, min > max, unknown key, Phase 2 statuses, repeated keys', () => {
+  it('schema: 401 days, from > to, 2027-02-30, pageSize=201, page=0, status=BOGUS, minCapacity=-1, statusMatch=some, half a range, min > max, unknown key, repeated keys', () => {
     const ok = (q: Record<string, unknown>) => expect(roomCalendarQuerySchema.safeParse(q).success, JSON.stringify(q)).toBe(true)
     const bad = (q: Record<string, unknown>) => expect(roomCalendarQuerySchema.safeParse(q).success, JSON.stringify(q)).toBe(false)
     const range = { from: '2027-01-01', to: '2027-01-31' }
@@ -610,8 +611,9 @@ describe('6. validation', () => {
     bad({ ...range, status: 'BOGUS' })
     bad({ ...range, status: 'AVAILABLE,BOGUS' })
     bad({ ...range, status: '' })
-    for (const phase2 of ['OCCUPIED', 'BOOKED', 'HELD']) bad({ ...range, status: phase2 })
     bad({ ...range, status: ['AVAILABLE', 'MAINTENANCE'] }) // repeated key
+    // The bookings' statuses filter the calendar too (step 17e).
+    for (const booked of ['OCCUPIED', 'BOOKED', 'HELD']) ok({ ...range, status: booked })
     bad({ ...range, minCapacity: '-1' })
     bad({ ...range, minCapacity: '' })
     bad({ ...range, maxCapacity: '31' })
@@ -648,7 +650,7 @@ describe('6. validation', () => {
       [{ ...MARCH, minCapacity: -1 }, 'INVALID_CAPACITY_RANGE'],
       [{ ...MARCH, page: 0 }, 'INVALID_PAGE'],
       [{ ...MARCH, pageSize: 201 }, 'INVALID_PAGE'],
-      [{ ...MARCH, status: ['BOOKED'] as never }, 'INVALID_STATUS'],
+      [{ ...MARCH, status: ['SOLD'] as never }, 'INVALID_STATUS'],
     ]
     for (const [q, code] of cases) await expect(calendar(h.ctx, h.hotel.id, q), code).rejects.toMatchObject({ code, httpStatus: 422 })
     await expect(getDailySummary(h.ctx, h.hotel.id, { from: '2027-01-01', to: '2028-02-05' })).rejects.toMatchObject({ code: 'RANGE_TOO_LONG', httpStatus: 422 })
@@ -731,11 +733,11 @@ describe('6. validation', () => {
 
     // C: 5,100 structural rooms but 100 overlap the range: served (the default counts only those). The
     // candidate read hit its LIMIT, so the 100 are found by ONE bounded single-table id statement:
-    // hotel + candidates + in-inventory ids + candidates by id + settings + 3 range reads = 8.
+    // hotel + candidates + in-inventory ids + candidates by id + settings + 3 range reads + the bookings' claims = 9.
     logged.length = 0
     const served = await calendar(ctx, hotel.id, range)
     expect(served.total).toBe(100)
-    expect(logged, stmts().join('\n')).toHaveLength(8)
+    expect(logged, stmts().join('\n')).toHaveLength(9)
     logged.length = 0
     expect((await getDailySummary(ctx, hotel.id, range)).days[0]!.roomsInInventory).toBe(100)
     expect(logged).toHaveLength(8)
@@ -771,12 +773,13 @@ describe('6. validation', () => {
     expect(await inventoryRepo.listRoomCandidates({ limit: MAX_CALENDAR_ROOMS + 1 })).toHaveLength(MAX_CALENDAR_ROOMS + 1)
     expect(await inventoryRepo.listRoomIdsInInventory(range, { limit: MAX_CALENDAR_ROOMS + 1 })).toHaveLength(MAX_CALENDAR_ROOMS + 1)
 
-    // D: more than 5,000 in the hotel, but a structural filter narrows to <= 5,000 -> served in 6 statements.
+    // D: more than 5,000 in the hotel, but a structural filter narrows to <= 5,000 -> served in 6 statements, plus one
+    // for the bookings on the rooms when there are rooms (their agencies' names one more, when any agency holds one).
     for (const [filter, total] of [[{ floorId: small!.id }, 100], [{ floorId: extra!.id }, 4901], [{ q: '2' }, 100], [{ floorId: big!.id }, 0], [{ floorId: big!.id, includeOutOfInventory: true }, MAX_CALENDAR_ROOMS]] as const) {
       logged.length = 0
       const narrowed = await calendar(ctx, hotel.id, { ...range, ...filter, pageSize: 1 })
       expect(narrowed.total, JSON.stringify(filter)).toBe(total)
-      expect(logged, JSON.stringify(filter)).toHaveLength(6)
+      expect(logged, JSON.stringify(filter)).toHaveLength(total > 0 ? 7 : 6)
     }
 
     // Rare: a filter that STILL leaves more than 5,000 structural rooms in a hotel with more than 5,000 in inventory. Floor
@@ -816,7 +819,7 @@ describe('7. empty hotel', () => {
     const { scope } = await makeOrg(db)
     const { hotel, ctx } = await hotelWithManager(scope)
     const r = await calendar(ctx, hotel.id, { from: '2027-01-01', to: '2027-12-31', includeOutOfInventory: true })
-    expect(r).toEqual({ range: { from: '2027-01-01', to: '2027-12-31' }, page: 1, pageSize: 50, total: 0, meta: { today: '2026-09-25', maintenanceBlocksSales: true }, refs: { periods: {}, blocks: {} }, rooms: [] })
+    expect(r).toEqual({ range: { from: '2027-01-01', to: '2027-12-31' }, page: 1, pageSize: 50, total: 0, meta: { today: '2026-09-25', maintenanceBlocksSales: true }, refs: { periods: {}, blocks: {}, bookings: {} }, rooms: [] })
     const s = await getDailySummary(ctx, hotel.id, { from: '2027-02-27', to: '2027-03-02' })
     expect(s.days).toEqual(['2027-02-27', '2027-02-28', '2027-03-01', '2027-03-02'].map(date => ({ date, roomsInInventory: 0, sellableRooms: 0, outOfService: 0, maintenance: 0, operationalBlock: 0, effectiveSellableCapacity: 0, sellableRoomCapacity: 0 })))
     const year = await getDailySummary(ctx, hotel.id, { from: '2027-01-01', to: '2028-02-04' })
@@ -919,6 +922,7 @@ describe('11. S13: page-scoped refs, meta.today, meta.maintenanceBlocksSales', (
     expect(page1.refs).toEqual({
       periods: { [h.p1.id]: { name: 'P1', kind: 'HAJJ', startDate: '2027-06-01', endDate: '2027-06-10' } },
       blocks: { [h.aActive.id]: { kind: 'MAINTENANCE', startDate: '2027-06-03', endDate: '2027-06-04', reason: 'A active' } },
+      bookings: {},
     })
     // The block / override on A's out-of-inventory nights were loaded but no segment references them.
     expect(page1.rooms[0]!.segments.at(-1)).toMatchObject({ from: '2027-06-21', to: '2027-06-30', status: 'NOT_IN_INVENTORY', periodId: null, blockIds: [] })
@@ -928,6 +932,7 @@ describe('11. S13: page-scoped refs, meta.today, meta.maintenanceBlocksSales', (
     expect(page2.refs).toEqual({
       periods: { [h.p2.id]: { name: 'P2', kind: 'SPECIAL', startDate: '2027-06-11', endDate: '2027-06-15' } },
       blocks: { [h.bBlock.id]: { kind: 'OPERATIONAL_BLOCK', startDate: '2027-06-12', endDate: '2027-06-12', reason: 'B block' } },
+      bookings: {},
     })
 
     const both = await calendar(h.ctx, h.hotel.id, JUNE)

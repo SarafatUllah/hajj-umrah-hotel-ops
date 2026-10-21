@@ -148,9 +148,16 @@ describe('customer sign-in by SMS code', () => {
     await expect(verifyFrom(owner)).resolves.toMatchObject({ phone: issued.phone })
   })
 
-  it('guessing a phone\'s code from any number of addresses stays bounded by the codes it can be sent times each code\'s tries', () => {
+  it('a phone-wide limit, higher, bounds guessing spread over many addresses (429), below what the codes alone would allow', async () => {
+    const { organization, scope } = await makeOrg(db)
+    const issued = await issue(organization.slug)
+    const key = bucketKey(RATE_LIMITS.otpVerifyPerPhoneTotal, `${scope.organizationId}\u0000${issued.phone}`)
+    for (let i = 0; i < RATE_LIMITS.otpVerifyPerPhoneTotal.limit; i++) await platformRepos(db).rateLimits.hit(key, windowStartFor(RATE_LIMITS.otpVerifyPerPhoneTotal, new Date()))
+    await expect(verifyCustomerOtp({ organizationSlug: organization.slug, challengeId: issued.challengeId, code: issued.code, fullName: 'X' }, request())).rejects.toBeInstanceOf(TooManyRequestsError)
+
     const codesPerHour = Math.min(60 * 60 / RATE_LIMITS.otpResendCooldown.windowSeconds, RATE_LIMITS.otpRequestPerPhone.limit * (60 * 60 / RATE_LIMITS.otpRequestPerPhone.windowSeconds))
-    expect(codesPerHour * OTP_MAX_ATTEMPTS).toBeLessThanOrEqual(60)
+    expect(RATE_LIMITS.otpVerifyPerPhoneTotal.limit).toBeLessThan(codesPerHour * OTP_MAX_ATTEMPTS)
+    expect(RATE_LIMITS.otpVerifyPerPhoneTotal.limit).toBeGreaterThan(RATE_LIMITS.otpVerifyPerPhone.limit)
   })
 
   it('sign out everywhere ends every session of the customer', async () => {

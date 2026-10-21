@@ -84,7 +84,6 @@ export async function addAgencyUser(ctx: AuthContext, agencyId: string, input: C
   }).catch(rethrowDbError)
 }
 
-/** Activates or deactivates an agency user; deactivation ends every session of that user. Audited. */
 /**
  * A new password for an agency user who lost theirs (D-P2-25b; `agency.manage` with every hotel): staff give it to
  * the user themselves, off the system. Every session of the user ends. Audited without the password.
@@ -102,6 +101,7 @@ export async function resetAgencyUserPassword(ctx: AuthContext, agencyId: string
   })
 }
 
+/** Activates or deactivates an agency user; deactivation ends every session of that user. Audited. */
 export async function updateAgencyUser(ctx: AuthContext, agencyId: string, userId: string, input: UpdateAgencyUserInput): Promise<AgencyUserDto> {
   requireAgencyManager(ctx)
   return ctx.db.transaction(async (tx) => {

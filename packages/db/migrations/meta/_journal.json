@@ -148,6 +148,13 @@
       "when": 1792601863882,
       "tag": "0020_review_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792606866125,
+      "tag": "0021_ended_booking_scans",
+      "breakpoints": true
     }
   ]
 }

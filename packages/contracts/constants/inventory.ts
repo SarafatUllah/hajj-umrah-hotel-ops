@@ -1,6 +1,10 @@
-/** Lower index = higher display precedence. Phase 2 slots OCCUPIED/BOOKED/HELD in without a schema change. */
+/** Lower index = higher display precedence: a block outranks a booking, a booking outranks an available night. */
 export const INVENTORY_STATUSES = ['NOT_IN_INVENTORY', 'OUT_OF_SERVICE', 'MAINTENANCE', 'OPERATIONAL_BLOCK', 'OCCUPIED', 'BOOKED', 'HELD', 'AVAILABLE'] as const
 export type InventoryStatus = typeof INVENTORY_STATUSES[number]
+
+/** How a booking shows on the room calendar (UI-UX §19, §31.2): in the house, confirmed, or held or requested. */
+export const BOOKING_INVENTORY_STATUSES = ['OCCUPIED', 'BOOKED', 'HELD'] as const satisfies readonly InventoryStatus[]
+export type BookingInventoryStatus = typeof BOOKING_INVENTORY_STATUSES[number]
 
 /** Operational block kinds, highest display precedence first. */
 export const BLOCK_KINDS = ['OUT_OF_SERVICE', 'MAINTENANCE', 'OPERATIONAL_BLOCK'] as const
@@ -42,8 +46,8 @@ export const MAX_AVERAGE_STAY_NIGHTS = 90
 export const MAX_ELIGIBLE_ROOM_IDS = 2000
 /** Cap on an explicit `hotelIds` list for the organization averages (Task 17). */
 export const MAX_AVERAGE_HOTEL_IDS = 200
-/** The statuses the Phase 1 room calendar shows and filters by (Task 18). Phase 2 adds OCCUPIED/BOOKED/HELD. */
-export const CALENDAR_FILTER_STATUSES = ['AVAILABLE', 'OPERATIONAL_BLOCK', 'MAINTENANCE', 'OUT_OF_SERVICE', 'NOT_IN_INVENTORY'] as const satisfies readonly InventoryStatus[]
+/** The statuses the room calendar shows and filters by (Task 18; the bookings' since step 17e). */
+export const CALENDAR_FILTER_STATUSES = ['AVAILABLE', 'HELD', 'BOOKED', 'OCCUPIED', 'OPERATIONAL_BLOCK', 'MAINTENANCE', 'OUT_OF_SERVICE', 'NOT_IN_INVENTORY'] as const satisfies readonly InventoryStatus[]
 export type CalendarFilterStatus = typeof CALENDAR_FILTER_STATUSES[number]
 /** Most candidate rooms one room-calendar / daily-summary request derives (Task 18): more is a 422 `TOO_MANY_ROOMS`, never a truncated answer. */
 export const MAX_CALENDAR_ROOMS = 5000

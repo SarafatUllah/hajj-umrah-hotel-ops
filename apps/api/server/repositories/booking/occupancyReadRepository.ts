@@ -10,6 +10,9 @@ export interface RoomNightSplit { roomId: string, night: IsoDate, booked: number
 /** Pilgrims arriving and leaving on one day (confirmed bookings). */
 export interface DayMovement { day: IsoDate, arrivals: number, departures: number }
 
+/** A live claim on one of the hotel's rooms, for the room calendar: whose, and its stay `[checkIn, checkOut)`. */
+export interface CalendarClaimRow { roomId: string, bookingId: string, bookingNo: string, claimStatus: BookingStatus, agencyId: string | null, checkIn: IsoDate, checkOut: IsoDate }
+
 /** A live room claim on one night, with its booking. */
 export interface NightClaim {
   bookingRoomId: string
@@ -98,6 +101,24 @@ export class OccupancyReadRepository {
       ) m
       group by m.day`)
     return rows.map(r => ({ day: r.day, arrivals: r.arrivals, departures: r.departures }))
+  }
+
+  /**
+   * The live claims on the hotel's rooms touching `range` (the room calendar, UI-UX §31.2): held or requested (not
+   * lapsed), confirmed or in the house; a released claim or a lapsed hold never shows.
+   */
+  async calendarClaims(range: NightRange): Promise<CalendarClaimRow[]> {
+    const rows = await this.db.execute<{ room_id: string, booking_id: string, booking_no: string, claim_status: string, agency_id: string | null, check_in: string, check_out: string }>(sql`
+      select br.room_id, b.id as booking_id, b.booking_no, br.status as claim_status, b.agency_id, br.check_in::text as check_in, br.check_out::text as check_out
+      from public.booking_room br
+      join public.booking b on b.organization_id = br.organization_id and b.id = br.booking_id
+      where br.organization_id = ${this.scope.organizationId}::uuid and br.hotel_id = ${this.scope.hotelId}::uuid
+        and b.organization_id = ${this.scope.organizationId}::uuid and b.hotel_id = ${this.scope.hotelId}::uuid
+        and br.check_in <= ${range.to}::date and br.check_out > ${range.from}::date
+        and br.status in ('HELD', 'REQUESTED', 'CONFIRMED', 'IN_HOUSE')
+        and ${LIVE_BOOKING}
+      order by br.room_id, br.check_in, b.booking_no`)
+    return rows.map(r => ({ roomId: r.room_id, bookingId: r.booking_id, bookingNo: r.booking_no, claimStatus: r.claim_status as BookingStatus, agencyId: r.agency_id, checkIn: r.check_in, checkOut: r.check_out }))
   }
 
   /** The live room claims covering `night`. */

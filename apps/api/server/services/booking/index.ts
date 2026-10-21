@@ -19,6 +19,7 @@ export { checkInGuest, checkOutGuest, lookupReceipt, markGuestNoShow, type Check
 export { completeHotelTask, listHotelTasks, type HotelTaskDto } from './hotelTaskService'
 export { sendDetailsReminders } from './detailsReminder'
 export { getOccupancy, getOccupancyDay, type OccupancyDayViewDto, type OccupancyRangeDto } from './occupancyService'
+export { roomCalendarClaims, type RoomCalendarClaim } from './calendarClaims'
 export { notifyBookingCancelled, notifyBookingConfirmed } from './bookingEvents'
 export { cancelBooking, releaseAgencyHold, releaseCustomerBookings, withdrawCustomerRequest } from './cancellationService'
 export { readAgencyGuests, readBookingSlots, type AgencyGuestView, type BookingSlotsView } from './publicRead'

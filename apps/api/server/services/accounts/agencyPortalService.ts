@@ -86,7 +86,6 @@ export async function loginAgencyUser(input: AgencyLoginInput, request: LoginReq
   return { id: user.id, organizationId: user.organizationId, agencyId: user.agencyId, email: user.email, fullName: user.fullName, sessionVersion: user.sessionVersion }
 }
 
-/** The portal's view of the signed-in user and their agency (allowed whatever the agency's status). */
 /**
  * An agency user changes their own password (D-P2-25b), whatever the agency's status: the current one proves it is
  * them (wrong: 422 `CURRENT_PASSWORD_WRONG`, at most 5 tries per user in 15 minutes), then every session of theirs
@@ -106,6 +105,7 @@ export async function changeAgencyPassword(ctx: AgencyContext, input: AgencyPass
   })
 }
 
+/** The portal's view of the signed-in user and their agency (allowed whatever the agency's status). */
 export function getAgencyMe(ctx: AgencyContext): AgencyMe {
   return {
     user: { id: ctx.identity.agencyUserId, agencyId: ctx.identity.agencyId, email: ctx.identity.email, fullName: ctx.identity.fullName },

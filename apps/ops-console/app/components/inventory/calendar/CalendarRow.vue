@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { BOOKING_INVENTORY_STATUSES } from '@hajj/contracts/constants/inventory'
 import type { CalendarRefsDto, CalendarRoomDto, CalendarSegment } from '@hajj/contracts/types/inventory'
 import { addDays } from '@hajj/contracts/utils/dates'
-import { barContent, nightIndexAt, placeOf } from '../../../utils/calendar'
+import { barContent, bookingLabel, nightIndexAt, placeOf } from '../../../utils/calendar'
 
 /**
  * One room's row of the calendar (§31.3): the room cell (ticked to block it with others), then one bar per run of
@@ -34,8 +35,15 @@ const STATUS_CLASS: Record<string, string> = {
   MAINTENANCE: 'bg-(--warning-soft) text-(--warning)',
   OUT_OF_SERVICE: 'bg-[repeating-linear-gradient(135deg,var(--danger-soft)_0_6px,color-mix(in_srgb,var(--danger)_25%,transparent)_6px_8px)] text-(--danger)',
   NOT_IN_INVENTORY: 'border border-dashed border-(--border-strong) bg-[repeating-linear-gradient(45deg,transparent_0_5px,var(--border)_5px_6px)] text-(--fg-muted)',
+  // The bookings (UI-UX §19): held a dashed outline, booked a soft fill, in the house a solid one.
+  HELD: 'border border-dashed border-(--info) bg-(--info-soft) text-(--info)',
+  BOOKED: 'bg-(--primary-soft) text-(--primary)',
+  OCCUPIED: 'bg-(--primary) text-(--primary-fg)',
 }
-const STATUS_ICON: Record<string, string> = { OPERATIONAL_BLOCK: 'i-lucide-lock', MAINTENANCE: 'i-lucide-wrench', OUT_OF_SERVICE: 'i-lucide-ban', NOT_IN_INVENTORY: 'i-lucide-circle-dashed' }
+const STATUS_ICON: Record<string, string> = {
+  OPERATIONAL_BLOCK: 'i-lucide-lock', MAINTENANCE: 'i-lucide-wrench', OUT_OF_SERVICE: 'i-lucide-ban', NOT_IN_INVENTORY: 'i-lucide-circle-dashed',
+  HELD: 'i-lucide-clock', BOOKED: 'i-lucide-calendar-check', OCCUPIED: 'i-lucide-user-round',
+}
 const barClass = (segment: CalendarSegment) => [
   segment.status === 'MAINTENANCE' && segment.sellable ? 'border border-(--warning) text-(--warning)' : STATUS_CLASS[segment.status] ?? '',
   segment.capacitySource === 'PERIOD_OVERRIDE' ? 'border-t-[3px] border-t-(--season)' : '',
@@ -45,14 +53,21 @@ const barClass = (segment: CalendarSegment) => [
 function describe(segment: CalendarSegment): string {
   const season = segment.periodId ? props.refs.periods[segment.periodId]?.name : null
   const block = segment.blockIds.map(id => props.refs.blocks[id]?.reason).filter(Boolean).join('; ')
+  const bookings = segment.bookingIds.flatMap((id) => {
+    const booking = props.refs.bookings[id]
+    return booking ? [`${booking.bookingNo} (${booking.agencyName ?? t('calendar.customer')})`] : []
+  }).join('; ')
   const beds = segment.physicalBeds ?? 0
   const capacity = segment.sellableCapacity === null ? '' : t('capacity.pair', { haji: t('capacity.haji', { count: segment.sellableCapacity }), beds: t('capacity.beds', { count: beds }, beds) })
-  return [t('rooms.roomNamed', { room: props.room.roomNumber }), t(`status.inventory.${segment.status}`), `${format.date(segment.from, 'short')} – ${format.date(segment.to, 'short')}`, block, capacity, season ? t('rooms.seasonSource', { season }) : ''].filter(Boolean).join(t('calendar.separator'))
+  return [t('rooms.roomNamed', { room: props.room.roomNumber }), t(`status.inventory.${segment.status}`), `${format.date(segment.from, 'short')} – ${format.date(segment.to, 'short')}`, bookings, block, capacity, season ? t('rooms.seasonSource', { season }) : ''].filter(Boolean).join(t('calendar.separator'))
 }
 
 const bars = computed(() => props.room.segments.flatMap((segment) => {
   const place = placeOf(segment, props.from, props.nights)
-  return place ? [{ segment, place, content: barContent(place.span, props.columnWidth), title: describe(segment), classes: barClass(segment) }] : []
+  // A booked run is labelled with its booking's number (UI-UX §31.2), any other — a blocked night too — with its status.
+  const booked = (BOOKING_INVENTORY_STATUSES as readonly string[]).includes(segment.status)
+  const label = (booked ? bookingLabel(segment, props.refs.bookings) : null) ?? t(`status.inventory.${segment.status}`)
+  return place ? [{ segment, place, label, content: barContent(place.span, props.columnWidth), title: describe(segment), classes: barClass(segment) }] : []
 }))
 
 /** The night under the pointer, wherever in the bar (icon, label) the click landed. */
@@ -93,7 +108,7 @@ const active = computed(() => {
       @click="event => openAt(event, bar.place)"
     >
       <UIcon v-if="bar.content !== 'none' && STATUS_ICON[bar.segment.status]" :name="STATUS_ICON[bar.segment.status]!" class="size-3.5 shrink-0" />
-      <span v-if="bar.content === 'full' && bar.segment.status !== 'AVAILABLE'" class="truncate">{{ t(`status.inventory.${bar.segment.status}`) }}</span>
+      <span v-if="bar.content === 'full' && bar.segment.status !== 'AVAILABLE'" class="truncate">{{ bar.label }}</span>
       <span v-if="bar.content !== 'none' && bar.segment.sellableCapacity !== null" class="shrink-0">{{ bar.content === 'full' ? t('capacity.haji', { count: bar.segment.sellableCapacity }) : bar.segment.sellableCapacity }}</span>
     </div>
     <div

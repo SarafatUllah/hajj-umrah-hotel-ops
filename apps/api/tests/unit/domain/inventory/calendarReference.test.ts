@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildRoomSegments, summarizeDaily, type CalendarSegment, type DailySummary, type RoomCalendarInput } from '../../../../server/domain/inventory/calendar'
 import { capacitySegments } from '../../../../server/domain/inventory/capacity'
-import type { BlockKind } from '@hajj/contracts/constants/inventory'
+import type { BlockKind, BookingInventoryStatus } from '@hajj/contracts/constants/inventory'
 import { fromEpochDay, toEpochDay, type NightRange } from '@hajj/contracts/utils/dates'
 
 /**
@@ -12,6 +12,7 @@ import { fromEpochDay, toEpochDay, type NightRange } from '@hajj/contracts/utils
  */
 
 const KINDS: readonly BlockKind[] = ['OUT_OF_SERVICE', 'MAINTENANCE', 'OPERATIONAL_BLOCK']
+const CLAIMS: readonly BookingInventoryStatus[] = ['OCCUPIED', 'BOOKED', 'HELD']
 const BASE = toEpochDay('2027-01-01')
 const day = (n: number) => fromEpochDay(BASE + n)
 
@@ -52,7 +53,13 @@ function genRoom(rng: Rng, index: number, span: number): RoomCalendarInput {
     // Different kinds overlap freely here (the pure derivation accepts any input).
     blocks.push({ id: `b${index}-${k}`, kind: pick(KINDS), from: day(start), to: day(start + int(0, 25)) })
   }
-  return { roomId: `r${index}`, versions, overrides, blocks }
+  const claims: NonNullable<RoomCalendarInput['claims']> = []
+  for (let k = 0, n = int(0, 6); k < n; k++) {
+    const start = int(-20, span + 10)
+    // Bookings may overlap here too (the derivation shows the strongest and names them all).
+    claims.push({ bookingId: `k${index}-${int(0, 3)}`, status: pick(CLAIMS), from: day(start), to: day(start + int(0, 20)) })
+  }
+  return { roomId: `r${index}`, versions, overrides, blocks, claims }
 }
 
 type State = Omit<CalendarSegment, 'from' | 'to'>
@@ -63,11 +70,12 @@ const stateKey = (s: object) => JSON.stringify(Object.entries(s).filter(([k]) =>
 /** One night, by plain string comparison. */
 function naiveState(room: RoomCalendarInput, date: string, maintenanceBlocksSales: boolean): State {
   const base = room.versions.find(v => v.validFrom <= date && (v.validTo === null || date <= v.validTo))
-  if (!base) return { status: 'NOT_IN_INVENTORY', sellable: false, physicalBeds: null, sellableCapacity: null, capacitySource: null, periodId: null, blockIds: [] }
+  if (!base) return { status: 'NOT_IN_INVENTORY', sellable: false, physicalBeds: null, sellableCapacity: null, capacitySource: null, periodId: null, blockIds: [], bookingIds: [] }
   const override = room.overrides.find(o => o.validFrom <= date && date <= o.validTo)
   const covering = room.blocks.filter(b => b.from <= date && date <= b.to)
-  const kinds = new Set(covering.map(b => b.kind))
-  const status = kinds.has('OUT_OF_SERVICE') ? 'OUT_OF_SERVICE' : kinds.has('MAINTENANCE') ? 'MAINTENANCE' : kinds.has('OPERATIONAL_BLOCK') ? 'OPERATIONAL_BLOCK' : 'AVAILABLE'
+  const claimed = (room.claims ?? []).filter(c => c.from <= date && date <= c.to)
+  const shown = new Set<string>([...covering.map(b => b.kind), ...claimed.map(c => c.status)])
+  const status = (['OUT_OF_SERVICE', 'MAINTENANCE', 'OPERATIONAL_BLOCK', 'OCCUPIED', 'BOOKED', 'HELD'] as const).find(s => shown.has(s)) ?? 'AVAILABLE'
   return {
     status,
     sellable: covering.every(b => b.kind === 'MAINTENANCE' && !maintenanceBlocksSales),
@@ -76,6 +84,7 @@ function naiveState(room: RoomCalendarInput, date: string, maintenanceBlocksSale
     capacitySource: override ? 'PERIOD_OVERRIDE' : 'BASE',
     periodId: override ? override.periodId : null,
     blockIds: covering.map(b => b.id).sort(),
+    bookingIds: [...new Set(claimed.map(c => c.bookingId))].sort(),
   }
 }
 

@@ -47,13 +47,16 @@ export const RATE_LIMITS = {
   /** Code verifications from one client address (each challenge also allows only OTP_MAX_ATTEMPTS). */
   otpVerifyPerIp: { name: 'otp-verify-ip', limit: 60, windowSeconds: 15 * 60 },
   /**
-   * Code verifications for one phone from one address, across challenges. Per address, so a stranger guessing at
-   * someone's phone never locks its owner out. No phone-wide verification limit on purpose (it would hand that
-   * lockout back): guessing from any number of addresses is bounded by the codes a phone can be sent
-   * (`otpResendCooldown`, `otpRequestPerPhone`: at most 12 an hour) times each code's `OTP_MAX_ATTEMPTS` (5, counted
-   * atomically) — at most 60 tries an hour against a one-in-a-million code.
+   * Code verifications for one phone from one address, across challenges: per address, so one stranger guessing at
+   * someone's phone does not lock its owner out.
    */
   otpVerifyPerPhone: { name: 'otp-verify-phone', limit: 10, windowSeconds: 60 * 60 },
+  /**
+   * And for one phone from every address together, higher: guessing spread over many addresses stays at 30 tries an
+   * hour (under the 12 codes × `OTP_MAX_ATTEMPTS` a phone could otherwise be tried with). A stranger who fills it
+   * could already keep the owner from getting codes (`otpRequestPerPhone`): that trade was taken for the bound.
+   */
+  otpVerifyPerPhoneTotal: { name: 'otp-verify-phone-total', limit: 30, windowSeconds: 60 * 60 },
   /** Quote requests per agency (each takes a reference number and lands in the sellers' queue). */
   quoteRequestPerAgency: { name: 'quote-agency', limit: 30, windowSeconds: 60 * 60 },
   /** Stay searches per agency (each runs the allocator: CPU on the request path, ticket 3). */

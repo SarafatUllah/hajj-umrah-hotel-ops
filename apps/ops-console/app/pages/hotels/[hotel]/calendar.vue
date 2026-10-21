@@ -72,7 +72,7 @@ const calendar = useInfiniteQuery({
 const rooms = computed<CalendarRoomDto[]>(() => calendar.data.value?.pages.flatMap(p => p.rooms) ?? [])
 const refs = computed(() => {
   const pages = calendar.data.value?.pages ?? []
-  return { periods: Object.assign({}, ...pages.map(p => p.refs.periods)), blocks: Object.assign({}, ...pages.map(p => p.refs.blocks)) }
+  return { periods: Object.assign({}, ...pages.map(p => p.refs.periods)), blocks: Object.assign({}, ...pages.map(p => p.refs.blocks)), bookings: Object.assign({}, ...pages.map(p => p.refs.bookings)) }
 })
 const total = computed(() => calendar.data.value?.pages[0]?.total ?? 0)
 const summary = useApiQuery(

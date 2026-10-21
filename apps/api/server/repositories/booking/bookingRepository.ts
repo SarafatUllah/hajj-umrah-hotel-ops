@@ -102,8 +102,8 @@ function effectiveStatusIs(status: BookingStatus, now: Date): SQL {
 const SWEEP_BATCH = 500
 
 /**
- * Pending bookings whose hold lapsed become EXPIRED, each with a `booking_change` row (actor: system), in one
- * statement. "Lapsed" is judged at the later of the application's `now` and the database's clock, so whatever the
+ * Pending bookings whose hold lapsed become EXPIRED, each with a `booking_change` row (actor: system), and their
+ * passport scans lose their reading and become due for deletion (a booking that will not happen), in one statement. "Lapsed" is judged at the later of the application's `now` and the database's clock, so whatever the
  * seat count (`room_night_occupancy`, database time) already treats as free is expired here too. Rows another
  * transaction holds are skipped (a confirmation in progress, or another expiry): whoever holds them decides, and
  * the sweep never waits on a hold (no lock cycle). `extra` narrows the bookings (hotel, rooms).
@@ -122,6 +122,12 @@ async function expireLapsed(db: DbOrTx, organizationId: string, now: Date, extra
       from lapsed
       where b.organization_id = ${organizationId}::uuid and b.id = lapsed.id and b.status in ('HELD', 'REQUESTED')
       returning b.id, lapsed.status as was
+    ), scans as (
+      -- A lapsed booking needs no passport photo: its readings go now, its images at the next sweep (in the same statement).
+      update public.passport_scan s set extracted_encrypted = null, delete_after = least(coalesce(s.delete_after, ((${at}) at time zone 'UTC')::date), ((${at}) at time zone 'UTC')::date), updated_at = ${at}
+      from expired
+      where s.organization_id = ${organizationId}::uuid and s.booking_id = expired.id
+      returning s.id
     )
     insert into public.booking_change (organization_id, booking_id, kind, before_data, after_data, actor_kind)
     select ${organizationId}::uuid, id, 'EXPIRED', jsonb_build_object('status', was), jsonb_build_object('status', 'EXPIRED'), 'system' from expired

@@ -1,7 +1,7 @@
 import { type IsoDate, type NightRange, eachDate, fromEpochDay, toEpochDay } from '@hajj/contracts/utils/dates'
 import { type PreparedCapacity, capacityOnDay, cutDays, prepareCapacity } from './capacity'
 import { type AverageResult, type RoomCapacityInput, makeAverage } from './averages'
-import { type BlockKind, type InventoryStatus, INVENTORY_STATUSES } from '@hajj/contracts/constants/inventory'
+import { type BlockKind, type BookingInventoryStatus, type InventoryStatus, INVENTORY_STATUSES } from '@hajj/contracts/constants/inventory'
 import type { DailySummary, CalendarSegment  } from '@hajj/contracts/types/inventory'
 
 export type { CalendarSegment }
@@ -10,7 +10,10 @@ export type { DailySummary }
 
 
 export interface BlockInput { id: string, kind: BlockKind, from: IsoDate, to: IsoDate }
-export interface RoomCalendarInput extends RoomCapacityInput { blocks: BlockInput[] }
+/** A live booking's claim on the room: how it shows, from its first night to its last (inclusive). */
+export interface ClaimInput { bookingId: string, status: BookingInventoryStatus, from: IsoDate, to: IsoDate }
+/** `claims`: the room calendar's bookings (UI-UX §31.2); the availability and summary rules leave them out. */
+export interface RoomCalendarInput extends RoomCapacityInput { blocks: BlockInput[], claims?: ClaimInput[] }
 export interface CalendarOptions {
   /** hotel_setting inventory.maintenanceBlocksSales: when false a MAINTENANCE block is shown but the room stays sellable. */
   maintenanceBlocksSales: boolean
@@ -22,17 +25,23 @@ type SegmentState = Omit<CalendarSegment, 'from' | 'to'>
 
 /** A block with its dates parsed to epoch days and its status rank looked up, once per room (not once per night examined). */
 interface PreparedBlock { from: number, to: number, id: string, kind: BlockKind, rank: number }
+/** A booking's claim, parsed the same way. */
+interface PreparedClaim { from: number, to: number, bookingId: string, status: BookingInventoryStatus, rank: number }
 
-function stateOnDay(capacity: PreparedCapacity, blocks: PreparedBlock[], day: number, options: CalendarOptions): SegmentState {
+const covers = (day: number) => (interval: { from: number, to: number }) => interval.from <= day && day <= interval.to
+
+function stateOnDay(capacity: PreparedCapacity, blocks: PreparedBlock[], claims: PreparedClaim[], day: number, options: CalendarOptions): SegmentState {
   const cap = capacityOnDay(capacity, day)
   if (!cap) {
-    return { status: 'NOT_IN_INVENTORY', sellable: false, physicalBeds: null, sellableCapacity: null, capacitySource: null, periodId: null, blockIds: [] }
+    return { status: 'NOT_IN_INVENTORY', sellable: false, physicalBeds: null, sellableCapacity: null, capacitySource: null, periodId: null, blockIds: [], bookingIds: [] }
   }
-  const covering = blocks.filter(b => b.from <= day && day <= b.to)
+  const covering = blocks.filter(covers(day))
+  const claimed = claims.filter(covers(day))
+  // The night shows its highest-precedence state: a block, else the strongest booking, else available.
   let status: InventoryStatus = 'AVAILABLE'
   let statusRank = rank(status)
-  for (const b of covering) {
-    if (b.rank < statusRank) { status = b.kind; statusRank = b.rank }
+  for (const { rank: r, state } of [...covering.map(b => ({ rank: b.rank, state: b.kind as InventoryStatus })), ...claimed.map(c => ({ rank: c.rank, state: c.status as InventoryStatus }))]) {
+    if (r < statusRank) { status = state; statusRank = r }
   }
   const sellable = !covering.some(b => b.kind !== 'MAINTENANCE' || options.maintenanceBlocksSales)
   return {
@@ -43,12 +52,13 @@ function stateOnDay(capacity: PreparedCapacity, blocks: PreparedBlock[], day: nu
     capacitySource: cap.source,
     periodId: cap.periodId,
     blockIds: covering.map(b => b.id).sort(),
+    bookingIds: [...new Set(claimed.map(c => c.bookingId))].sort(),
   }
 }
 
 const sameState = (a: SegmentState, b: SegmentState) =>
   a.status === b.status && a.sellable === b.sellable && a.physicalBeds === b.physicalBeds && a.sellableCapacity === b.sellableCapacity
-  && a.capacitySource === b.capacitySource && a.periodId === b.periodId && a.blockIds.join() === b.blockIds.join()
+  && a.capacitySource === b.capacitySource && a.periodId === b.periodId && a.blockIds.join() === b.blockIds.join() && a.bookingIds.join() === b.bookingIds.join()
 
 /** A run-length segment whose boundaries are epoch days. */
 interface DaySegment { from: number, to: number, state: SegmentState }
@@ -62,11 +72,12 @@ interface DaySegment { from: number, to: number, state: SegmentState }
 function deriveDaySegments(input: RoomCalendarInput, start: number, end: number, options: CalendarOptions): DaySegment[] {
   const capacity = prepareCapacity(input.versions, input.overrides)
   const blocks: PreparedBlock[] = input.blocks.map(b => ({ from: toEpochDay(b.from), to: toEpochDay(b.to), id: b.id, kind: b.kind, rank: rank(b.kind) }))
-  const points = cutDays(start, end, capacity.versions, capacity.overrides, blocks)
+  const claims: PreparedClaim[] = (input.claims ?? []).map(c => ({ from: toEpochDay(c.from), to: toEpochDay(c.to), bookingId: c.bookingId, status: c.status, rank: rank(c.status) }))
+  const points = cutDays(start, end, capacity.versions, capacity.overrides, blocks, claims)
   const out: DaySegment[] = []
   points.forEach((s, i) => {
     const e = (points[i + 1] ?? end + 1) - 1
-    const state = stateOnDay(capacity, blocks, s, options)
+    const state = stateOnDay(capacity, blocks, claims, s, options)
     const last = out[out.length - 1]
     if (last && sameState(last.state, state)) last.to = e
     else out.push({ from: s, to: e, state })

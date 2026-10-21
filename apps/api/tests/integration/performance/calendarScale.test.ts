@@ -53,7 +53,7 @@ function planNodes(plan: Record<string, unknown>): Array<{ node: string, relatio
 const OTHER_TENANTS = 4
 
 describe('9. room calendar and daily summary at scale (2,000 rooms, ~3,600 overrides, 40,000 blocks)', () => {
-  it('a 100-room x 120-day page < 300 ms and a 400-day daily summary < 2 s, each in exactly 6 SQL statements (measured, refs on), fresh and ANALYZEd; ANALYZEd range reads never Seq Scan the three range tables', async () => {
+  it('a 100-room x 120-day page < 300 ms and a 400-day daily summary < 2 s, the page in exactly 7 SQL statements and the summary in 6 (measured, refs on), fresh and ANALYZEd; ANALYZEd range reads never Seq Scan the three range tables', async () => {
     for (let n = 0; n < OTHER_TENANTS; n++) {
       const { scope: other } = await makeOrg(db)
       await db.transaction(tx => generateCalendarScaleHotel(tx, other))
@@ -99,10 +99,11 @@ describe('9. room calendar and daily summary at scale (2,000 rooms, ~3,600 overr
     const analyzed = await runAll()
 
     for (const runs of [fresh, analyzed]) {
-      for (const run of [...runs.calendar, ...runs.summary]) {
+      for (const [run, statements] of [...runs.calendar.map(r => [r, 7] as const), ...runs.summary.map(r => [r, 6] as const)]) {
         // Exactly: authorizeHotel's hotel read, the settings read, the candidates (room+floor+room_type),
-        // and the three range reads (versions, overrides(+capacity_period), blocks).
-        expect(run.statements.map(s => s.query), run.statements.map(s => s.query).join('\n')).toHaveLength(6)
+        // and the three range reads (versions, overrides(+capacity_period), blocks); the page also reads the rooms'
+        // bookings (one statement: no agency holds a room here, so no names statement).
+        expect(run.statements.map(s => s.query), run.statements.map(s => s.query).join('\n')).toHaveLength(statements)
         expect(run.statements.filter(s => s.query.includes('pg_type'))).toEqual([])
       }
       for (const run of runs.calendar) expect(run.ms).toBeLessThan(300)

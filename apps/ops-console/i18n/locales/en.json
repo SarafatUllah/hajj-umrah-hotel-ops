@@ -679,6 +679,8 @@
     "maintenanceSellable": "This hotel keeps rooms in maintenance on sale.",
     "blockFrom": "Block from this night",
     "openRoom": "Open the room",
+    "nightBookings": "Bookings this night",
+    "customer": "A customer",
     "today": "Today",
     "previous": "Earlier nights",
     "next": "Later nights",

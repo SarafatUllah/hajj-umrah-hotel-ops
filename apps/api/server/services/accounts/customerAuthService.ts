@@ -84,7 +84,7 @@ export async function requestCustomerOtp(input: OtpRequestInput, request: LoginR
 /**
  * Checks a code and signs the customer in, creating the account on first use (a new customer must give a name:
  * 422 `FULL_NAME_REQUIRED`, the challenge stays usable). Every check counts an attempt atomically (at most
- * OTP_MAX_ATTEMPTS per challenge), plus limits per client address and per phone and address across challenges; unknown,
+ * OTP_MAX_ATTEMPTS per challenge), plus limits per client address, per phone and address, and (higher) per phone across challenges; unknown,
  * expired, used and wrong codes all answer 401 `OTP_INVALID`. Consuming the code, creating the customer and
  * recording the sign-in are one transaction: a refusal after the code check leaves the code usable.
  */
@@ -95,8 +95,10 @@ export async function verifyCustomerOtp(input: OtpVerifyInput, request: LoginReq
 
   const challenge = await accountsRepos(db, scope).otpChallenges.registerAttempt(input.challengeId, request.now, OTP_MAX_ATTEMPTS)
   if (!challenge) throw invalidCode()
-  const phoneAddressKey = `${scope.organizationId}\u0000${challenge.phone}\u0000${request.clientIp}`
+  const phoneKey = `${scope.organizationId}\u0000${challenge.phone}`
+  const phoneAddressKey = `${phoneKey}\u0000${request.clientIp}`
   await consumeRateLimit(db, RATE_LIMITS.otpVerifyPerPhone, phoneAddressKey, request.now)
+  await consumeRateLimit(db, RATE_LIMITS.otpVerifyPerPhoneTotal, phoneKey, request.now)
   if (!otpCodeMatches(challenge.id, input.code, challenge.codeHash)) throw invalidCode()
 
   const signedIn = await db.transaction(async (tx) => {
@@ -111,6 +113,7 @@ export async function verifyCustomerOtp(input: OtpVerifyInput, request: LoginReq
   }).catch(rethrowDbError)
 
   await clearRateLimit(db, RATE_LIMITS.otpVerifyPerPhone, phoneAddressKey)
+  await clearRateLimit(db, RATE_LIMITS.otpVerifyPerPhoneTotal, phoneKey)
   const { customerRow, isNew } = signedIn
   return { id: customerRow.id, organizationId: customerRow.organizationId, phone: challenge.phone, fullName: customerRow.fullName, sessionVersion: customerRow.sessionVersion, isNew }
 }

@@ -74,6 +74,47 @@ describe('buildRoomSegments', () => {
   })
 })
 
+describe('bookings on the room calendar (UI-UX §19, §31.2)', () => {
+  const briefClaims = (segs: ReturnType<typeof buildRoomSegments>) => segs.map(s => `${s.from}..${s.to} ${s.status} [${s.bookingIds.join(',')}]`)
+
+  it('a held, booked or occupied stay shows over available nights, each booking named; occupied outranks booked outranks held', () => {
+    const r = room({
+      claims: [
+        { bookingId: 'held', status: 'HELD', from: '2027-06-01', to: '2027-06-03' },
+        { bookingId: 'booked', status: 'BOOKED', from: '2027-06-03', to: '2027-06-05' },
+        { bookingId: 'in', status: 'OCCUPIED', from: '2027-06-05', to: '2027-06-06' },
+      ],
+    })
+    expect(briefClaims(buildRoomSegments(r, makeRange('2027-05-31', '2027-06-07'), opts))).toEqual([
+      '2027-05-31..2027-05-31 AVAILABLE []',
+      '2027-06-01..2027-06-02 HELD [held]',
+      '2027-06-03..2027-06-03 BOOKED [booked,held]',
+      '2027-06-04..2027-06-04 BOOKED [booked]',
+      '2027-06-05..2027-06-05 OCCUPIED [booked,in]',
+      '2027-06-06..2027-06-06 OCCUPIED [in]',
+      '2027-06-07..2027-06-07 AVAILABLE []',
+    ])
+  })
+
+  it('a block still outranks a booking (the night is shown blocked, the booking still named), and nothing outside inventory', () => {
+    const r = room({
+      versions: [{ validFrom: '2027-06-01', validTo: null, physicalBeds: 4, sellableCapacity: 4 }],
+      blocks: [{ id: 'b1', kind: 'MAINTENANCE', from: '2027-06-02', to: '2027-06-02' }],
+      claims: [{ bookingId: 'x', status: 'BOOKED', from: '2027-05-30', to: '2027-06-03' }],
+    })
+    expect(briefClaims(buildRoomSegments(r, makeRange('2027-05-31', '2027-06-03'), opts))).toEqual([
+      '2027-05-31..2027-05-31 NOT_IN_INVENTORY []',
+      '2027-06-01..2027-06-01 BOOKED [x]',
+      '2027-06-02..2027-06-02 MAINTENANCE [x]',
+      '2027-06-03..2027-06-03 BOOKED [x]',
+    ])
+  })
+
+  it('without claims a room reads as before (the availability and summary rules ignore bookings)', () => {
+    expect(buildRoomSegments(room(), makeRange('2027-06-01', '2027-06-02'), opts)[0]!.bookingIds).toEqual([])
+  })
+})
+
 describe('summarizeDaily', () => {
   it('counts rooms per status and capacity per day', () => {
     const rooms = [

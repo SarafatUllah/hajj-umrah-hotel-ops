@@ -1530,6 +1530,7 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
   // v7 §14 occupancy calendar (hotel scope): org B with org A's hotel id sees nothing of it.
   'OccupancyReadRepository.nightlySeats': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new OccupancyReadRepository(db, trustedHotelScope(scope, ids.hotelId)).nightlySeats({ from: '2027-01-01', to: '2027-12-31' }), expect: 'empty' }),
   'OccupancyReadRepository.movements': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new OccupancyReadRepository(db, trustedHotelScope(scope, ids.hotelId)).movements({ from: '2027-01-01', to: '2027-12-31' }), expect: 'empty' }),
+  'OccupancyReadRepository.calendarClaims': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new OccupancyReadRepository(db, trustedHotelScope(scope, ids.hotelId)).calendarClaims({ from: '2027-01-01', to: '2027-12-31' }), expect: 'empty' }),
   'OccupancyReadRepository.claimsOn': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new OccupancyReadRepository(db, trustedHotelScope(scope, ids.hotelId)).claimsOn('2027-06-02'), expect: 'empty' }),
   'OccupancyReadRepository.guestsOn': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new OccupancyReadRepository(db, trustedHotelScope(scope, ids.hotelId)).guestsOn('2027-06-02'), expect: 'empty' }),
   'BookingInventoryRepository.agencyPersonsByNight': isolationCase({

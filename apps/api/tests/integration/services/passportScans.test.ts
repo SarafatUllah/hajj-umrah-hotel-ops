@@ -11,7 +11,7 @@ import { setPassportReadersForTests } from '../../../server/integrations/passpor
 import { type AgencyContext, resolveAgencyContext } from '../../../server/security/agencyContext'
 import type { AuthContext } from '../../../server/security/authContext'
 import type { OrganizationScope } from '../../../server/security/scope'
-import { agencyScanImage, confirmAgencyScan, discardAgencyScan, holdAgencyStay, listAgencyGuests, listAgencyScans, listScans, purgeExpiredPassportImages, readPassportScan, scanImage, setPassportReadQueue, uploadAgencyScan } from '../../../server/services/booking'
+import { agencyScanImage, confirmAgencyScan, discardAgencyScan, expireLapsedBookings, holdAgencyStay, listAgencyGuests, listAgencyScans, listScans, purgeExpiredPassportImages, readPassportScan, releaseAgencyHold, scanImage, setPassportReadQueue, uploadAgencyScan } from '../../../server/services/booking'
 import { getStorageDriver, resetStorageDriverCache } from '../../../server/storage'
 import { makeAgency } from '../../support/bookingFixtures'
 import { makeOrg, makeUser } from '../../support/fixtures'
@@ -222,14 +222,18 @@ describe('passport scans (v7 §13, ticket 1)', () => {
     expect(await purgeExpiredPassportImages(db, [env.scope], NOW)).toBe(0)
   })
 
-  it('a booking that will not happen (cancelled, or lapsed) loses its passport images at the next sweep, whatever their retention', async () => {
-    const env = await setup()
-    const [lapsed, other] = [await upload(env.agency, env.bookingId), await setup()]
-    const kept = await upload(other.agency, other.bookingId)
-    await db.update(booking).set({ status: 'EXPIRED' }).where(eq(booking.id, env.bookingId))
+  it('a booking that will not happen (lapsed, or released) loses its passport readings at once and its images at the next sweep', async () => {
+    const [lapsedEnv, releasedEnv, liveEnv] = [await setup(), await setup(), await setup()]
+    const [lapsed, released, kept] = [await upload(lapsedEnv.agency, lapsedEnv.bookingId), await upload(releasedEnv.agency, releasedEnv.bookingId), await upload(liveEnv.agency, liveEnv.bookingId)]
+    // The hold sweep expires a lapsed hold; the agency releases the other.
+    await db.update(booking).set({ holdExpiresAt: new Date('2020-01-01T00:00:00Z') }).where(eq(booking.id, lapsedEnv.bookingId))
+    expect(await expireLapsedBookings(db, [lapsedEnv.scope], NOW)).toBe(1)
+    await releaseAgencyHold(releasedEnv.agency, releasedEnv.bookingId)
+    for (const scan of [lapsed, released]) expect(await scanRow(scan.id)).toMatchObject({ extractedEncrypted: null, deleteAfter: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) })
 
-    expect(await purgeExpiredPassportImages(db, [env.scope, other.scope], NOW)).toBe(1)
+    expect(await purgeExpiredPassportImages(db, [lapsedEnv.scope, releasedEnv.scope, liveEnv.scope], NOW)).toBe(2)
     expect(await getStorageDriver().exists((await assetOf(lapsed.id)).storageKey)).toBe(false)
+    expect(await getStorageDriver().exists((await assetOf(released.id)).storageKey)).toBe(false)
     expect(await getStorageDriver().exists((await assetOf(kept.id)).storageKey)).toBe(true)
   })
 
