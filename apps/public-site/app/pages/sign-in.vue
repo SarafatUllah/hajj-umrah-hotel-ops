@@ -4,15 +4,12 @@ import type { CustomerSignIn } from '@hajj/contracts/types/customer'
 definePageMeta({ middleware: 'guest' })
 const { t } = useI18n()
 const route = useRoute()
-const { customer } = useCustomerSession()
-const { $queryClient } = useNuxtApp()
+const session = useCustomerSession()
 useSeoMeta({ title: () => t('signIn.title'), robots: 'noindex' })
 
 async function signedIn(result: CustomerSignIn) {
-  // Nothing cached for a previous visitor of this browser shows to the one signing in.
-  $queryClient.clear()
-  customer.value = result.customer
-  await navigateTo(safeRedirect(route.query.redirect))
+  session.signedIn(result.customer)
+  await navigateTo(safeRedirect(route.query.redirect, '/bookings'))
 }
 </script>
 

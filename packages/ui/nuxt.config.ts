@@ -35,6 +35,10 @@ export default defineNuxtConfig({
      * (`NUXT_API_PROXY_TRUST_PROXY`) that sets `X-Forwarded-For`.
      */
     apiProxy: { target: 'http://localhost:3000', allow: [] as string[], trustProxy: false },
+    public: {
+      /** Each app's session endpoints and pages (usePrincipalSession, the auth/guest middleware, session-ended). */
+      session: { mePath: '', signOutPath: '', signOutEverywherePath: '', signInPath: '/login', homePath: '/' },
+    },
   },
   typescript: { strict: true },
 })

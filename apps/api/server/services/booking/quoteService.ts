@@ -1,5 +1,6 @@
 import type { PriceUnit, QuoteStatus } from '@hajj/contracts/constants/pricing'
 import type { ListQuotesQuery, QuoteDeclineInput, QuoteOfferInput, QuoteRequestInput, StaffQuoteCreateInput } from '@hajj/contracts/schemas/quote'
+import type { OfferedQuote, QuoteDto, QuotePage, RequestedQuote } from '@hajj/contracts/types/quote'
 import { todayInTimezone } from '@hajj/contracts/utils/dates'
 import { highestPublicRate } from '../../domain/booking/pricing'
 import { toRateRule } from './pricingRows'
@@ -21,30 +22,7 @@ import { sweepOrganizations } from './sweep'
 /** The database handle a repository accepts (a service may not import db/client itself). */
 type Db = Parameters<typeof bookingOrgRepos>[0]
 
-export interface QuoteDto {
-  id: string
-  refNo: string
-  agencyId: string
-  hotelId: string
-  bookingType: string
-  checkIn: string
-  checkOut: string
-  maleCount: number
-  femaleCount: number
-  totalCount: number
-  /** Effective status: an OFFERED quote past its validity reads EXPIRED. */
-  status: QuoteStatus
-  amountHalalas: number | null
-  unit: PriceUnit | null
-  vatIncluded: boolean | null
-  validUntil: string | null
-  notes: string | null
-  createdAt: string
-}
-
-export interface RequestedQuote { quote: QuoteDto, whatsappLink: string | null }
-export interface OfferedQuote { quote: QuoteDto, aboveHighestPublicRate: boolean }
-export interface QuotePage { items: QuoteDto[], total: number, page: number, pageSize: number }
+export type { OfferedQuote, QuoteDto, QuotePage, RequestedQuote }
 
 function toQuoteDto(row: PriceQuoteRow, now: Date): QuoteDto {
   return {

@@ -6,6 +6,10 @@ export type PassportScanMethod = typeof PASSPORT_SCAN_METHODS[number]
 export const PASSPORT_SCAN_STATUSES = ['QUEUED', 'PROCESSING', 'NEEDS_REVIEW', 'CONFIRMED', 'FAILED', 'DISCARDED'] as const
 export type PassportScanStatus = typeof PASSPORT_SCAN_STATUSES[number]
 
+/** What a passport photo may be (v7 §13): a PNG or JPEG of the passport page. */
+export const PASSPORT_IMAGE_TYPES = ['image/png', 'image/jpeg'] as const
+export type PassportImageType = typeof PASSPORT_IMAGE_TYPES[number]
+
 /** Personal data whose every read is logged in `pii_access_log` (v7 §13 PDPL). */
 export const PII_SUBJECT_TYPES = ['PILGRIM', 'BOOKING_GUEST_DETAIL', 'PASSPORT_SCAN'] as const
 export type PiiSubjectType = typeof PII_SUBJECT_TYPES[number]

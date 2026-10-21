@@ -1,32 +1,8 @@
 import type { AgencyStatus } from '@hajj/contracts/constants/accounts'
+import type { AgencyDto, AgencyUserDto } from '@hajj/contracts/types/agency'
 import type { AgencyRow, AgencyUserRow } from '../../repositories/accounts'
 
-export interface AgencyDto {
-  id: string
-  name: string
-  licenseNo: string
-  contactName: string
-  phone: string
-  email: string
-  whatsappNumber: string | null
-  address: string | null
-  status: AgencyStatus
-  statusReason: string | null
-  approvedAt: string | null
-  createdAt: string
-}
-
-/** Never carries the password hash or the session version. */
-export interface AgencyUserDto {
-  id: string
-  agencyId: string
-  email: string
-  fullName: string
-  phone: string | null
-  isActive: boolean
-  lastLoginAt: string | null
-  createdAt: string
-}
+export type { AgencyDto, AgencyUserDto }
 
 export function toAgencyDto(row: AgencyRow): AgencyDto {
   return {

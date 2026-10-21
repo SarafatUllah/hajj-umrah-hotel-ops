@@ -21,9 +21,9 @@ watch(() => props.token, async (token) => {
 
 <template>
   <figure class="flex flex-col items-center gap-2">
-    <img v-if="image" :src="image" :alt="t('bookings.qrAlt', { no: bookingNo })" width="224" height="224" class="rounded-md bg-white p-2">
+    <img v-if="image" :src="image" :alt="t('receipt.qrAlt', { no: bookingNo })" width="224" height="224" class="rounded-md bg-white p-2">
     <p v-else-if="failed" class="tabular break-all text-small" dir="ltr">{{ token }}</p>
     <USkeleton v-else class="size-56" />
-    <figcaption class="text-small text-(--fg-muted)">{{ t('bookings.receiptNote') }}</figcaption>
+    <figcaption class="text-small text-(--fg-muted)">{{ t('receipt.note') }}</figcaption>
   </figure>
 </template>

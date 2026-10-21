@@ -8,7 +8,7 @@ export function useErrorMessage() {
   const { t, te } = useI18n()
   return (error: unknown): string => {
     const apiError = toApiError(error)
-    if (apiError.status === 0) return t('errors.network')
+    if (apiError.code === 'NETWORK') return t('errors.network')
     const key = `errors.codes.${apiError.code}`
     if (te(key)) return t(key, messageArgs(apiError.details))
     if (apiError.status === 401) return t('errors.unauthenticated')

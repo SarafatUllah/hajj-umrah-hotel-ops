@@ -1,6 +1,6 @@
-import type { PriceSource } from '@hajj/contracts/constants/pricing'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { HoldRequestInput, StaySearchInput } from '@hajj/contracts/schemas/booking'
+import type { HeldBooking } from '@hajj/contracts/types/booking'
 import { type IsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { planStay, type StayHeadcount } from '../../domain/booking/allocation/planner'
 import { checkStayPlan, type ChosenRoom } from '../../domain/booking/allocation/stayPlanCheck'
@@ -22,17 +22,7 @@ import { sweepOrganizations } from './sweep'
 
 type Db = Parameters<typeof bookingRepos>[0]
 
-export interface HeldBooking {
-  id: string
-  bookingNo: string
-  status: string
-  holdExpiresAt: string
-  checkIn: string
-  checkOut: string
-  totalHalalas: number
-  priceSource: PriceSource
-  rooms: ChosenRoom[]
-}
+export type { HeldBooking }
 
 /**
  * v7 §9: the two or three best complete options for a stay, priced (nothing is locked or saved). An agency's

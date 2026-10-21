@@ -1,4 +1,6 @@
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+import { MAX_UPLOAD_BYTES } from '@hajj/contracts/constants/documents'
+
+export { MAX_UPLOAD_BYTES }
 /** Longest display filename kept (UTF-16 code units). */
 export const MAX_FILENAME_LENGTH = 120
 

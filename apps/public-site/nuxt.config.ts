@@ -16,6 +16,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     apiProxy: { allow: ['/api/public/', '/api/customer/'] },
     public: {
+      session: { mePath: '/customer/auth/me', signOutPath: '/customer/auth/logout', signOutEverywherePath: '/customer/auth/logout-all', signInPath: '/sign-in', homePath: '/bookings' },
       /** The organization whose hotels this site sells (`NUXT_PUBLIC_ORGANIZATION_SLUG`). */
       organizationSlug: 'demo',
       siteName: 'Hajj & Umrah Stays',

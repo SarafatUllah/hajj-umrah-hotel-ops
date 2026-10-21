@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { GENDERS } from '@hajj/contracts/constants/booking'
-import type { GuestFieldValues } from '~/utils/guest'
+import type { GuestFieldValues } from '../utils/guest'
 
 /** A pilgrim's passport fields (v7 §7), for a `UForm` whose schema decides which are required. */
 const model = defineModel<GuestFieldValues>({ required: true })

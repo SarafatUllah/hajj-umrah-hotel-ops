@@ -1,4 +1,5 @@
 import type { AgencyLoginInput, AgencyRegistrationInput } from '@hajj/contracts/schemas/agency'
+import type { AgencyMe } from '@hajj/contracts/types/agency'
 import { normalizeEmail } from '@hajj/contracts/utils/email'
 import { translateDbError } from '../../errors/dbErrors'
 import { ValidationError } from '../../errors/domainError'
@@ -11,7 +12,7 @@ import { useDb } from '../../utils/db'
 import { hashPassword, TIMING_SAFETY_DUMMY_HASH, verifyPassword } from '../../utils/password'
 import { normalizeLicenseNo } from '../../domain/accounts/agencyRules'
 import { recordAudit } from '../audit'
-import { type AgencyDto, type AgencyUserDto, toAgencyDto, toAgencyUserDto } from './agencyDto'
+import { toAgencyDto, toAgencyUserDto } from './agencyDto'
 
 /** What an agency-portal session carries (identity only; everything else is resolved per request). */
 export interface AgencySessionUser {
@@ -23,8 +24,7 @@ export interface AgencySessionUser {
   sessionVersion: number
 }
 
-/** Never the staff's `statusReason` (internal notes on a decision). */
-export interface AgencyMe { user: Omit<AgencyUserDto, 'isActive' | 'lastLoginAt' | 'createdAt' | 'phone'>, agency: Pick<AgencyDto, 'id' | 'name' | 'status'> }
+export type { AgencyMe }
 
 /**
  * Public self-registration on the agency portal (v7 §15): the agency starts PENDING and gets no agency price,

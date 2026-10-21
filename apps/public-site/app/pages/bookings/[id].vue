@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { guestDetailsSchema } from '@hajj/contracts/schemas/guest'
 import type { BookingDetailDto, GuestSlotDto, ReceiptDto } from '@hajj/contracts/types/booking'
 import type { PublicHotel } from '@hajj/contracts/types/hotel'
-import type { GuestFieldValues } from '~/utils/guest'
 
 definePageMeta({ middleware: 'auth' })
 const { t } = useI18n()
@@ -104,7 +103,7 @@ const saveDetails = useMutation({
         <ul v-else class="surface-panel divide-y divide-(--border)">
           <li v-for="slot in guests.data.value ?? []" :key="slot.id" class="flex flex-wrap items-center justify-between gap-3 p-4">
             <div class="flex flex-col gap-1">
-              <span class="text-caption text-(--fg-muted)">{{ t('guest.place', { n: slot.slotNo }) }} · {{ t(`booking.ageGroup.${slot.ageGroup}`) }}</span>
+              <span class="text-caption text-(--fg-muted)">{{ slotLabel(slot, t) }}</span>
               <span><bdi>{{ slot.details?.fullName ?? '—' }}</bdi> <span v-if="slot.details?.passportNo" class="tabular text-(--fg-muted)" dir="ltr">{{ slot.details.passportNo }}</span></span>
             </div>
             <div class="flex items-center gap-2">
@@ -113,13 +112,13 @@ const saveDetails = useMutation({
             </div>
           </li>
         </ul>
-        <p class="text-small text-(--fg-muted)">{{ t('guest.askHotel') }}</p>
+        <p class="text-small text-(--fg-muted)">{{ t('bookings.askHotel') }}</p>
       </section>
 
       <section v-if="receipt.data.value" aria-labelledby="receipt-heading" class="surface-panel flex flex-col items-center gap-4 p-6">
-        <h2 id="receipt-heading" class="text-section self-start">{{ t('bookings.receipt') }}</h2>
+        <h2 id="receipt-heading" class="text-section self-start">{{ t('receipt.title') }}</h2>
         <ReceiptQr :token="receipt.data.value.qrToken" :booking-no="receipt.data.value.bookingNo" />
-        <UButton color="neutral" variant="outline" icon="i-lucide-printer" class="print:hidden" @click="printReceipt">{{ t('bookings.printReceipt') }}</UButton>
+        <UButton color="neutral" variant="outline" icon="i-lucide-printer" class="print:hidden" @click="printReceipt">{{ t('receipt.print') }}</UButton>
       </section>
 
       <ConfirmDialog

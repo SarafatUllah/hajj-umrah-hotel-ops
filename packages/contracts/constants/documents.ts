@@ -4,5 +4,7 @@ export type DocType = typeof DOC_TYPES[number]
 
 export const MAX_DOCUMENT_TITLE_LENGTH = 200
 export const MAX_DOCUMENT_DESCRIPTION_LENGTH = 2000
+/** Largest file any upload may carry (hotel documents, passport photos); the API refuses more, the frontends say so first. */
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 /** Most documents one list page returns. */
 export const MAX_DOCUMENTS_PER_PAGE = 100

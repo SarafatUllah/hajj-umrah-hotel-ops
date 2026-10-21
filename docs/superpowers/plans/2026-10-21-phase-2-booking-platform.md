@@ -37,7 +37,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
-| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done |
+| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done |
 | 17 | Final review (code, security, database, architecture) and docs | |
 
 ## Local environment note
@@ -567,6 +567,37 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   nationality is upper-cased; focus moves to the code field; the step-up can be cancelled; a signed-in visitor
   skips the sign-in page; the cache is cleared on every sign-in; the redirect after sign-in also refuses control
   characters; the chosen option is marked for assistive technology; the QR falls back to the token as text.
+- **D-P2-54 (frontends) The agency portal (step 16b, v7 §6–§15).** `apps/agency-portal` (dev port 3002) extends the
+  shared layer like the public site; only sign-in and registration render on the server, every signed-in page in the
+  browser (not indexed); its proxy forwards `/api/agency/` and `/api/public/` only. What both booking apps share moved
+  into the layer instead of being copied: the stay form (`StayFormFields`; `fixed` when an offered quote sets the
+  hotel, nights and type), the option card, the guest fields, the receipt QR, the hold countdown, the place label
+  (number, age group and, in a group, the side), the search-and-choose state (`useStayOptions`: any change of what
+  was asked forgets the options, and a 409 when acting on one — its rooms went meanwhile — does too), and the session
+  plumbing (`usePrincipalSession`, `auth`/`guest` middleware, the session-ended plugin; each app names its
+  endpoints in `runtimeConfig.public.session`). The upload limit and the passport photo types moved to
+  `@hajj/contracts` (the API imports them: one definition). Pages: registration (then where the agency stands — waiting,
+  suspended or refused, each in its own words — asked again on open and on demand; an agency suspended mid-visit is
+  sent there by the `hajj:api-error` hook on `AGENCY_NOT_APPROVED`), bookings with a status filter, a new booking (the agency price or an offered quote, the
+  agency's remaining quota on those nights, hold), a booking (countdown to the hold's end — Confirm goes when the
+  browser sees it end, even before the server expires it — confirm, release, receipt, pilgrims with their full
+  details, passport photos, adding pilgrims), quotes (list, ask for a price with the WhatsApp link, detail). Passport
+  photos: type and size checked before sending; several at once, each failure listed and the rest still sent unless
+  the booking takes no more (409); polled every 3 s while read, every 30 s once a reading has taken two minutes;
+  reviewed beside the photo, saved to the first place still needing details. Pilgrims and photos change only while
+  the booking holds its places (`SEAT_HOLDING_STATUSES`, the API's rule). Verified in a browser against the built API
+  and the demo agency: sign-in, search at the agency price, hold, details, confirm, receipt, adding pilgrims, a photo
+  upload by keyboard, its review and save, a quote request; after the review fixes: a staff-offered quote fixing the
+  form and pricing the search (450 × 30 pilgrims × 10 nights), a hold refused because another tab took its rooms
+  (options forgotten, the reason shown above the search), an expired hold (no confirm, no pilgrim or photo actions),
+  the agency suspended mid-visit and approved again ("check again" returns to its bookings), a photo and a text file
+  sent together ("1 of 2 added", the file named with its reason). Review outcomes (no CRITICAL/HIGH; every call matched its
+  route and schema): the items above, plus a refused request from a shared schema now reads as 422
+  `VALIDATION_FAILED` (it read as "couldn't reach the server", as did any unexpected error: only a fetch without an
+  answer is a network error now, and only that is retried), paged lists keep their rows dimmed while the next page
+  loads, and the review slideovers describe themselves. Not changed: the quote request keeps its own short form
+  (men and women only, no children or infants, unlike `StayFormFields`); the offered quotes for a booking are one page
+  of 100, the API's largest.
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on

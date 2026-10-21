@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { chosenRoomsOf, safeRedirect, searchRequestOf, type StayForm } from '../app/utils/stay'
+import { safeRedirect } from '../app/utils/navigation'
+import { chosenRoomsOf, searchRequestOf, type StayForm } from '../app/utils/stay'
 
 const form: StayForm = { hotelId: 'h', checkIn: '2027-06-01', checkOut: '2027-06-04', bookingType: 'FAMILY', totalCount: 4, maleCount: 2, femaleCount: 1, childCount: 1, infantCount: 1, childSide: 'MOTHER' }
 
@@ -16,13 +17,13 @@ describe('the booking form', () => {
   })
 
   it('after sign-in it returns only to a path of this site', () => {
-    expect(safeRedirect('/bookings/1')).toBe('/bookings/1')
-    expect(safeRedirect('//evil.example')).toBe('/bookings')
-    expect(safeRedirect('https://evil.example')).toBe('/bookings')
-    expect(safeRedirect('/\\evil.example')).toBe('/bookings')
-    expect(safeRedirect('/\t/evil.example')).toBe('/bookings')
-    expect(safeRedirect('/\n/evil.example')).toBe('/bookings')
+    expect(safeRedirect('/bookings/1', '/bookings')).toBe('/bookings/1')
+    expect(safeRedirect('//evil.example')).toBe('/')
+    expect(safeRedirect('https://evil.example')).toBe('/')
+    expect(safeRedirect('/\\evil.example')).toBe('/')
+    expect(safeRedirect('/\t/evil.example')).toBe('/')
+    expect(safeRedirect('/\n/evil.example')).toBe('/')
     expect(safeRedirect('/bookings?page=2')).toBe('/bookings?page=2')
-    expect(safeRedirect(undefined)).toBe('/bookings')
+    expect(safeRedirect(undefined)).toBe('/')
   })
 })

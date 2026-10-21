@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
 import { SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
-import type { PassportScanMethod } from '@hajj/contracts/constants/pilgrimData'
+import { PASSPORT_IMAGE_TYPES, type PassportImageType, type PassportScanMethod } from '@hajj/contracts/constants/pilgrimData'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import { guestDetailsSchema } from '@hajj/contracts/schemas/guest'
+import type { PassportScanDto } from '@hajj/contracts/types/booking'
 import { todayInTimezone } from '@hajj/contracts/utils/dates'
 import { addMonths } from '../../domain/booking/guestRules'
 import { REVIEW_THRESHOLD, type ScanConfidence, type ScanFields } from '../../domain/booking/passportScan'
@@ -26,19 +27,7 @@ type Actor = { kind: ActorKind, id: string | null }
 
 export interface ScanUpload { bytes: Uint8Array, mimeType: string, filename: string }
 
-/** One scan as the review card shows it (v7 §13): what was read, how sure, and the slot it was placed in. */
-export interface PassportScanDto {
-  id: string
-  status: string
-  method: PassportScanMethod | null
-  guestId: string | null
-  fields: ScanFields | null
-  confidence: ScanConfidence | null
-  /** Fields to check by eye (read below the review threshold, or not read at all). */
-  needsAttention: string[]
-  failureReason: string | null
-  createdAt: string
-}
+export type { PassportScanDto }
 
 /** The job that reads one scan (heavy tier: worker process only). Set by `server/jobs/passportJobs.ts`. */
 type QueueRead = (tx: Db, data: { organizationId: string, scanId: string }) => Promise<unknown>
@@ -49,8 +38,7 @@ export function setPassportReadQueue(queue: QueueRead | null): void {
   queueRead = queue
 }
 
-type ImageType = 'image/png' | 'image/jpeg'
-const IMAGE_TYPES: readonly string[] = ['image/png', 'image/jpeg'] satisfies ImageType[]
+const IMAGE_TYPES: readonly string[] = PASSPORT_IMAGE_TYPES
 /** A phone photo is 12–50 MP; anything larger is refused before OCR ever decodes it (a decompression bomb). */
 const MAX_IMAGE_PIXELS = 60_000_000
 /** Unresolved scans a booking may hold beyond one per pilgrim (re-takes of a blurred photo). */
@@ -102,7 +90,7 @@ function validateScanImage(file: ScanUpload): ValidatedUpload {
     throw error
   }
   if (!IMAGE_TYPES.includes(validated.mimeType)) throw new ValidationError('TYPE_NOT_ALLOWED', 'Upload a photo of the passport page (PNG or JPEG)')
-  const size = imageSize(file.bytes, validated.mimeType as ImageType)
+  const size = imageSize(file.bytes, validated.mimeType as PassportImageType)
   if (!size) throw new ValidationError('CONTENT_MISMATCH', 'The file is not a readable PNG or JPEG image')
   if (size.width * size.height > MAX_IMAGE_PIXELS) throw new ValidationError('IMAGE_TOO_LARGE', `Photos are limited to ${MAX_IMAGE_PIXELS / 1_000_000} megapixels`)
   return validated

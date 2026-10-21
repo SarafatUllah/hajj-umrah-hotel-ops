@@ -3,6 +3,7 @@
  * Dates are `YYYY-MM-DD` hotel dates; timestamps ISO strings; money in halalas.
  */
 import type { AgeGroup, BookingStatus, Gender, Occupancy } from '../constants/booking'
+import type { PassportScanFields, PassportScanMethod } from '../constants/pilgrimData'
 import type { PriceLineKind, PriceSource } from '../constants/pricing'
 
 /** A booking's room claim as shown to people: the room's number and floor. */
@@ -124,4 +125,37 @@ export interface GuestSlotDto {
   roomNumber: string | null
   details: GuestDetailsDto | null
   warnings: GuestWarning[]
+}
+
+/** A room of a chosen option as a hold or a request sends it (v7 §9.2 step 7). */
+export interface ChosenRoomDto { roomId: string, occupancy: Occupancy, seats: number, extraBeds: number }
+
+/** A hold just placed (v7 §10): HELD (agency) or REQUESTED (customer) until `holdExpiresAt`. */
+export interface HeldBooking {
+  id: string
+  bookingNo: string
+  status: string
+  holdExpiresAt: string
+  checkIn: string
+  checkOut: string
+  totalHalalas: number
+  priceSource: PriceSource
+  rooms: ChosenRoomDto[]
+}
+
+/** How sure the reader was of each field (0–1). */
+export type PassportScanConfidence = Partial<Record<keyof PassportScanFields, number>>
+
+/** One scan as the review card shows it (v7 §13): what was read, how sure, and the slot it was placed in. */
+export interface PassportScanDto {
+  id: string
+  status: string
+  method: PassportScanMethod | null
+  guestId: string | null
+  fields: PassportScanFields | null
+  confidence: PassportScanConfidence | null
+  /** Fields to check by eye (read below the review threshold, or not read at all). */
+  needsAttention: string[]
+  failureReason: string | null
+  createdAt: string
 }

@@ -54,6 +54,10 @@
       "ROOM": "Room",
       "PERSON": "Per person",
       "EXTRA_BED": "Extra bed"
+    },
+    "priceUnit": {
+      "PER_PERSON_NIGHT": "per person per night",
+      "PER_ROOM_NIGHT": "per room per night"
     }
   },
   "status": {
@@ -131,6 +135,55 @@
     "DETAILS_UNREADABLE": "These details cannot be shown right now.",
     "DUPLICATE_PASSPORT": "The same passport is in booking {bookingNo}.",
     "MASTER_DIFFERS": "The hotel's record of this passport says something else."
+  },
+  "stay": {
+    "hotel": "Hotel",
+    "checkIn": "Arrival",
+    "checkOut": "Departure",
+    "type": "Who is coming",
+    "typeHelp": "A family shares its rooms; a group sleeps men and women apart.",
+    "total": "Pilgrims (from 2 years)",
+    "men": "Men",
+    "women": "Women",
+    "children": "Children",
+    "infants": "Infants (under 2)",
+    "infantsHelp": "Infants take no bed and are not charged.",
+    "childSide": "Children sleep",
+    "search": "See rooms",
+    "options": "Rooms for the stay",
+    "noOptions": "No rooms fit these dates and pilgrims. Try other dates.",
+    "option": "Option {n}",
+    "room": "Room {number}, floor {floor}",
+    "yourRoom": "already yours",
+    "places": "{count} place | {count} places",
+    "extraBeds": "{count} extra bed | {count} extra beds",
+    "emptyPlaces": "{count} place stays empty | {count} places stay empty",
+    "choose": "Choose this option",
+    "chosen": "Your choice",
+    "changeOption": "Choose another option"
+  },
+  "guest": {
+    "fullName": "Full name",
+    "gender": "Gender",
+    "nationality": "Nationality (3 letters on the passport)",
+    "dateOfBirth": "Date of birth",
+    "passportNo": "Passport number",
+    "passportExpiry": "Passport expiry",
+    "place": "Place {n}",
+    "addDetails": "Add details",
+    "editDetails": "Edit details",
+    "saved": "Details saved.",
+    "editHelp": "Enter the details exactly as they are in the passport."
+  },
+  "hold": {
+    "minutesLeft": "{count} minute left to confirm | {count} minutes left to confirm",
+    "ended": "The hold has ended: its rooms are no longer kept for you."
+  },
+  "receipt": {
+    "title": "Receipt",
+    "note": "Show this code at the hotel reception.",
+    "qrAlt": "Check-in code for booking {no}",
+    "print": "Print"
   },
   "validation": {
     "required": "Required.",
