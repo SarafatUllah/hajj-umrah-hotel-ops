@@ -7,7 +7,8 @@ import { bookingOrgRepos, bookingRepos } from '../../../server/repositories'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { type Booker, expireLapsedBookings, placeHold, searchStay, type StayOption } from '../../../server/services/booking'
 import { makeAgency, makeCustomer } from '../../support/bookingFixtures'
-import { makeFloor, makeHotel, makeOrg, makeRoomBlock, makeRoomType, makeRoomWithVersion } from '../../support/fixtures'
+import { makeOrg, makeRoomBlock } from '../../support/fixtures'
+import { makeStayHotel } from '../../support/stayFixtures'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
 const db = getTestDb() as Database
@@ -24,25 +25,10 @@ afterAll(async () => {
 
 const agencyBooker = (agencyId: string): Booker => ({ kind: 'AGENCY', agencyId, agencyUserId: null, staffUserId: null })
 
-/** A hotel with four Quads (floor 1: 101–104) and two Doubles (floor 2: 201–202), June rates, one approved agency. */
+/** The shared stay hotel (4 Quads, 2 Doubles, June rates) and one approved agency. */
 async function setup() {
   const { scope } = await makeOrg(db)
-  const hotel = await makeHotel(db, scope)
-  const hotelScope = trustedHotelScope(scope, hotel.id)
-  const ground = await makeFloor(db, hotelScope, { level: 1 })
-  const upper = await makeFloor(db, hotelScope, { level: 2 })
-  const quad = await makeRoomType(db, scope, { code: 'QUAD' })
-  const double = await makeRoomType(db, scope, { code: 'DOUBLE', defaultPhysicalBeds: 2, defaultSellableCapacity: 2 })
-  const rooms: Record<string, string> = {}
-  for (const n of ['101', '102', '103', '104']) rooms[n] = (await makeRoomWithVersion(db, hotelScope, ground.id, quad.id, { roomNumber: n })).room.id
-  for (const n of ['201', '202']) rooms[n] = (await makeRoomWithVersion(db, hotelScope, upper.id, double.id, { roomNumber: n }, { physicalBeds: 2, sellableCapacity: 2 })).room.id
-  const rates = bookingRepos(db, hotelScope).rates
-  const june = { startDate: '2027-06-01', endDate: '2027-06-30', vatIncluded: true }
-  await rates.insert({ ...june, roomTypeId: quad.id, priceType: 'PUBLIC', unit: 'PER_PERSON_NIGHT', amountHalalas: 38000 })
-  await rates.insert({ ...june, roomTypeId: quad.id, priceType: 'AGENCY_DEFAULT', unit: 'PER_PERSON_NIGHT', amountHalalas: 35000 })
-  await rates.insert({ ...june, roomTypeId: double.id, priceType: 'PUBLIC', unit: 'PER_PERSON_NIGHT', amountHalalas: 45000 })
-  await rates.insert({ ...june, roomTypeId: quad.id, priceType: 'PUBLIC', unit: 'PER_ROOM_NIGHT', amountHalalas: 140000 })
-  await rates.insert({ ...june, roomTypeId: double.id, priceType: 'PUBLIC', unit: 'PER_ROOM_NIGHT', amountHalalas: 90000 })
+  const { hotel, hotelScope, rooms } = await makeStayHotel(db, scope)
   const agencyRow = await makeAgency(db, scope)
   return { scope, hotel, hotelScope, rooms, agencyId: agencyRow.id, agency: agencyBooker(agencyRow.id) }
 }
@@ -179,6 +165,9 @@ describe('search and hold (v7 §9–10)', () => {
     const guests = await db.select().from(bookingGuest).where(eq(bookingGuest.bookingId, held.id))
     expect(guests.map(g => g.ageGroup).sort()).toEqual(['ADULT', 'ADULT', 'ADULT', 'INFANT'])
     expect(await seatsIn(env.scope, env.hotel.id, env.rooms['101']!)).toEqual([3, 3, 3])
+    // One open request at a time (v7 §10): the next waits until this one is answered or lapses.
+    await expect(placeHold(db, env.scope, customer, holdIn(search, env.rooms['102']!, 'FAMILY', 3), NOW)).rejects.toMatchObject({ code: 'TOO_MANY_OPEN_REQUESTS', httpStatus: 409 })
+    expect((await placeHold(db, env.scope, customer, holdIn(search, env.rooms['102']!, 'FAMILY', 3), new Date('2027-05-02T10:00:01Z'))).status).toBe('REQUESTED')
   })
 
   it('refuses an option that breaks the rules (422), a room blocked since the search (409) and a stay without prices (422)', async () => {

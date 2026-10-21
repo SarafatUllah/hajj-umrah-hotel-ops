@@ -1,12 +1,60 @@
-import { type SQL, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, getTableColumns, inArray, like, or, type SQL, sql } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
-import { booking, bookingChange, bookingGuest, bookingPriceLine, bookingRoom, guestStay } from '@hajj/db/schema'
-import type { AgeGroup, Gender, Occupancy } from '@hajj/contracts/constants/booking'
+import { booking, bookingChange, bookingGuest, bookingPriceLine, bookingRoom, floor, guestStay, room } from '@hajj/db/schema'
+import { type AgeGroup, type BookingChangeKind, type BookingStatus, type Gender, type Occupancy, PENDING_BOOKING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { HotelScope, OrganizationScope } from '../../security/scope'
 import { HotelQuery, OrgQuery } from '../base/scopedQuery'
+import { escapeLikePattern } from '../base/likePattern'
 
 export type BookingRow = typeof booking.$inferSelect
+export type BookingPriceLineRow = typeof bookingPriceLine.$inferSelect
+export type BookingListRow = BookingRow & { totalHalalas: number }
+
+export interface BookingListFilter {
+  /** The effective status (a pending booking whose hold lapsed counts as EXPIRED, judged at `now`). */
+  status?: BookingStatus
+  now: Date
+  hotelId?: string
+  agencyId?: string
+  customerId?: string
+  /** Staff without access to every hotel see only these hotels' bookings. */
+  hotelIds?: readonly string[]
+  /** The start of the booking number. */
+  q?: string
+  page: number
+  pageSize: number
+}
+
+/** A booking's room claim as shown to people: the room's number and floor. */
+export interface BookingRoomLine {
+  roomId: string
+  roomNumber: string
+  floorLevel: number
+  roomTypeId: string
+  occupancy: Occupancy
+  extraBeds: number
+  status: string
+  checkIn: string
+  checkOut: string
+}
+
+export interface BookingDetails {
+  rooms: BookingRoomLine[]
+  /** Pilgrim slots per status (removed slots included, so callers decide what to count). */
+  guestStatuses: Record<string, number>
+  priceLines: BookingPriceLineRow[]
+}
+
+/** A `booking_change` row (v7 §12): ids and PII-free facts only. */
+export interface BookingChangeEntry {
+  bookingId: string
+  kind: BookingChangeKind
+  before: Record<string, unknown> | null
+  after: Record<string, unknown> | null
+  actor: { kind: ActorKind, id: string | null }
+  reason?: string | null
+}
 type NewBookingRow = Omit<typeof booking.$inferInsert, 'organizationId' | 'hotelId' | 'id' | 'createdAt' | 'updatedAt'>
 type NewPriceLine = Omit<typeof bookingPriceLine.$inferInsert, 'organizationId' | 'bookingId' | 'id' | 'createdAt'>
 
@@ -21,6 +69,19 @@ export interface NewHold {
   actor: { kind: ActorKind, id: string | null }
 }
 
+/** The later of the application's clock and the database's: the moment a hold is judged lapsed (or still valid) at. */
+const judgedAt = (now: Date) => sql`greatest(${now.toISOString()}::timestamptz, clock_timestamp())`
+
+const pendingStatus = inArray(booking.status, [...PENDING_BOOKING_STATUSES])
+
+/** The effective status as a condition: a pending booking whose hold lapsed is EXPIRED, not HELD or REQUESTED. */
+function effectiveStatusIs(status: BookingStatus, now: Date): SQL {
+  const lapsed = sql`${booking.holdExpiresAt} <= ${judgedAt(now)}`
+  if (status === 'EXPIRED') return or(eq(booking.status, 'EXPIRED'), and(pendingStatus, lapsed))!
+  if ((PENDING_BOOKING_STATUSES as readonly string[]).includes(status)) return and(eq(booking.status, status), sql`not (${lapsed})`)!
+  return eq(booking.status, status)
+}
+
 /** The sweep expires at most this many bookings per statement, then goes on (no long statement on a mass lapse). */
 const SWEEP_BATCH = 500
 
@@ -32,7 +93,7 @@ const SWEEP_BATCH = 500
  * the sweep never waits on a hold (no lock cycle). `extra` narrows the bookings (hotel, rooms).
  */
 async function expireLapsed(db: DbOrTx, organizationId: string, now: Date, extra: SQL, limit?: number): Promise<string[]> {
-  const at = sql`greatest(${now.toISOString()}::timestamptz, clock_timestamp())`
+  const at = judgedAt(now)
   const rows = await db.execute<{ booking_id: string }>(sql`
     with lapsed as (
       select b.id, b.status from public.booking b
@@ -108,15 +169,100 @@ export class BookingRepository {
   }
 }
 
-/** The organization-wide hold sweep (v7 §10: every minute, the backup to the in-transaction expiry). */
-export class BookingExpiryRepository {
-  constructor(private readonly db: DbOrTx, private readonly scope: OrganizationScope) {}
+/**
+ * The organization-wide booking records: reading bookings across hotels (an agency's own list, staff lists), the
+ * confirmation, the change log and the minute hold sweep (v7 §10).
+ */
+export class BookingRecordRepository {
+  readonly #q: OrgQuery
+
+  constructor(private readonly db: DbOrTx, scope: OrganizationScope) {
+    this.#q = new OrgQuery(db, scope)
+  }
+
+  async findById(id: string): Promise<BookingRow | null> {
+    const [row] = await this.#q.select(booking, eq(booking.id, id), { limit: 1 })
+    return row ?? null
+  }
+
+  /** Newest first, each with the total of its frozen price lines. */
+  async list(filter: BookingListFilter): Promise<{ rows: BookingListRow[], total: number }> {
+    const where = this.#q.cond(
+      booking,
+      filter.status ? effectiveStatusIs(filter.status, filter.now) : undefined,
+      filter.hotelId ? eq(booking.hotelId, filter.hotelId) : undefined,
+      filter.agencyId ? eq(booking.agencyId, filter.agencyId) : undefined,
+      filter.customerId ? eq(booking.customerId, filter.customerId) : undefined,
+      filter.hotelIds ? (filter.hotelIds.length > 0 ? inArray(booking.hotelId, [...filter.hotelIds]) : sql`false`) : undefined,
+      filter.q ? like(booking.bookingNo, `${escapeLikePattern(filter.q)}%`) : undefined,
+    )
+    // Outer columns written out in full: inside a subquery Drizzle would render them unqualified (the inner table's).
+    // A sum of halalas can pass 2^31 for a large long group: bigint, read back as a number.
+    const totalHalalas = sql<number>`(select coalesce(sum(l.amount_halalas), 0)::bigint from public.booking_price_line l where l.organization_id = "booking"."organization_id" and l.booking_id = "booking"."id")`.mapWith(Number)
+    const [rows, [totalRow]] = await Promise.all([
+      this.db.select({ ...getTableColumns(booking), totalHalalas }).from(booking).where(where).orderBy(desc(booking.createdAt), desc(booking.id)).limit(filter.pageSize).offset((filter.page - 1) * filter.pageSize),
+      this.db.select({ value: count() }).from(booking).where(where),
+    ])
+    return { rows, total: Number(totalRow?.value ?? 0) }
+  }
+
+  /** The booking's rooms (with number and floor), its slots per status and its frozen price lines. */
+  async details(bookingId: string): Promise<BookingDetails> {
+    const [rooms, guests, priceLines] = await Promise.all([
+      this.db
+        .select({ roomId: bookingRoom.roomId, roomNumber: room.roomNumber, floorLevel: floor.level, roomTypeId: room.roomTypeId, occupancy: bookingRoom.occupancy, extraBeds: bookingRoom.extraBeds, status: bookingRoom.status, checkIn: bookingRoom.checkIn, checkOut: bookingRoom.checkOut })
+        .from(bookingRoom)
+        .innerJoin(room, and(eq(room.organizationId, bookingRoom.organizationId), eq(room.hotelId, bookingRoom.hotelId), eq(room.id, bookingRoom.roomId)))
+        .innerJoin(floor, and(eq(floor.organizationId, room.organizationId), eq(floor.hotelId, room.hotelId), eq(floor.id, room.floorId)))
+        .where(this.#q.cond(bookingRoom, eq(bookingRoom.bookingId, bookingId)))
+        .orderBy(sql`length(${room.roomNumber})`, asc(room.roomNumber), asc(bookingRoom.checkIn)),
+      this.db.select({ status: bookingGuest.status, n: count() }).from(bookingGuest).where(this.#q.cond(bookingGuest, eq(bookingGuest.bookingId, bookingId))).groupBy(bookingGuest.status),
+      this.#q.select(bookingPriceLine, eq(bookingPriceLine.bookingId, bookingId), { orderBy: [asc(bookingPriceLine.night), asc(bookingPriceLine.kind), asc(bookingPriceLine.roomTypeId)] }),
+    ])
+    return {
+      rooms: rooms.map(r => ({ ...r, occupancy: r.occupancy as Occupancy })),
+      guestStatuses: Object.fromEntries(guests.map(g => [g.status, Number(g.n)])),
+      priceLines,
+    }
+  }
+
+  /**
+   * v7 §10: confirms a pending booking whose hold has not lapsed — judged by the same rule as the expiry, so a
+   * hold the seat count already treats as free can never come back. Only this row is locked (no room locks).
+   * Clears the expiry, stamps the receipt token. null = not pending, or lapsed (the caller reads why).
+   */
+  async confirm(id: string, values: { now: Date, confirmedBy: string | null, receiptToken: string }): Promise<BookingRow | null> {
+    const [row] = await this.#q.update(
+      booking,
+      { status: 'CONFIRMED', confirmedAt: values.now, confirmedBy: values.confirmedBy, receiptToken: values.receiptToken, holdExpiresAt: null, updatedAt: values.now },
+      eq(booking.id, id),
+      pendingStatus,
+      sql`${booking.holdExpiresAt} > ${judgedAt(values.now)}`,
+    ).returning()
+    return row ?? null
+  }
+
+  /**
+   * v7 §10 (individual bookers: at most a few open requests at a time): takes the customer's request lock (a
+   * transaction-scoped advisory lock on the organization and customer, before any room lock) and counts the
+   * customer's open requests — pending bookings whose hold has not lapsed. Inside a transaction only.
+   */
+  async lockOpenRequests(customerId: string, now: Date): Promise<number> {
+    await this.db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`requests:${this.#q.scope.organizationId}:${customerId}`}, 0))`)
+    const [row] = await this.db.select({ n: count() }).from(booking)
+      .where(this.#q.cond(booking, eq(booking.customerId, customerId), pendingStatus, sql`${booking.holdExpiresAt} > ${judgedAt(now)}`))
+    return Number(row?.n ?? 0)
+  }
+
+  async recordChange(entry: BookingChangeEntry): Promise<void> {
+    await this.#q.insert(bookingChange, { bookingId: entry.bookingId, kind: entry.kind, beforeData: entry.before, afterData: entry.after, actorKind: entry.actor.kind, actorId: entry.actor.id, reason: entry.reason ?? null })
+  }
 
   /** Every pending booking of the organization whose hold lapsed becomes EXPIRED, in batches. Returns their ids. */
   async expireLapsed(now: Date): Promise<string[]> {
     const expired: string[] = []
     for (;;) {
-      const batch = await expireLapsed(this.db, this.scope.organizationId, now, sql``, SWEEP_BATCH)
+      const batch = await expireLapsed(this.db, this.#q.scope.organizationId, now, sql``, SWEEP_BATCH)
       expired.push(...batch)
       if (batch.length < SWEEP_BATCH) return expired
     }

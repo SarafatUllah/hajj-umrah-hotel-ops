@@ -1,11 +1,11 @@
 import { and, eq, isNotNull, isNull } from 'drizzle-orm'
-import { agency, agencyQuota, agencyUser, allocationRule, appUser, auditLog, bookingSetting, customer, documentSequence, extraBedPolicy, otpChallenge, priceQuote, rate, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
+import { agency, agencyQuota, agencyUser, allocationRule, appUser, auditLog, booking, bookingPriceLine, bookingSetting, customer, documentSequence, extraBedPolicy, otpChallenge, priceQuote, rate, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
 import type { DbOrTx } from '@hajj/db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
 import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from '../../../server/repositories/accounts'
-import { AgencyQuotaRepository, AllocationRuleRepository, BookingExpiryRepository, BookingInventoryRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, PriceQuoteRepository, RateRepository } from '../../../server/repositories/booking'
+import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingRecordRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, PriceQuoteRepository, RateRepository } from '../../../server/repositories/booking'
 import { makeAgency, makeBooking, makeBookingRoom, makeCustomer, makeGuest, makeHotelWithRooms, makeStay } from '../../support/bookingFixtures'
 import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeHotelDocument, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
@@ -64,6 +64,27 @@ async function arrangeLapsedHold(db: DbOrTx, orgA: OrganizationScope) {
   const b = await makeBooking(db, orgA, hotel.id, { agencyId: agencyRow.id, status: 'HELD', holdExpiresAt: new Date(Date.now() - 1000) })
   await makeBookingRoom(db, orgA, b, rooms[0]!.id)
   return { hotelId: hotel.id, roomId: rooms[0]!.id, bookingId: b.id }
+}
+
+/** Phase 2b: org A's agency booking HELD (hold far in the future) on one room, with a slot and a price line. */
+async function arrangeHeldBooking(db: DbOrTx, orgA: OrganizationScope) {
+  const { hotel, rooms } = await makeHotelWithRooms(db, orgA, 1)
+  const agencyRow = await makeAgency(db, orgA)
+  const b = await makeBooking(db, orgA, hotel.id, { agencyId: agencyRow.id, status: 'HELD' })
+  const claim = await makeBookingRoom(db, orgA, b, rooms[0]!.id)
+  const guest = await makeGuest(db, orgA, b.id, 1)
+  await makeStay(db, orgA, b.id, guest.id, claim.id, b.checkIn, b.checkOut)
+  await db.insert(bookingPriceLine).values({ organizationId: orgA.organizationId, bookingId: b.id, night: b.checkIn, kind: 'PERSON', quantity: 1, unitAmountHalalas: 100, amountHalalas: 100, vatIncluded: true })
+  return { bookingId: b.id }
+}
+
+/** Phase 2b: org A's customer with one open REQUESTED booking. */
+async function arrangeCustomerRequest(db: DbOrTx, orgA: OrganizationScope) {
+  const { hotel, rooms } = await makeHotelWithRooms(db, orgA, 1)
+  const customerRow = await makeCustomer(db, orgA)
+  const b = await makeBooking(db, orgA, hotel.id, { bookerType: 'INDIVIDUAL', customerId: customerRow.id, bookingType: 'FAMILY', maleCount: 0, totalCount: 2, status: 'REQUESTED' })
+  await makeBookingRoom(db, orgA, b, rooms[0]!.id, { occupancy: 'FAMILY' })
+  return { customerId: customerRow.id }
 }
 
 /** Phase 2b: a minimal HELD hold of org A's agency on org A's room (one pilgrim). */
@@ -1505,10 +1526,41 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: (db, scope, ids) => new BookingRepository(db, trustedHotelScope(scope, ids.hotelId)).expireLapsedHolds([ids.roomId], new Date()),
     expect: 'empty',
   }),
-  'BookingExpiryRepository.expireLapsed': isolationCase({
+  // Phase 2b booking records (Organization scope): org B can neither read, confirm, log on nor expire org A's bookings.
+  'BookingRecordRepository.expireLapsed': isolationCase({
     arrange: arrangeLapsedHold,
-    act: (db, scope) => new BookingExpiryRepository(db, scope).expireLapsed(new Date()),
+    act: (db, scope) => new BookingRecordRepository(db, scope).expireLapsed(new Date()),
     expect: 'empty',
+  }),
+  'BookingRecordRepository.findById': isolationCase({ arrange: arrangeHeldBooking, act: (db, scope, ids) => new BookingRecordRepository(db, scope).findById(ids.bookingId), expect: 'null' }),
+  'BookingRecordRepository.list': isolationCase({ arrange: arrangeHeldBooking, act: async (db, scope) => (await new BookingRecordRepository(db, scope).list({ page: 1, pageSize: 50, now: new Date() })).rows, expect: 'empty' }),
+  'BookingRecordRepository.details': isolationCase({
+    arrange: arrangeHeldBooking,
+    act: async (db, scope, ids) => {
+      const details = await new BookingRecordRepository(db, scope).details(ids.bookingId)
+      return [...details.rooms, ...details.priceLines, ...Object.keys(details.guestStatuses)]
+    },
+    expect: 'empty',
+  }),
+  'BookingRecordRepository.confirm': isolationCase({
+    arrange: arrangeHeldBooking,
+    act: (db, scope, ids) => new BookingRecordRepository(db, scope).confirm(ids.bookingId, { now: new Date(), confirmedBy: null, receiptToken: `t-${ids.bookingId}` }),
+    expect: 'null',
+    unchanged: async (db, ids) => {
+      const [row] = await db.select().from(booking).where(eq(booking.id, ids.bookingId))
+      if (row?.status !== 'HELD') throw new Error('org A booking was confirmed by org B')
+    },
+  }),
+  'BookingRecordRepository.recordChange': isolationCase({
+    arrange: arrangeHeldBooking,
+    act: (db, scope, ids) => new BookingRecordRepository(db, scope).recordChange({ bookingId: ids.bookingId, kind: 'CONFIRMED', before: null, after: null, actor: { kind: 'system', id: null } }),
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+  }),
+  'BookingRecordRepository.lockOpenRequests': isolationCase({
+    arrange: arrangeCustomerRequest,
+    act: async (db, scope, ids) => db.transaction(tx => new BookingRecordRepository(tx, scope).lockOpenRequests(ids.customerId, new Date())),
+    expect: 'zero-affected',
   }),
   // Phase 2a accounts (Organization scope): org B can neither read nor change org A's agencies and agency users,
   // and an insert can never land in org A.
@@ -1685,6 +1737,7 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: (db, scope, ids) => new PriceQuoteRepository(db, scope).setOffer(ids.quoteId, { amountHalalas: 1, unit: 'PER_PERSON_NIGHT', vatIncluded: true, validUntil: new Date(), offeredBy: ids.agencyId, offeredAt: new Date() }),
     expect: 'null',
   }),
+  'PriceQuoteRepository.markAccepted': isolationCase({ arrange: (db, orgA) => arrangeQuote(db, orgA, true), act: (db, scope, ids) => new PriceQuoteRepository(db, scope).markAccepted(ids.quoteId, new Date()), expect: 'null' }),
   'PriceQuoteRepository.setStatus': isolationCase({ arrange: arrangeQuote, act: (db, scope, ids) => new PriceQuoteRepository(db, scope).setStatus(ids.quoteId, 'DECLINED', new Date()), expect: 'null' }),
   'PriceQuoteRepository.expireOffered': isolationCase({
     arrange: (db, orgA) => arrangeQuote(db, orgA, true),

@@ -65,6 +65,15 @@ export class PriceQuoteRepository {
     return row ?? null
   }
 
+  /**
+   * A quote's booking was confirmed: OFFERED (or EXPIRED after it was used in time) becomes ACCEPTED. A quote staff
+   * DECLINED meanwhile stays declined (the booking keeps the price it froze). null = not changed.
+   */
+  async markAccepted(id: string, at: Date): Promise<PriceQuoteRow | null> {
+    const [row] = await this.q.update(priceQuote, { status: 'ACCEPTED', updatedAt: at }, eq(priceQuote.id, id), inArray(priceQuote.status, ['OFFERED', 'EXPIRED'])).returning()
+    return row ?? null
+  }
+
   /** The hourly sweep: OFFERED quotes past their validity become EXPIRED; returns how many. */
   async expireOffered(now: Date): Promise<number> {
     const rows = await this.q.update(priceQuote, { status: 'EXPIRED', updatedAt: now }, and(eq(priceQuote.status, 'OFFERED'), lte(priceQuote.validUntil, now))).returning({ id: priceQuote.id })

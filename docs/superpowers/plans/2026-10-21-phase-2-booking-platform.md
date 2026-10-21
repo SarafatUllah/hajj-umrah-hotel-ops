@@ -33,7 +33,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 10c | 2a: booking settings, rates, quotas, room-mix rules, extra-bed policies (staff admin) | done |
 | 10d | 2a: WhatsApp quotes and price resolution (quote → agency default → public, per night) | done |
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | done |
-| 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | |
+| 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | done |
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | |
@@ -270,6 +270,24 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   quota count. Rule for later steps: anything that changes an agency's persons in a hotel (adding pilgrims, date
   changes) takes the same quota lock before its room locks. Accepted: the organization's `BOOKING` sequence row
   serializes the last few statements of concurrent holds (taken last, so no deadlock).
+- **D-P2-38 (booking) The booking API.** Agency portal (`auth: 'agency'`, approved agencies): `POST
+  /api/agency/stays/search`, `POST /api/agency/bookings` (hold, 201), `GET /api/agency/bookings[/:id]`, `POST
+  …/:id/confirm`, `GET …/:id/receipt` — an agency sees only its own bookings (others 404); searches (600/h) and holds
+  (120/h) are rate limited per agency. Staff: `POST /api/stays/search` and `POST /api/bookings` on an agency's behalf
+  (`booking.create` on the hotel; the booking is the agency's, `created_by_user_id` the seller), `GET /api/bookings`
+  (`booking.view`, only the caller's hotels), `GET /api/bookings/:id`, `POST …/:id/confirm` (`booking.create`: an
+  agency's hold or an individual's request), `GET …/:id/receipt`. Confirmation locks only the booking row and uses
+  the hold-lapse rule of D-P2-37 (409 `HOLD_EXPIRED`), stamps a random 24-byte receipt token (the QR content), marks
+  a quote it used ACCEPTED and logs the change with its actor. Receipts exist once confirmed (409 `NOT_CONFIRMED`):
+  hotel, stay, counts, rooms, nightly price lines summed per kind, room type and price (extra beds on their own
+  line). Statuses are effective: a pending booking past its hold reads EXPIRED before the sweep. An individual may
+  hold at most `individualMaxOpenRequests` open requests (a per-customer lock in the hold, before the room locks;
+  409 `TOO_MANY_OPEN_REQUESTS`) — the public routes come in step 15. Review outcomes: confirmation is idempotent (a
+  confirmed booking comes back unchanged; an expired one is `HOLD_EXPIRED` whether swept or not), needs an active
+  hotel for agencies too, and marks the quote ACCEPTED only from OFFERED or EXPIRED (a quote staff declined meanwhile
+  stays declined; the booking keeps its frozen price). Sellers confirm too (`booking.create`; no separate confirm
+  permission). List filters use the effective status. The receipt token only finds a booking for authenticated
+  staff (check-in, step 13); it admits no one by itself.
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

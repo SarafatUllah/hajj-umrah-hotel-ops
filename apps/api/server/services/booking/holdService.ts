@@ -143,7 +143,8 @@ function actorOf(booker: Booker): { kind: ActorKind, id: string | null } {
 
 /**
  * v7 §9.2 step 7 and §10 — holds the chosen option in ONE transaction, always in the same lock order:
- * 1. the agency's quota lock (agency bookings), then the persons it already holds;
+ * 1. the agency's quota lock, then the persons it already holds (agency bookings); or the customer's request lock,
+ *    then its open requests, at most `individualMaxOpenRequests` (individual bookings);
  * 2. the rooms, `ORDER BY id FOR UPDATE`;
  * 3. pending bookings on those rooms whose hold lapsed become EXPIRED;
  * 4. everything is checked again on fresh reads: the quota, every room for every night (inventory, blocks,
@@ -165,6 +166,10 @@ export async function placeHold(db: Db, scope: OrganizationScope, booker: Booker
     const repos = bookingRepos(tx, hotelScope)
     const nights = stayNights(input)
     const held = booker.kind === 'AGENCY' ? await repos.inventory.lockAgencyQuota(booker.agencyId, nights) : null
+    if (booker.kind === 'INDIVIDUAL') {
+      const open = await bookingOrgRepos(tx, scope).records.lockOpenRequests(booker.customerId, now)
+      if (open >= settings.individualMaxOpenRequests) throw new ConflictError('TOO_MANY_OPEN_REQUESTS', `At most ${settings.individualMaxOpenRequests} open request(s) at a time; wait for the hotel's answer`)
+    }
     const locked = await repos.inventory.lockRooms(roomIds)
     if (locked.length !== roomIds.length) throw optionError(roomIds.filter(id => !locked.includes(id)).map(roomId => ({ code: 'ROOM_UNKNOWN', roomId })))
     await repos.bookings.expireLapsedHolds(locked, now)
@@ -228,5 +233,5 @@ export async function placeHold(db: Db, scope: OrganizationScope, booker: Booker
 
 /** The minute sweep (job `booking.hold-expiry`, v7 §10): every organization's lapsed holds become EXPIRED. */
 export async function expireLapsedBookings(db: Db, organizationScopes: readonly OrganizationScope[], now: Date): Promise<number> {
-  return sweepOrganizations('holds', organizationScopes, async scope => (await bookingOrgRepos(db, scope).expiry.expireLapsed(now)).length)
+  return sweepOrganizations('holds', organizationScopes, async scope => (await bookingOrgRepos(db, scope).records.expireLapsed(now)).length)
 }

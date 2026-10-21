@@ -4,6 +4,7 @@ import { floor, room, roomBaseConfig } from '@hajj/db/schema'
 import type { HotelScope } from '../../security/scope'
 import type { IsoDate } from '@hajj/contracts/utils/dates'
 import { HotelQuery } from '../base/scopedQuery'
+import { escapeLikePattern } from '../base/likePattern'
 
 export type RoomRow = typeof room.$inferSelect
 /** `organizationId`/`hotelId` are supplied by the scope, never the caller (HotelQuery.insert). */
@@ -30,11 +31,6 @@ export interface RoomListFilter {
 export interface RoomPage {
   rows: RoomRow[]
   total: number
-}
-
-/** Escapes LIKE/ILIKE metacharacters so a client-supplied `q` (e.g. `%`) is matched LITERALLY, never as a wildcard. Also used by Task 18's `InventoryReadRepository.listRoomCandidates`. */
-export function escapeLikePattern(raw: string): string {
-  return raw.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
 }
 
 /** A room's base-config version covers `asOf` when `valid_from <= asOf <= valid_to` (or `valid_to IS NULL`, open-ended). */

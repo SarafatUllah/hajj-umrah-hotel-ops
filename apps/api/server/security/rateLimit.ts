@@ -48,6 +48,10 @@ export const RATE_LIMITS = {
   otpVerifyPerPhone: { name: 'otp-verify-phone', limit: 10, windowSeconds: 60 * 60 },
   /** Quote requests per agency (each takes a reference number and lands in the sellers' queue). */
   quoteRequestPerAgency: { name: 'quote-agency', limit: 30, windowSeconds: 60 * 60 },
+  /** Stay searches per agency (each runs the allocator: CPU on the request path, ticket 3). */
+  staySearchPerAgency: { name: 'stay-search-agency', limit: 600, windowSeconds: 60 * 60 },
+  /** Holds per agency (each locks rooms for the hold minutes; the quota bounds the seats, this bounds the churn). */
+  holdPerAgency: { name: 'hold-agency', limit: 120, windowSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>
 
 /** Buckets are kept this long after their window started (far beyond the longest window), then purged. */

@@ -7,7 +7,7 @@ import type { BlockKind, CapacityPeriodKind } from '@hajj/contracts/constants/in
 import { type IsoDate, type NightRange, toEpochDay } from '@hajj/contracts/utils/dates'
 import type { RoomCalendarInput } from '../../domain/inventory/calendar'
 import { HotelQuery, OrgQuery } from '../base/scopedQuery'
-import { escapeLikePattern } from './roomRepository'
+import { escapeLikePattern } from '../base/likePattern'
 
 export interface LoadRoomInputsOptions {
   /** Restrict to these rooms (still hotel-scoped: an id of another hotel/organization simply never comes back). `[]` loads nothing. */
