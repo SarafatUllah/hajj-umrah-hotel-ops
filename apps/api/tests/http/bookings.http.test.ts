@@ -26,7 +26,7 @@ async function setup() {
   const { organization, scope } = await makeOrg(db)
   const { hotel, rooms } = await makeStayHotel(db, scope)
   const { user, password } = await makeLoginableUser(db, scope, { allHotels: true })
-  const role = await makeRole(db, scope, { permissions: ['booking.view', 'booking.create'] })
+  const role = await makeRole(db, scope, { permissions: ['booking.view', 'booking.create', 'booking.checkIn'] })
   await tenantRepos(db, scope).roles.assignToUser(user.id, role.id)
   const staff = await client.login(organization.slug, user.email, password)
   const agency = await makeAgency(db, scope)
@@ -92,5 +92,24 @@ describe('bookings over HTTP (v7 §7, §9–10)', () => {
     // Staff without pilgrim.view cannot see the slots at all.
     const staffView = await client.request(`/api/bookings/${held.json.id}/guests`, { cookie: env.staffCookie })
     expect(staffView.status).toBe(403)
+  })
+
+  it('the desk posts the receipt\'s QR token to find the booking; moves before the stay are 409; the task list answers', async () => {
+    const env = await setup()
+    const search = await client.request('/api/agency/stays/search', { method: 'POST', cookie: env.agencyCookie, body: stay(env.hotel.id) })
+    const held = await client.request('/api/agency/bookings', { method: 'POST', cookie: env.agencyCookie, body: { ...stay(env.hotel.id), rooms: chosen(search.json.options[0]) } })
+    const confirmed = await client.request(`/api/agency/bookings/${held.json.id}/confirm`, { method: 'POST', cookie: env.agencyCookie })
+
+    const found = await client.request('/api/check-in/lookup', { method: 'POST', cookie: env.staffCookie, body: { receiptToken: confirmed.json.receiptToken } })
+    expect(found.json).toMatchObject({ bookingId: held.json.id, status: 'CONFIRMED' })
+    expectStandardError(await client.request('/api/check-in/lookup', { method: 'POST', cookie: env.staffCookie, body: { receiptToken: 'not a code' } }), { status: 422 })
+    expectStandardError(await client.request('/api/check-in/lookup', { method: 'POST', cookie: env.agencyCookie, body: { receiptToken: confirmed.json.receiptToken } }), { status: 401 })
+
+    const [slot] = (await client.request(`/api/agency/bookings/${held.json.id}/guests`, { cookie: env.agencyCookie })).json
+    expectStandardError(await client.request(`/api/bookings/${held.json.id}/guests/${slot.id}/no-show`, { method: 'POST', cookie: env.staffCookie }), { status: 409, code: 'BEFORE_CHECK_IN' })
+    expectStandardError(await client.request(`/api/bookings/${held.json.id}/guests/${slot.id}/check-in`, { method: 'POST', cookie: env.staffCookie }), { status: 422, code: 'DETAILS_INCOMPLETE' })
+
+    const tasks = await client.request(`/api/hotels/${env.hotel.id}/tasks?status=OPEN`, { cookie: env.staffCookie })
+    expect(tasks).toMatchObject({ status: 200, json: [] })
   })
 })

@@ -14,3 +14,6 @@ export { listAgencyGuests, listGuests, saveAgencyGuest, saveGuest, type GuestDet
 export { agencyScanImage, confirmAgencyScan, confirmScan, discardAgencyScan, discardScan, listAgencyScans, listScans, scanImage, setPassportReadQueue, uploadAgencyScan, uploadScan, type PassportScanDto, type ScanUpload } from './passportScanService'
 export { purgeExpiredPassportImages } from './passportImages'
 export { readPassportScan } from './passportReading'
+export { checkInGuest, checkOutGuest, lookupReceipt, markGuestNoShow, type CheckInLookupDto, type GuestMoveDto } from './checkInService'
+export { completeHotelTask, listHotelTasks, type HotelTaskDto } from './hotelTaskService'
+export { sendDetailsReminders } from './detailsReminder'

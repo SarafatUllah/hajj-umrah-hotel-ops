@@ -34,7 +34,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 10d | 2a: WhatsApp quotes and price resolution (quote → agency default → public, per night) | done |
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | done |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | done |
-| 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | 13a guest details, 13b passport pipeline done |
+| 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | 13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders done |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | |
@@ -343,6 +343,23 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   cleared, so an archived asset always means the object is gone and a failed deletion is retried. Accepted risk: a
   crash between the storage write and the upload transaction leaves an orphan encrypted object (no row, no key
   material exposed); an orphan reaper joins ticket 4's retention work.
+- **D-P2-41 (booking) Check-in, extra-bed tasks, details reminder (v7 §7, §11, §12, §15, §17).** The desk
+  (`booking.checkIn` on the hotel) posts the receipt's QR token (`POST /api/check-in/lookup`, body not URL; any
+  other token or hotel is 404) and moves one pilgrim at a time: `check-in` (READY only — 422 `DETAILS_INCOMPLETE`
+  otherwise — on a hotel day of `[checkIn, checkOut)`), `check-out` (anyone checked in, any day), `no-show` (a slot
+  not checked in, from the check-in day). Each move runs under the booking row lock then the slot lock; the
+  booking's status follows from all slots (IN_HOUSE from the first arrival, COMPLETED when everyone still on the
+  booking has left or never came — booking_room follows by trigger, so the remaining nights free up). Repeating a
+  move answers the slot unchanged (a double scan); each move is a `booking_change` row. Seats of a no-show or an
+  early departure are not released here (policy, step 14). Confirmation plans the extra beds' housekeeping in its
+  transaction: per claim with extra beds an `EXTRA_BED_SETUP` due on its first night and an `EXTRA_BED_REMOVAL`
+  due on its departure day (`GET /api/hotels/:id/tasks`, `booking.view`; `POST …/tasks/:taskId/done`,
+  `booking.checkIn`, idempotent). The daily `booking.details-reminder` (06:00 UTC) texts the agency's or customer's
+  phone once (`booking.details_reminded_at`, migration 0014) for confirmed bookings checking in within
+  `detailsReminderDays` (0 = off) that still have slots without details — sent, then marked, so a failed message is
+  retried the next day (the run pages past failures, at most 2,000 per organization); skipped entirely while SMS is
+  disabled. The message carries no personal data. Marking a task done is a write: not on an inactive hotel.
+  Follow-up (step 14): cancelling a booking or changing its rooms cancels its open tasks in the same transaction.
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

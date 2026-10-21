@@ -12,6 +12,7 @@ import type { AgencyContext } from '../../security/agencyContext'
 import type { AuthContext } from '../../security/authContext'
 import { authorizeHotel, requireOrgPermission } from '../../security/authorize'
 import { loadForAgency, loadForStaff } from './bookingAccess'
+import { planExtraBedTasks } from './hotelTaskService'
 import { consumeRateLimit, RATE_LIMITS } from '../../security/rateLimit'
 import type { OrganizationScope } from '../../security/scope'
 import { findAgencyBrief } from '../accounts'
@@ -148,6 +149,7 @@ async function confirm(db: Db, scope: OrganizationScope, row: BookingRow, actor:
         : new ConflictError('BOOKING_NOT_PENDING', `A booking that is ${current?.status ?? 'gone'} cannot be confirmed`)
     }
     if (updated.quoteId) await repos.quotes.markAccepted(updated.quoteId, now)
+    await planExtraBedTasks(tx, scope, updated)
     await repos.records.recordChange({ bookingId: updated.id, kind: 'CONFIRMED', before: { status: row.status }, after: { status: updated.status }, actor })
     return updated
   })

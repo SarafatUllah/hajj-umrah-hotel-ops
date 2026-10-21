@@ -1,5 +1,5 @@
 import { allOrganizationScopes } from '../security/organizations'
-import { expireLapsedBookings, expireOfferedQuotes } from '../services/booking'
+import { expireLapsedBookings, expireOfferedQuotes, sendDetailsReminders } from '../services/booking'
 import { defineJob } from './definition'
 
 /** Hourly: OFFERED quotes past their validity become EXPIRED (reads already treat them as expired). */
@@ -23,5 +23,15 @@ export const holdExpiryJob = defineJob<Record<string, never>>({
   schedule: { cron: '* * * * *' },
   handle: async (_data, { db }) => {
     await expireLapsedBookings(db, await allOrganizationScopes(db), new Date())
+  },
+})
+
+/** Daily at 06:00 UTC (09:00 in Makkah): bookers whose pilgrims' details are still missing close to check-in are reminded. */
+export const detailsReminderJob = defineJob<Record<string, never>>({
+  name: 'booking.details-reminder',
+  tier: 'light',
+  schedule: { cron: '0 6 * * *' },
+  handle: async (_data, { db }) => {
+    await sendDetailsReminders(db, await allOrganizationScopes(db), new Date())
   },
 })

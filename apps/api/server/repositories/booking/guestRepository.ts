@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, lt, ne } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
 import { booking, bookingGuest, bookingGuestDetail, bookingRoom, guestStay, piiAccessLog, pilgrim, room } from '@hajj/db/schema'
-import { SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
+import { type GuestStatus, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { IsoDate } from '@hajj/contracts/utils/dates'
 import type { OrganizationScope } from '../../security/scope'
 import { OrgQuery } from '../base/scopedQuery'
@@ -16,7 +16,16 @@ type NewPiiAccess = Omit<typeof piiAccessLog.$inferInsert, 'organizationId' | 'i
 /** A slot with the booker's copy of its details and the room it sleeps in (its latest stay). */
 export interface GuestSlotRow { guest: BookingGuestRow, detail: BookingGuestDetailRow | null, roomNumber: string | null, occupancy: string | null }
 
-export interface SlotPatch { gender?: string | null, ageGroup?: string, status?: string, pilgrimId?: string | null }
+export interface SlotPatch {
+  gender?: string | null
+  ageGroup?: string
+  status?: string
+  pilgrimId?: string | null
+  checkedInAt?: Date
+  checkedInBy?: string
+  checkedOutAt?: Date
+  checkedOutBy?: string
+}
 
 /** Another live booking holding the same passport on overlapping nights (v7 §13: a staff warning). */
 export interface PassportOverlap { passportLookup: string, bookingId: string, bookingNo: string }
@@ -42,6 +51,12 @@ export class GuestRepository {
       this.#roomsOfGuests(bookingId),
     ])
     return slots.map(s => ({ ...s, roomNumber: rooms.get(s.guest.id)?.roomNumber ?? null, occupancy: rooms.get(s.guest.id)?.occupancy ?? null }))
+  }
+
+  /** The status of every slot of the booking. */
+  async statuses(bookingId: string): Promise<GuestStatus[]> {
+    const rows = await this.db.select({ status: bookingGuest.status }).from(bookingGuest).where(this.#q.cond(bookingGuest, eq(bookingGuest.bookingId, bookingId)))
+    return rows.map(r => r.status as GuestStatus)
   }
 
   /** One slot of the booking (`forUpdate` row-locks the slot inside a transaction), or null. */

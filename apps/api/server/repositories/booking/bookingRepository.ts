@@ -1,8 +1,9 @@
-import { and, asc, count, desc, eq, getTableColumns, inArray, like, or, type SQL, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, getTableColumns, gte, inArray, isNull, like, lte, or, type SQL, sql } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
 import { booking, bookingChange, bookingGuest, bookingPriceLine, bookingRoom, floor, guestStay, room } from '@hajj/db/schema'
 import { type AgeGroup, type BookingChangeKind, type BookingStatus, type Gender, type Occupancy, PENDING_BOOKING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
+import type { IsoDate } from '@hajj/contracts/utils/dates'
 import type { HotelScope, OrganizationScope } from '../../security/scope'
 import { HotelQuery, OrgQuery } from '../base/scopedQuery'
 import { escapeLikePattern } from '../base/likePattern'
@@ -10,6 +11,9 @@ import { escapeLikePattern } from '../base/likePattern'
 export type BookingRow = typeof booking.$inferSelect
 export type BookingPriceLineRow = typeof bookingPriceLine.$inferSelect
 export type BookingListRow = BookingRow & { totalHalalas: number }
+
+/** A booking due for the details reminder: how many of its slots still lack details, of how many. */
+export interface DetailsReminderRow { booking: BookingRow, pending: number, slots: number }
 
 export interface BookingListFilter {
   /** The effective status (a pending booking whose hold lapsed counts as EXPIRED, judged at `now`). */
@@ -257,6 +261,47 @@ export class BookingRecordRepository {
 
   async recordChange(entry: BookingChangeEntry): Promise<void> {
     await this.#q.insert(bookingChange, { bookingId: entry.bookingId, kind: entry.kind, beforeData: entry.before, afterData: entry.after, actorKind: entry.actor.kind, actorId: entry.actor.id, reason: entry.reason ?? null })
+  }
+
+  /** The booking a receipt's QR code names (the token admits no one by itself: the caller authorizes). */
+  async findByReceiptToken(token: string): Promise<BookingRow | null> {
+    const [row] = await this.#q.select(booking, eq(booking.receiptToken, token), { limit: 1 })
+    return row ?? null
+  }
+
+  /** The stay status of a booking the caller holds locked (IN_HOUSE from the first arrival, COMPLETED at the end). */
+  async setStatus(id: string, status: BookingStatus, at: Date): Promise<BookingRow | null> {
+    const [row] = await this.#q.update(booking, { status, updatedAt: at }, eq(booking.id, id)).returning()
+    return row ?? null
+  }
+
+  /**
+   * Confirmed bookings checking in between `from` and `to` (inclusive) whose booker was not reminded yet and that
+   * still have slots without details (v7 §15), the soonest first; `after` continues past a page (keyset).
+   */
+  async dueForDetailsReminder(from: IsoDate, to: IsoDate, limit: number, after?: { checkIn: IsoDate, id: string }): Promise<DetailsReminderRow[]> {
+    // Outer columns written out in full (inside a subquery Drizzle would render them unqualified).
+    const slotsOf = (status: SQL) => sql`(select count(*) from public.booking_guest g where g.organization_id = "booking"."organization_id" and g.booking_id = "booking"."id" and ${status})`
+    const pending = sql<number>`${slotsOf(sql`g.status = 'PENDING_DETAILS'`)}`.mapWith(Number)
+    const slots = sql<number>`${slotsOf(sql`g.status <> 'REMOVED'`)}`.mapWith(Number)
+    return this.db.select({ booking, pending, slots }).from(booking)
+      .where(this.#q.cond(
+        booking,
+        eq(booking.status, 'CONFIRMED'),
+        gte(booking.checkIn, from),
+        lte(booking.checkIn, to),
+        isNull(booking.detailsRemindedAt),
+        sql`${slotsOf(sql`g.status = 'PENDING_DETAILS'`)} > 0`,
+        after ? sql`(${booking.checkIn}, ${booking.id}) > (${after.checkIn}::date, ${after.id}::uuid)` : undefined,
+      ))
+      .orderBy(asc(booking.checkIn), asc(booking.id))
+      .limit(limit)
+  }
+
+  /** The booker was reminded; false when someone else marked it first. */
+  async markDetailsReminded(id: string, at: Date): Promise<boolean> {
+    const rows = await this.#q.update(booking, { detailsRemindedAt: at }, eq(booking.id, id), isNull(booking.detailsRemindedAt)).returning({ id: booking.id })
+    return rows.length > 0
   }
 
   /** Every pending booking of the organization whose hold lapsed becomes EXPIRED, in batches. Returns their ids. */

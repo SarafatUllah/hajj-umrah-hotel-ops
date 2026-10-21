@@ -100,6 +100,8 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
   an external service: enable only after the contract and data-region review (v7 §23 Q24), including zero-data
   retention and the server-side fallback models. Each organization must then also opt in
   (`PATCH /api/booking-settings {"passportAiAllowed": true}`); every sending is logged in `pii_access_log`.
+- The daily `booking.details-reminder` job texts bookers whose pilgrims' details are missing close to check-in: it
+  needs `SMS_DRIVER` configured (it does nothing while disabled) and the light tier worked somewhere.
 - The daily `booking.passport-retention` job (light tier) deletes passport images after their retention: some
   process must work the light tier (`JOBS_MODE` light or all), or images are kept beyond the PDPL period.
 - Passport images are encrypted with `PII_ENCRYPTION_KEYS` like the other personal data: rotate keys by prepending.

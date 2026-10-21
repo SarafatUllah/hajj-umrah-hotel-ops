@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { BOOKING_STATUSES, BOOKING_TYPES, CHILD_SIDES, OCCUPANCIES } from '../constants/booking'
+import { BOOKING_STATUSES, BOOKING_TYPES, CHILD_SIDES, HOTEL_TASK_STATUSES, OCCUPANCIES } from '../constants/booking'
 import { isoDate, pagination, safeText, uuid } from './common'
 import { addStayDateIssues } from './stay'
 
@@ -78,3 +78,17 @@ export const listBookingsQuerySchema = z.object({
   q: z.string().trim().min(1).max(30).optional(),
 }).merge(pagination({ maxPageSize: 100 }))
 export type ListBookingsQuery = z.infer<typeof listBookingsQuerySchema>
+
+/** `POST /api/check-in/lookup` (v7 §17): the receipt's QR code content (24 random bytes, base64url). */
+export const checkInLookupSchema = z.object({
+  receiptToken: z.string().regex(/^[\w-]{32}$/, 'This is not a receipt code'),
+}).strict()
+export type CheckInLookupInput = z.infer<typeof checkInLookupSchema>
+
+/** `GET /api/hotels/:hotelId/tasks` (v7 §11): open work by default, the soonest due first. */
+export const hotelTaskQuerySchema = z.object({
+  status: z.enum(HOTEL_TASK_STATUSES).default('OPEN'),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+}).refine(q => !q.from || !q.to || q.from <= q.to, { message: '"to" must not be before "from"', path: ['to'] })
+export type HotelTaskQuery = z.infer<typeof hotelTaskQuerySchema>

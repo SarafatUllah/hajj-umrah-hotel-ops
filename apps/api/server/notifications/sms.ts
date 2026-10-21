@@ -49,6 +49,11 @@ function webhookSender(url: string, token: string | undefined): SmsSender {
 
 let override: SmsSender | null = null
 
+/** Whether text messages can be sent at all (`SMS_DRIVER` is not `disabled`): optional messages are skipped otherwise. */
+export function isSmsEnabled(): boolean {
+  return override !== null || getEnv().SMS_DRIVER !== 'disabled'
+}
+
 /** The process's SMS sender, chosen by `SMS_DRIVER`. */
 export function useSmsSender(): SmsSender {
   if (override) return override

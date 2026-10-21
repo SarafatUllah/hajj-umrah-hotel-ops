@@ -48,6 +48,8 @@ export const booking = pgTable('booking', {
   confirmedBy: uuid('confirmed_by'),
   // Random token printed as the receipt QR (v7 §21): never the booking id or personal data.
   receiptToken: text('receipt_token'),
+  /** When the booker was reminded to complete the pilgrims' details (v7 §15 `detailsReminderDays`); once per booking. */
+  detailsRemindedAt: timestamp('details_reminded_at', { withTimezone: true }),
   cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
   cancelledBy: uuid('cancelled_by'),
   cancelReason: text('cancel_reason'),

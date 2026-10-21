@@ -1,11 +1,11 @@
 import { and, eq, isNotNull, isNull } from 'drizzle-orm'
-import { agency, agencyQuota, agencyUser, allocationRule, appUser, auditLog, booking, bookingGuestDetail, bookingPriceLine, passportScan, bookingSetting, piiAccessLog, pilgrim, customer, documentSequence, extraBedPolicy, otpChallenge, priceQuote, rate, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
+import { agency, agencyQuota, agencyUser, allocationRule, appUser, auditLog, booking, bookingGuestDetail, bookingPriceLine, passportScan, bookingSetting, hotelTask, piiAccessLog, pilgrim, customer, documentSequence, extraBedPolicy, otpChallenge, priceQuote, rate, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
 import type { DbOrTx } from '@hajj/db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
 import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from '../../../server/repositories/accounts'
-import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingRecordRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, GuestRepository, PassportScanRepository, PiiAccessLogRepository, PilgrimRepository, PriceQuoteRepository, RateRepository } from '../../../server/repositories/booking'
+import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingRecordRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, GuestRepository, HotelTaskRepository, PassportScanRepository, PiiAccessLogRepository, PilgrimRepository, PriceQuoteRepository, RateRepository } from '../../../server/repositories/booking'
 import { makeAgency, makeBooking, makeBookingRoom, makeCustomer, makeGuest, makeHotelWithRooms, makeStay } from '../../support/bookingFixtures'
 import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeHotelDocument, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
@@ -90,6 +90,18 @@ async function arrangeGuestDetail(db: DbOrTx, orgA: OrganizationScope) {
   const [detail] = await db.insert(bookingGuestDetail).values({ organizationId: orgA.organizationId, bookingId: b.id, bookingGuestId: guest.id, fullName: 'Pilgrim A', passportNoEncrypted: 'x', passportLookup: lookup, enteredByKind: 'agency' }).returning()
   const [master] = await db.insert(pilgrim).values({ organizationId: orgA.organizationId, fullName: 'Pilgrim A', gender: 'MALE', nationality: 'BGD', dateOfBirth: '1980-01-01', passportNoEncrypted: 'x', passportLookup: lookup, passportExpiry: '2030-01-01' }).returning()
   return { bookingId: b.id, guestId: guest.id, detailId: detail!.id, pilgrimId: master!.id, lookup }
+}
+
+/** Phase 2d (check-in, tasks, reminders): org A's confirmed booking with a slot still waiting for details, and an open task. */
+async function arrangeConfirmedBooking(db: DbOrTx, orgA: OrganizationScope) {
+  const { hotel, rooms } = await makeHotelWithRooms(db, orgA, 1)
+  const agencyRow = await makeAgency(db, orgA)
+  const b = await makeBooking(db, orgA, hotel.id, { agencyId: agencyRow.id, status: 'CONFIRMED' })
+  const claim = await makeBookingRoom(db, orgA, b, rooms[0]!.id)
+  const guest = await makeGuest(db, orgA, b.id, 1)
+  await makeStay(db, orgA, b.id, guest.id, claim.id, b.checkIn, b.checkOut)
+  const [task] = await db.insert(hotelTask).values({ organizationId: orgA.organizationId, hotelId: hotel.id, roomId: rooms[0]!.id, bookingId: b.id, kind: 'EXTRA_BED_SETUP', dueDate: b.checkIn }).returning()
+  return { bookingId: b.id, receiptToken: b.receiptToken!, hotelId: hotel.id, roomId: rooms[0]!.id, taskId: task!.id }
 }
 
 /** Phase 2d: org A's booking slot with a passport scan in the given status, placed in the slot. */
@@ -1580,6 +1592,21 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     rejection: foreignKeyViolation,
   }),
   // Phase 2d pilgrim data (Organization scope): org B can neither read, write nor link org A's slots, copies and masters.
+  'GuestRepository.statuses': isolationCase({ arrange: arrangeGuestDetail, act: (db, scope, ids) => new GuestRepository(db, scope).statuses(ids.bookingId), expect: 'empty' }),
+  'BookingRecordRepository.findByReceiptToken': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new BookingRecordRepository(db, scope).findByReceiptToken(ids.receiptToken), expect: 'null' }),
+  'BookingRecordRepository.setStatus': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new BookingRecordRepository(db, scope).setStatus(ids.bookingId, 'IN_HOUSE', new Date()), expect: 'null' }),
+  'BookingRecordRepository.dueForDetailsReminder': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope) => new BookingRecordRepository(db, scope).dueForDetailsReminder('2027-05-01', '2027-06-30', 10), expect: 'empty' }),
+  'BookingRecordRepository.markDetailsReminded': isolationCase({ arrange: arrangeConfirmedBooking, act: async (db, scope, ids) => ((await new BookingRecordRepository(db, scope).markDetailsReminded(ids.bookingId, new Date())) ? 1 : 0), expect: 'zero-affected' }),
+  'HotelTaskRepository.insertMany': isolationCase({
+    // Org A's room and booking: only the organization can make the insert fail.
+    arrange: arrangeConfirmedBooking,
+    act: (db, scope, ids) => new HotelTaskRepository(db, scope).insertMany([{ hotelId: ids.hotelId, roomId: ids.roomId, bookingId: ids.bookingId, kind: 'EXTRA_BED_REMOVAL', quantity: 1, dueDate: '2027-06-06' }]),
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+  }),
+  'HotelTaskRepository.list': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new HotelTaskRepository(db, scope).list({ hotelId: ids.hotelId, limit: 10 }), expect: 'empty' }),
+  'HotelTaskRepository.findById': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new HotelTaskRepository(db, scope).findById(ids.taskId, ids.hotelId), expect: 'null' }),
+  'HotelTaskRepository.markDone': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new HotelTaskRepository(db, scope).markDone(ids.taskId, ids.hotelId, { by: '00000000-0000-4000-8000-000000000000', at: new Date() }), expect: 'null' }),
   'GuestRepository.listForBooking': isolationCase({ arrange: arrangeGuestDetail, act: (db, scope, ids) => new GuestRepository(db, scope).listForBooking(ids.bookingId), expect: 'empty' }),
   'GuestRepository.findSlot': isolationCase({ arrange: arrangeGuestDetail, act: (db, scope, ids) => new GuestRepository(db, scope).findSlot(ids.bookingId, ids.guestId), expect: 'null' }),
   'GuestRepository.saveDetail': isolationCase({
