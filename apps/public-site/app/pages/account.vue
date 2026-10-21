@@ -5,7 +5,7 @@ import type { CustomerSignIn } from '@hajj/contracts/types/customer'
 definePageMeta({ middleware: 'auth' })
 const { t } = useI18n()
 const api = useApi()
-const toast = useToast()
+const notify = useNotify()
 const errorMessage = useErrorMessage()
 const { customer, signOut } = useCustomerSession()
 const { $queryClient } = useNuxtApp()
@@ -14,7 +14,7 @@ useSeoMeta({ title: () => t('account.title'), robots: 'noindex' })
 const signOutEverywhere = useMutation({
   mutationFn: () => signOut(true),
   onSuccess: () => navigateTo('/'),
-  onError: error => toast.add({ title: errorMessage(error), color: 'error', icon: 'i-lucide-triangle-alert' }),
+  onError: error => notify.failed(error),
 })
 
 // Closing is irreversible (tier 2) and needs a fresh code (D-P2-27b): a STEP_UP_REQUIRED answer asks for one, then retries.
@@ -26,7 +26,7 @@ const close = useMutation({
     closeOpen.value = false
     customer.value = null
     $queryClient.clear()
-    toast.add({ title: t('account.closed'), color: 'success', icon: 'i-lucide-circle-check' })
+    notify.done(t('account.closed'))
     await navigateTo('/')
   },
   onError: (error) => {

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
-import { PASSPORT_IMAGE_TYPES, type PassportImageType, type PassportScanMethod } from '@hajj/contracts/constants/pilgrimData'
+import { PASSPORT_IMAGE_TYPES, type PassportImageType, type PassportScanMethod, type PassportScanStatus } from '@hajj/contracts/constants/pilgrimData'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import { guestDetailsSchema } from '@hajj/contracts/schemas/guest'
 import type { PassportScanDto } from '@hajj/contracts/types/booking'
@@ -68,7 +68,7 @@ function toScanDto(row: PassportScanRow): PassportScanDto {
   const confidence = (row.confidence ?? null) as ScanConfidence | null
   return {
     id: row.id,
-    status: row.status,
+    status: row.status as PassportScanStatus,
     method: row.method as PassportScanMethod | null,
     guestId: row.bookingGuestId,
     fields,

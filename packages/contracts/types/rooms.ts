@@ -1,4 +1,5 @@
 /** The rooms and blocks API's response shapes (Phase 1 tasks 14–16; UI-UX-MASTER-DIRECTION §42 S5, S10, S11). */
+import type { Page } from './page'
 import type { BaseConfigOrigin, BlockKind, BlockPhase, InventoryStatus, PeriodPhase, RoomFeature } from '../constants/inventory'
 import type { IsoDate } from '../utils/dates'
 import type { CapacityValues, PeriodRef } from './inventory'
@@ -36,12 +37,7 @@ export interface RoomDetail extends RoomListItem {
   seasons: Array<{ overrideId: string, period: PeriodRef & { phase: PeriodPhase }, physicalBeds: number, sellableCapacity: number }>
 }
 
-export interface RoomListPage {
-  items: RoomListItem[]
-  page: number
-  pageSize: number
-  total: number
-}
+export type RoomListPage = Page<RoomListItem>
 
 export type { BlockPhase }
 
@@ -74,12 +70,7 @@ export interface BlockListItem {
   endedEarly: { at: string, by: BlockActor | null, originalEndDate: IsoDate, reason: string } | null
 }
 
-export interface BlockListPage {
-  items: BlockListItem[]
-  page: number
-  pageSize: number
-  total: number
-}
+export type BlockListPage = Page<BlockListItem>
 
 /** Why a room of a bulk block could not take it (409 `BLOCK_CONFLICT`, `details.conflicts`). */
 export interface BlockConflict { roomId: string, roomNumber: string, reason: 'ROOM_NOT_IN_INVENTORY_FOR_BLOCK' | 'BLOCK_OVERLAP' }

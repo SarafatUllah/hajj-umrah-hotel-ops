@@ -9,7 +9,7 @@ import { agencyPasswordChangeSchema } from '@hajj/contracts/schemas/agency'
 definePageMeta({ middleware: 'auth' })
 const { t } = useI18n()
 const api = useApi()
-const toast = useToast()
+const notify = useNotify()
 const errorMessage = useErrorMessage()
 const { me } = useAgencySession()
 useSeoMeta({ title: () => t('account.title') })
@@ -21,7 +21,7 @@ const change = useMutation({
   mutationFn: () => api<{ success: true }>('/agency/auth/password', { method: 'POST', body: form.value }),
   onSuccess: () => {
     form.value = blank()
-    toast.add({ title: t('account.passwordChanged'), color: 'success', icon: 'i-lucide-circle-check' })
+    notify.done(t('account.passwordChanged'))
   },
 })
 </script>

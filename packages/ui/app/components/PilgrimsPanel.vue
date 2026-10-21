@@ -18,7 +18,7 @@ defineSlots<{ actions?: (scope: { guest: GuestSlotDto }) => unknown }>()
 const emit = defineEmits<{ changed: [] }>()
 const { t } = useI18n()
 const api = useApi()
-const toast = useToast()
+const notify = useNotify()
 const errorMessage = useErrorMessage()
 const EDITABLE = computed<readonly string[]>(() => (props.editsArrived ? [...GUEST_TO_COME_STATUSES, 'CHECKED_IN', 'CHECKED_OUT', 'NO_SHOW'] : GUEST_TO_COME_STATUSES))
 const canEdit = (slot: GuestSlotDto) => props.editable && EDITABLE.value.includes(slot.status) && !isMaskedPassport(slot.details?.passportNo)
@@ -35,7 +35,7 @@ const save = useMutation({
   mutationFn: () => api<GuestSlotDto>(`${props.base}/guests/${editing.value!.id}`, { method: 'PUT', body: guestDetailsSchema.parse(details.value) }),
   onSuccess: () => {
     editing.value = null
-    toast.add({ title: t('guest.saved'), color: 'success', icon: 'i-lucide-circle-check' })
+    notify.done(t('guest.saved'))
     emit('changed')
   },
 })

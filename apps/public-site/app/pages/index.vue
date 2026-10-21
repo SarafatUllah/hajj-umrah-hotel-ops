@@ -1,10 +1,7 @@
 <script setup lang="ts">
-import type { PublicHotel } from '@hajj/contracts/types/hotel'
 
 const { t } = useI18n()
-const api = useApi()
-const organization = useRuntimeConfig().public.organizationSlug
-const { data: hotels, error, isPending, refetch } = useApiQuery(['public-hotels', organization], () => api<PublicHotel[]>('/public/hotels', { query: { organization } }))
+const { data: hotels, error, isPending, refetch } = usePublicHotels()
 useSeoMeta({ title: () => t('home.title'), description: () => t('home.lead') })
 </script>
 

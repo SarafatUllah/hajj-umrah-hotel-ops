@@ -1,4 +1,6 @@
 /** The quote API's response shapes (v7 §8: a price for exactly one hotel, stay, type and head count). */
+import type { Page } from './page'
+import type { BookingType } from '../constants/booking'
 import type { PriceUnit, QuoteStatus } from '../constants/pricing'
 
 export interface QuoteDto {
@@ -8,7 +10,7 @@ export interface QuoteDto {
   /** The agency's name: the quote desk reads who asked without an agency list. */
   agencyName: string | null
   hotelId: string
-  bookingType: string
+  bookingType: BookingType
   checkIn: string
   checkOut: string
   maleCount: number
@@ -27,4 +29,4 @@ export interface QuoteDto {
 /** A quote request just sent, with the click-to-chat link of the hotel's WhatsApp (null when none is set). */
 export interface RequestedQuote { quote: QuoteDto, whatsappLink: string | null }
 export interface OfferedQuote { quote: QuoteDto, aboveHighestPublicRate: boolean }
-export interface QuotePage { items: QuoteDto[], total: number, page: number, pageSize: number }
+export type QuotePage = Page<QuoteDto>

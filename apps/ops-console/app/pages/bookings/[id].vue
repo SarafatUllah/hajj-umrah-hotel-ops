@@ -51,16 +51,8 @@ const receipt = useApiQuery(() => ['booking-receipt', id.value], () => api<Recei
 const deskOf = (guest: GuestSlotDto) => guestActionsOf(guest, { ...booking.data.value!, pilgrims: booking.data.value!.guests.total }, hotel.value!.today, inHotel, hotelActive.value)
 
 // The passport photos refresh themselves (their reading is logged): a change elsewhere on the page leaves them be.
-const refresh = () => Promise.all([
-  queryClient.invalidateQueries({ queryKey: ['booking', id.value] }),
-  queryClient.invalidateQueries({ queryKey: ['booking-guests', id.value] }),
-  queryClient.invalidateQueries({ queryKey: ['booking-receipt', id.value] }),
-  queryClient.invalidateQueries({ queryKey: ['bookings'] }),
-  // The occupancy calendar, the desk's arrivals and departures and the housekeeping follow the booking.
-  queryClient.invalidateQueries({ queryKey: ['occupancy'] }),
-  queryClient.invalidateQueries({ queryKey: ['occupancy-day'] }),
-  queryClient.invalidateQueries({ queryKey: ['tasks'] }),
-])
+const refreshBooking = useBookingRefresh()
+const refresh = () => refreshBooking(id.value)
 async function changed(message: string): Promise<void> {
   notify.done(message)
   await refresh()

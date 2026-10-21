@@ -63,3 +63,13 @@ export function guestActionsOf(guest: { status: string, roomNumber: string | nul
     detailsNeeded: atHotel && guest.status === 'PENDING_DETAILS' && today < booking.checkOut,
   }
 }
+
+/**
+ * The queries a booking's change shows in (one list, so a new screen is never missed): the bookings lists, the
+ * occupancy calendar and its day, the desk's arrivals and departures, housekeeping, and the quotes (a booking marks
+ * its quote ACCEPTED); with `bookingId`, the booking's own page (its detail, pilgrims and receipt) too.
+ */
+export function bookingChangeKeys(bookingId?: string): string[][] {
+  const own = bookingId ? [['booking', bookingId], ['booking-guests', bookingId], ['booking-receipt', bookingId]] : []
+  return [...own, ['bookings'], ['occupancy'], ['occupancy-day'], ['tasks'], ['quotes'], ['quote']]
+}

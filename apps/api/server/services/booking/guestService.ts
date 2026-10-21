@@ -1,4 +1,4 @@
-import { type AgeGroup, type BookingType, type Gender, type Occupancy, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
+import { type AgeGroup, type BookingType, type Gender, type GuestStatus, type Occupancy, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { GuestDetailsInput, ListGuestsQuery } from '@hajj/contracts/schemas/guest'
 import type { GuestDetailsDto, GuestSlotDto, GuestWarning } from '@hajj/contracts/types/booking'
@@ -58,7 +58,7 @@ const DETAILS_STAGES = ['PENDING_DETAILS', 'READY']
 
 function toSlotDto(row: GuestSlotRow, booking: BookingRow, settings: Settings, viewer: Viewer, overlaps: readonly PassportOverlap[], cipher: PiiCipher): GuestSlotDto {
   const { guest, detail } = row
-  const base = { id: guest.id, slotNo: guest.slotNo, gender: guest.gender as Gender | null, ageGroup: guest.ageGroup as AgeGroup, isExtraBed: guest.isExtraBed, status: guest.status, roomNumber: row.roomNumber }
+  const base = { id: guest.id, slotNo: guest.slotNo, gender: guest.gender as Gender | null, ageGroup: guest.ageGroup as AgeGroup, isExtraBed: guest.isExtraBed, status: guest.status as GuestStatus, roomNumber: row.roomNumber }
   if (!detail) return { ...base, details: null, warnings: [] }
   if (detail.erasedAt) return { ...base, details: null, warnings: [{ code: 'DETAILS_ERASED' }] }
   try {

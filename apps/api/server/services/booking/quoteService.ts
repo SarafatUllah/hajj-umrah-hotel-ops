@@ -1,3 +1,4 @@
+import type { BookingType } from '@hajj/contracts/constants/booking'
 import type { PriceUnit, QuoteStatus } from '@hajj/contracts/constants/pricing'
 import type { ListQuotesQuery, QuoteDeclineInput, QuoteOfferInput, QuoteRequestInput, StaffQuoteCreateInput } from '@hajj/contracts/schemas/quote'
 import type { OfferedQuote, QuoteDto, QuotePage, RequestedQuote } from '@hajj/contracts/types/quote'
@@ -31,7 +32,7 @@ function toQuoteDto(row: PriceQuoteRow, now: Date, agencyName: string | null): Q
     agencyId: row.agencyId,
     agencyName,
     hotelId: row.hotelId,
-    bookingType: row.bookingType,
+    bookingType: row.bookingType as BookingType,
     checkIn: row.checkIn,
     checkOut: row.checkOut,
     maleCount: row.maleCount,

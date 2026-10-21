@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
+import { GUEST_TO_COME_STATUSES } from '@hajj/contracts/constants/booking'
 import { PASSPORT_IMAGE_TYPES } from '@hajj/contracts/constants/pilgrimData'
 import { guestDetailsSchema } from '@hajj/contracts/schemas/guest'
 import type { GuestSlotDto, PassportScanDto } from '@hajj/contracts/types/booking'
@@ -14,6 +15,7 @@ const emit = defineEmits<{ changed: [] }>()
 const { t } = useI18n()
 const api = useApi()
 const toast = useToast()
+const notify = useNotify()
 const errorMessage = useErrorMessage()
 const queryClient = useQueryClient()
 const READING = ['QUEUED', 'PROCESSING']
@@ -70,13 +72,13 @@ const upload = useMutation({
   mutationFn: uploadAll,
   onSuccess: ({ sent, refused }) => {
     if (!refused.length) {
-      toast.add({ title: t('scans.uploaded', sent), color: 'success', icon: 'i-lucide-circle-check' })
+      notify.done(t('scans.uploaded', sent))
       return
     }
     const description = refused.map(r => `${r.name}: ${r.message}`).join(' · ')
     toast.add({ title: t('scans.uploadedSome', { sent, total: sent + refused.length }), description, color: sent ? 'warning' : 'error', icon: 'i-lucide-triangle-alert' })
   },
-  onError: error => toast.add({ title: errorMessage(error), color: 'error', icon: 'i-lucide-triangle-alert' }),
+  onError: error => notify.failed(error),
   onSettled: refresh,
 })
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -91,7 +93,7 @@ function pick(event: Event) {
 const reviewing = ref<PassportScanDto | null>(null)
 const details = ref<GuestFieldValues>({ fullName: '' })
 const guestId = ref<string>('')
-const places = computed(() => props.guests.filter(g => ['PENDING_DETAILS', 'READY'].includes(g.status)).map(g => ({ value: g.id, label: `${slotLabel(g, t)} · ${g.details?.fullName ?? '—'}` })))
+const places = computed(() => props.guests.filter(g => (GUEST_TO_COME_STATUSES as readonly string[]).includes(g.status)).map(g => ({ value: g.id, label: `${slotLabel(g, t)} · ${g.details?.fullName ?? '—'}` })))
 /** Where a photo most likely belongs: the place it was matched to, else the first still waiting for details. */
 const firstEmptyPlace = () => props.guests.find(g => g.status === 'PENDING_DETAILS')?.id ?? places.value[0]?.value ?? ''
 function review(scan: PassportScanDto) {
@@ -105,7 +107,7 @@ const confirm = useMutation({
   mutationFn: () => api(`${props.base}/passport-scans/${reviewing.value!.id}/confirm`, { method: 'POST', body: { guestId: guestId.value, details: guestDetailsSchema.parse(details.value) } }),
   onSuccess: async () => {
     reviewing.value = null
-    toast.add({ title: t('scans.saved'), color: 'success', icon: 'i-lucide-circle-check' })
+    notify.done(t('scans.saved'))
     await refresh()
     emit('changed')
   },
@@ -114,10 +116,10 @@ const discard = useMutation({
   mutationFn: (scanId: string) => api(`${props.base}/passport-scans/${scanId}/discard`, { method: 'POST' }),
   onSuccess: async () => {
     reviewing.value = null
-    toast.add({ title: t('scans.discarded'), color: 'success', icon: 'i-lucide-circle-check' })
+    notify.done(t('scans.discarded'))
     await refresh()
   },
-  onError: error => toast.add({ title: errorMessage(error), color: 'error', icon: 'i-lucide-triangle-alert' }),
+  onError: error => notify.failed(error),
 })
 const imageUrl = (scan: PassportScanDto) => `/api${props.base}/passport-scans/${scan.id}/image`
 </script>

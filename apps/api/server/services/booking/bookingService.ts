@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { type BookingStatus, CONFIRMED_BOOKING_STATUSES, PENDING_BOOKING_STATUSES } from '@hajj/contracts/constants/booking'
+import { type BookerType, type BookingStatus, type BookingType, type ChildSide, CONFIRMED_BOOKING_STATUSES, PENDING_BOOKING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { PriceLineKind, PriceSource } from '@hajj/contracts/constants/pricing'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { HoldRequestInput, ListBookingsQuery, StaffHoldRequestInput, StaffStaySearchInput, StaySearchInput } from '@hajj/contracts/schemas/booking'
@@ -39,11 +39,11 @@ function toBookingDto(row: BookingRow, totalHalalas: number, now: Date, agencyNa
     id: row.id,
     bookingNo: row.bookingNo,
     hotelId: row.hotelId,
-    bookerType: row.bookerType,
+    bookerType: row.bookerType as BookerType,
     agencyId: row.agencyId,
     agencyName: row.agencyId ? agencyNames.get(row.agencyId) ?? null : null,
     customerId: row.customerId,
-    bookingType: row.bookingType,
+    bookingType: row.bookingType as BookingType,
     checkIn: row.checkIn,
     checkOut: row.checkOut,
     maleCount: row.maleCount,
@@ -51,7 +51,7 @@ function toBookingDto(row: BookingRow, totalHalalas: number, now: Date, agencyNa
     childCount: row.childCount,
     infantCount: row.infantCount,
     totalCount: row.totalCount,
-    childSide: row.childSide,
+    childSide: row.childSide as ChildSide | null,
     status: effectiveBookingStatus({ status: row.status as BookingStatus, holdExpiresAt: row.holdExpiresAt }, now),
     holdExpiresAt: row.holdExpiresAt?.toISOString() ?? null,
     confirmedAt: row.confirmedAt?.toISOString() ?? null,
@@ -131,7 +131,7 @@ export async function receiptOf(db: Db, scope: OrganizationScope, row: BookingRo
     status: row.status as BookingStatus,
     hotel: { name: hotel!.name, code: hotel!.code, city: hotel!.city, address: hotel!.address },
     agencyName: agency?.name ?? null,
-    bookingType: row.bookingType,
+    bookingType: row.bookingType as BookingType,
     checkIn: row.checkIn,
     checkOut: row.checkOut,
     nights: toEpochDay(row.checkOut) - toEpochDay(row.checkIn),

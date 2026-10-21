@@ -5,7 +5,7 @@
 import type { BookingStatus, GuestStatus, HotelTaskKind, HotelTaskStatus } from '../constants/booking'
 
 /** What the desk sees after scanning a receipt's QR code: which booking it is, to open it. */
-export interface CheckInLookupDto { bookingId: string, bookingNo: string, hotelId: string, status: string, checkIn: string, checkOut: string }
+export interface CheckInLookupDto { bookingId: string, bookingNo: string, hotelId: string, status: BookingStatus, checkIn: string, checkOut: string }
 
 /** One pilgrim after a move at the desk (check-in, check-out, no-show), and the booking's status that follows. */
 export interface GuestMoveDto {

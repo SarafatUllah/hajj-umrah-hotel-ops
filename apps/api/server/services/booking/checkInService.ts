@@ -106,5 +106,5 @@ export async function lookupReceipt(ctx: AuthContext, input: CheckInLookupInput)
   const row = await bookingOrgRepos(ctx.db, ctx.scope).records.findByReceiptToken(input.receiptToken)
   if (!row) throw new NotFoundError('BOOKING_NOT_FOUND')
   await authorizeStaffBooking(ctx, row, 'booking.checkIn', { allowInactive: true })
-  return { bookingId: row.id, bookingNo: row.bookingNo, hotelId: row.hotelId, status: row.status, checkIn: row.checkIn, checkOut: row.checkOut }
+  return { bookingId: row.id, bookingNo: row.bookingNo, hotelId: row.hotelId, status: row.status as BookingStatus, checkIn: row.checkIn, checkOut: row.checkOut }
 }

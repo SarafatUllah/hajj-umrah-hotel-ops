@@ -2,8 +2,9 @@
  * The booking API's response shapes (v7 §7–§12), shared by the API that builds them and the frontends that read them.
  * Dates are `YYYY-MM-DD` hotel dates; timestamps ISO strings; money in halalas.
  */
-import type { AgeGroup, BookingStatus, Gender, Occupancy } from '../constants/booking'
-import type { PassportScanFields, PassportScanMethod } from '../constants/pilgrimData'
+import type { Page } from './page'
+import type { AgeGroup, BookerType, BookingRoomStatus, BookingStatus, BookingType, ChildSide, Gender, GuestStatus, Occupancy } from '../constants/booking'
+import type { PassportScanFields, PassportScanMethod, PassportScanStatus } from '../constants/pilgrimData'
 import type { PriceLineKind, PriceSource } from '../constants/pricing'
 
 /** A booking's room claim as shown to people: the room's number and floor. */
@@ -14,7 +15,7 @@ export interface BookingRoomLine {
   roomTypeId: string
   occupancy: Occupancy
   extraBeds: number
-  status: string
+  status: BookingRoomStatus
   checkIn: string
   checkOut: string
 }
@@ -23,12 +24,12 @@ export interface BookingDto {
   id: string
   bookingNo: string
   hotelId: string
-  bookerType: string
+  bookerType: BookerType
   agencyId: string | null
   /** The agency's name (null for an individual booker): staff, at the desk, read who booked without an agency list. */
   agencyName: string | null
   customerId: string | null
-  bookingType: string
+  bookingType: BookingType
   checkIn: string
   checkOut: string
   maleCount: number
@@ -36,7 +37,7 @@ export interface BookingDto {
   childCount: number
   infantCount: number
   totalCount: number
-  childSide: string | null
+  childSide: ChildSide | null
   /** Effective: a pending booking past its hold expiry reads EXPIRED. */
   status: BookingStatus
   holdExpiresAt: string | null
@@ -47,7 +48,7 @@ export interface BookingDto {
   createdAt: string
 }
 
-export interface BookingPage { items: BookingDto[], total: number, page: number, pageSize: number }
+export type BookingPage = Page<BookingDto>
 
 export interface BookingDetailDto extends BookingDto {
   rooms: BookingRoomLine[]
@@ -68,7 +69,7 @@ export interface ReceiptDto {
   status: BookingStatus
   hotel: { name: string, code: string, city: string, address: string | null }
   agencyName: string | null
-  bookingType: string
+  bookingType: BookingType
   checkIn: string
   checkOut: string
   nights: number
@@ -123,7 +124,7 @@ export interface GuestSlotDto {
   gender: Gender | null
   ageGroup: AgeGroup
   isExtraBed: boolean
-  status: string
+  status: GuestStatus
   roomNumber: string | null
   details: GuestDetailsDto | null
   warnings: GuestWarning[]
@@ -136,7 +137,7 @@ export interface ChosenRoomDto { roomId: string, occupancy: Occupancy, seats: nu
 export interface HeldBooking {
   id: string
   bookingNo: string
-  status: string
+  status: BookingStatus
   holdExpiresAt: string
   checkIn: string
   checkOut: string
@@ -151,7 +152,7 @@ export type PassportScanConfidence = Partial<Record<keyof PassportScanFields, nu
 /** One scan as the review card shows it (v7 §13): what was read, how sure, and the slot it was placed in. */
 export interface PassportScanDto {
   id: string
-  status: string
+  status: PassportScanStatus
   method: PassportScanMethod | null
   guestId: string | null
   fields: PassportScanFields | null

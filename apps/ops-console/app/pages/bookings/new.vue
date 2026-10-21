@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useMutation, useQueryClient } from '@tanstack/vue-query'
+import { useMutation } from '@tanstack/vue-query'
 import { staffStaySearchSchema } from '@hajj/contracts/schemas/booking'
 import type { HeldBooking, StaySearchResult } from '@hajj/contracts/types/booking'
 import type { QuoteDto, QuotePage } from '@hajj/contracts/types/quote'
@@ -16,7 +16,7 @@ const format = useFormat()
 const notify = useNotify()
 const errorMessage = useErrorMessage()
 const access = useAccess()
-const queryClient = useQueryClient()
+const refreshBooking = useBookingRefresh()
 const { hotels, current } = useHotelScope()
 useSeoMeta({ title: () => t('newBooking.title') })
 const NONE = 'NONE'
@@ -67,7 +67,7 @@ const hold = useMutation({
   mutationFn: () => api<HeldBooking>('/bookings', { method: 'POST', body: { ...request(), rooms: chosenRoomsOf(option.value!), notes: notes.value.trim() || undefined } }),
   onSuccess: async (held) => {
     notify.done(t('newBooking.held', { no: held.bookingNo }))
-    await queryClient.invalidateQueries({ queryKey: ['bookings'] })
+    await refreshBooking()
     await navigateTo(`/bookings/${held.id}`)
   },
   onError: failed,

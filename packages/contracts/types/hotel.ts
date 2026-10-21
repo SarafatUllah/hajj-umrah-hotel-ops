@@ -1,4 +1,5 @@
 /** The hotels API's response shapes (Phase 1 tasks 12–14, 19; UI-UX-MASTER-DIRECTION §42 S2–S4). */
+import type { Page } from './page'
 import type { DocType } from '../constants/documents'
 import type { HotelStatus, OwnershipType } from '../constants/inventory'
 import type { IsoDate } from '../utils/dates'
@@ -73,7 +74,7 @@ export interface DocumentDto {
   archivedAt: string | null
 }
 
-export interface DocumentPage { items: DocumentDto[], page: number, pageSize: number, total: number }
+export type DocumentPage = Page<DocumentDto>
 
 export interface FloorListItem {
   id: string

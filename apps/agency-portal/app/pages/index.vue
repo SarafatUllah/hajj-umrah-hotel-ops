@@ -6,7 +6,7 @@ import type { BookingPage } from '@hajj/contracts/types/booking'
 definePageMeta({ middleware: ['auth', 'approved'] })
 const { t } = useI18n()
 const api = useApi()
-const hotels = useHotels()
+const hotels = usePublicHotels()
 const PAGE_SIZE = 20
 const page = ref(1)
 const status = ref<string>('ALL')

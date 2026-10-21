@@ -11,7 +11,7 @@ const api = useApi()
 const format = useFormat()
 const errorMessage = useErrorMessage()
 const queryClient = useQueryClient()
-const hotels = useHotels()
+const hotels = usePublicHotels()
 useSeoMeta({ title: () => t('book.title') })
 
 const form = ref<StayForm>({ hotelId: '', checkIn: '', checkOut: '', bookingType: 'GROUP', totalCount: 2, maleCount: 1, femaleCount: 1, childCount: 0, infantCount: 0, childSide: 'MOTHER' })

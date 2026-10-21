@@ -39,6 +39,8 @@ export default defineNuxtConfig({
     public: {
       /** Each app's session endpoints and pages (usePrincipalSession, the auth/guest middleware, session-ended). */
       session: { mePath: '', signOutPath: '', signOutEverywherePath: '', signInPath: '/login', homePath: '/' },
+      /** The organization whose hotels the app shows (`NUXT_PUBLIC_ORGANIZATION_SLUG`; the portal and the public site). */
+      organizationSlug: '',
     },
   },
   // Every page and proxied API response (an app's own route rules merge with these).

@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, getTableColumns, gte, inArray, isNotNull, isNull, like, lte, or, type SQL, sql } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
 import { booking, bookingChange, bookingGuest, bookingPriceLine, bookingRoom, floor, guestStay, room } from '@hajj/db/schema'
-import { type AgeGroup, type BookingChangeKind, type BookingStatus, type Gender, type Occupancy, PENDING_BOOKING_STATUSES, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
+import { type AgeGroup, type BookingChangeKind, type BookingRoomStatus, type BookingStatus, type Gender, type Occupancy, PENDING_BOOKING_STATUSES, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { PriceSource } from '@hajj/contracts/constants/pricing'
 import type { BookingRoomLine } from '@hajj/contracts/types/booking'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
@@ -268,7 +268,7 @@ export class BookingRecordRepository {
       this.#q.select(bookingPriceLine, eq(bookingPriceLine.bookingId, bookingId), { orderBy: [asc(bookingPriceLine.night), asc(bookingPriceLine.kind), asc(bookingPriceLine.roomTypeId)] }),
     ])
     return {
-      rooms: rooms.map(r => ({ ...r, occupancy: r.occupancy as Occupancy })),
+      rooms: rooms.map(r => ({ ...r, occupancy: r.occupancy as Occupancy, status: r.status as BookingRoomStatus })),
       guestStatuses: Object.fromEntries(guests.map(g => [g.status, Number(g.n)])),
       priceLines,
     }

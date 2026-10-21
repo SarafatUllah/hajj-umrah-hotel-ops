@@ -1,4 +1,4 @@
-/** The console's two toasts: something was done, or something failed (in people's words, never the server's text). */
+/** The two toasts of every app: something was done, or something failed (in people's words, never the server's text). */
 export function useNotify() {
   const toast = useToast()
   const errorMessage = useErrorMessage()

@@ -1,3 +1,4 @@
+import type { BookingStatus } from '@hajj/contracts/constants/booking'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { HoldRequestInput, StaySearchInput } from '@hajj/contracts/schemas/booking'
 import type { HeldBooking } from '@hajj/contracts/types/booking'
@@ -157,7 +158,7 @@ export async function placeHold(db: Db, scope: OrganizationScope, booker: Booker
     return {
       id: row.id,
       bookingNo: row.bookingNo,
-      status: row.status,
+      status: row.status as BookingStatus,
       holdExpiresAt: row.holdExpiresAt!.toISOString(),
       checkIn: row.checkIn,
       checkOut: row.checkOut,

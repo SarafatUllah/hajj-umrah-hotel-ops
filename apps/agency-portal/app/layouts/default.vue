@@ -8,15 +8,14 @@ const links = computed(() => [
   { label: t('portal.nav.book'), to: '/book', icon: 'i-lucide-plus' },
   { label: t('portal.nav.quotes'), to: '/quotes', icon: 'i-lucide-tag' },
 ])
-const toast = useToast()
-const errorMessage = useErrorMessage()
+const notify = useNotify()
 async function signOutNow() {
   try {
     await signOut()
     await navigateTo('/login')
   }
   catch (error) {
-    toast.add({ title: errorMessage(error), color: 'error', icon: 'i-lucide-triangle-alert' })
+    notify.failed(error)
   }
 }
 </script>

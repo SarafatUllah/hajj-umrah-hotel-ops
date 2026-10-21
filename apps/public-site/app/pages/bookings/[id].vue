@@ -1,23 +1,22 @@
 <script setup lang="ts">
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
+import { CONFIRMED_BOOKING_STATUSES } from '@hajj/contracts/constants/booking'
 import { guestDetailsSchema } from '@hajj/contracts/schemas/guest'
 import type { BookingDetailDto, GuestSlotDto, ReceiptDto } from '@hajj/contracts/types/booking'
-import type { PublicHotel } from '@hajj/contracts/types/hotel'
 
 definePageMeta({ middleware: 'auth' })
 const { t } = useI18n()
 const route = useRoute()
 const api = useApi()
-const toast = useToast()
+const notify = useNotify()
 const errorMessage = useErrorMessage()
 const queryClient = useQueryClient()
-const organization = useRuntimeConfig().public.organizationSlug
 const id = computed(() => String(route.params.id))
 
 const booking = useApiQuery(() => ['customer-booking', id.value], () => api<BookingDetailDto>(`/customer/bookings/${id.value}`))
 const guests = useApiQuery(() => ['customer-guests', id.value], () => api<GuestSlotDto[]>(`/customer/bookings/${id.value}/guests`))
-const { data: hotels } = useApiQuery(['public-hotels', organization], () => api<PublicHotel[]>('/public/hotels', { query: { organization } }))
-const confirmed = computed(() => ['CONFIRMED', 'IN_HOUSE', 'COMPLETED'].includes(booking.data.value?.status ?? ''))
+const { data: hotels } = usePublicHotels()
+const confirmed = computed(() => (CONFIRMED_BOOKING_STATUSES as readonly string[]).includes(booking.data.value?.status ?? ''))
 const receipt = useApiQuery(() => ['customer-receipt', id.value], () => api<ReceiptDto>(`/customer/bookings/${id.value}/receipt`), { enabled: confirmed })
 const hotelName = computed(() => hotels.value?.find(h => h.id === booking.data.value?.hotelId)?.name ?? receipt.data.value?.hotel.name ?? '')
 useSeoMeta({ title: () => (booking.data.value ? t('bookings.number', { no: booking.data.value.bookingNo }) : t('bookings.title')), robots: 'noindex' })
@@ -36,12 +35,12 @@ const withdraw = useMutation({
   mutationFn: () => api<BookingDetailDto>(`/customer/bookings/${id.value}/withdraw`, { method: 'POST' }),
   onSuccess: async () => {
     withdrawOpen.value = false
-    toast.add({ title: t('bookings.withdrawn'), color: 'success', icon: 'i-lucide-circle-check' })
+    notify.done(t('bookings.withdrawn'))
     await refresh()
   },
   onError: (error) => {
     withdrawOpen.value = false
-    toast.add({ title: errorMessage(error), color: 'error', icon: 'i-lucide-triangle-alert' })
+    notify.failed(error)
   },
 })
 
@@ -57,7 +56,7 @@ const saveDetails = useMutation({
   mutationFn: () => api<GuestSlotDto>(`/customer/bookings/${id.value}/guests/${editing.value!.id}`, { method: 'PUT', body: guestDetailsSchema.parse(details.value) }),
   onSuccess: async () => {
     editing.value = null
-    toast.add({ title: t('guest.saved'), color: 'success', icon: 'i-lucide-circle-check' })
+    notify.done(t('guest.saved'))
     await refresh()
   },
 })

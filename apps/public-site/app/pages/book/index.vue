@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from '@tanstack/vue-query'
 import { customerStaySearchSchema } from '@hajj/contracts/schemas/booking'
 import { leadPilgrimSchema } from '@hajj/contracts/schemas/guest'
 import type { BookingDetailDto, StaySearchResult } from '@hajj/contracts/types/booking'
-import type { PublicHotel } from '@hajj/contracts/types/hotel'
 
 definePageMeta({ middleware: 'auth' })
 const { t } = useI18n()
@@ -11,10 +10,9 @@ const route = useRoute()
 const api = useApi()
 const errorMessage = useErrorMessage()
 const queryClient = useQueryClient()
-const organization = useRuntimeConfig().public.organizationSlug
 useSeoMeta({ title: () => t('book.title'), robots: 'noindex' })
 
-const { data: hotels, error: hotelsError, refetch: refetchHotels } = useApiQuery(['public-hotels', organization], () => api<PublicHotel[]>('/public/hotels', { query: { organization } }))
+const { data: hotels, error: hotelsError, refetch: refetchHotels } = usePublicHotels()
 const hotelItems = computed(() => (hotels.value ?? []).map(h => ({ value: h.id, label: `${h.name} · ${h.city}` })))
 
 const form = ref<StayForm>({

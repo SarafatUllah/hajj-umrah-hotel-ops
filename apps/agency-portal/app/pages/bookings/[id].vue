@@ -7,10 +7,9 @@ definePageMeta({ middleware: ['auth', 'approved'] })
 const { t } = useI18n()
 const route = useRoute()
 const api = useApi()
-const toast = useToast()
-const errorMessage = useErrorMessage()
+const notify = useNotify()
 const queryClient = useQueryClient()
-const hotels = useHotels()
+const hotels = usePublicHotels()
 const id = computed(() => String(route.params.id))
 /** The booking's path in the API, as the shared pilgrim panels reach it. */
 const base = computed(() => `/agency/bookings/${id.value}`)
@@ -42,22 +41,22 @@ const refresh = () => Promise.all([
 const confirm = useMutation({
   mutationFn: () => api<BookingDetailDto>(`/agency/bookings/${id.value}/confirm`, { method: 'POST' }),
   onSuccess: async () => {
-    toast.add({ title: t('bookings.confirmed'), color: 'success', icon: 'i-lucide-circle-check' })
+    notify.done(t('bookings.confirmed'))
     await refresh()
   },
-  onError: error => toast.add({ title: errorMessage(error), color: 'error', icon: 'i-lucide-triangle-alert' }),
+  onError: error => notify.failed(error),
 })
 const releaseOpen = ref(false)
 const release = useMutation({
   mutationFn: () => api<BookingDetailDto>(`/agency/bookings/${id.value}/release`, { method: 'POST' }),
   onSuccess: async () => {
     releaseOpen.value = false
-    toast.add({ title: t('bookings.released'), color: 'success', icon: 'i-lucide-circle-check' })
+    notify.done(t('bookings.released'))
     await refresh()
   },
   onError: (error) => {
     releaseOpen.value = false
-    toast.add({ title: errorMessage(error), color: 'error', icon: 'i-lucide-triangle-alert' })
+    notify.failed(error)
   },
 })
 const printReceipt = () => window.print()

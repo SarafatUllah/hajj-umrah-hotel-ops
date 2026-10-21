@@ -1,4 +1,5 @@
 /** The agency API's response shapes (v7 §6, §15). */
+import type { Page } from './page'
 import type { AgencyStatus } from '../constants/accounts'
 
 export interface AgencyDto {
@@ -32,7 +33,7 @@ export interface AgencyUserDto {
 export interface AgencyMe { user: Omit<AgencyUserDto, 'isActive' | 'lastLoginAt' | 'createdAt' | 'phone'>, agency: Pick<AgencyDto, 'id' | 'name' | 'status'> }
 
 /** `GET /api/agencies` (staff): newest first. */
-export interface AgencyListPage { items: AgencyDto[], total: number, page: number, pageSize: number }
+export type AgencyListPage = Page<AgencyDto>
 
 /** `GET /api/agencies/:agencyId` (staff): the agency and its users. */
 export interface AgencyDetail extends AgencyDto { users: AgencyUserDto[] }

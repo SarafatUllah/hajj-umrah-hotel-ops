@@ -12,7 +12,7 @@ const props = defineProps<{ base: string, bookingType: string }>()
 const emit = defineEmits<{ added: [] }>()
 const { t } = useI18n()
 const api = useApi()
-const toast = useToast()
+const notify = useNotify()
 const errorMessage = useErrorMessage()
 
 const counts = ref({ maleCount: 0, femaleCount: 0, childCount: 0, infantCount: 0, totalCount: 0 })
@@ -33,7 +33,7 @@ const search = useMutation({
 const add = useMutation({
   mutationFn: () => api<BookingDetailDto>(`${props.base}/guests`, { method: 'POST', body: addGuestsSchema.parse({ ...request(), rooms: chosenRoomsOf(option.value!) }) }),
   onSuccess: () => {
-    toast.add({ title: t('additions.added'), color: 'success', icon: 'i-lucide-circle-check' })
+    notify.done(t('additions.added'))
     counts.value = { maleCount: 0, femaleCount: 0, childCount: 0, infantCount: 0, totalCount: 0 }
     emit('added')
   },

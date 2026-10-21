@@ -1,8 +1,7 @@
 <script setup lang="ts">
 definePageMeta({ middleware: 'auth' })
 const { t } = useI18n()
-const toast = useToast()
-const errorMessage = useErrorMessage()
+const notify = useNotify()
 const session = useAgencySession()
 const { me } = session
 const checking = ref(false)
@@ -18,7 +17,7 @@ async function check(): Promise<void> {
     if (fresh?.agency.status === 'APPROVED') await navigateTo('/')
   }
   catch (error) {
-    toast.add({ title: errorMessage(error), color: 'error', icon: 'i-lucide-triangle-alert' })
+    notify.failed(error)
   }
   finally {
     checking.value = false

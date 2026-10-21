@@ -1,3 +1,5 @@
+import type { BookerType, BookingStatus } from '../constants/booking'
+
 /**
  * Domain events (Phase 2a ticket 7): facts other parts of the system react to AFTER the change committed — side
  * effects only (messages, other modules' bookkeeping). A rule that must hold at once uses a direct public-service
@@ -23,7 +25,7 @@ export type BookingConfirmedV1 = EventEnvelope<'booking.confirmed', 1, {
   bookingId: string
   bookingNo: string
   hotelId: string
-  bookerType: 'AGENCY' | 'INDIVIDUAL'
+  bookerType: BookerType
   agencyId: string | null
   customerId: string | null
   checkIn: string
@@ -39,13 +41,13 @@ export type BookingCancelledV1 = EventEnvelope<'booking.cancelled', 1, {
   bookingId: string
   bookingNo: string
   hotelId: string
-  bookerType: 'AGENCY' | 'INDIVIDUAL'
+  bookerType: BookerType
   agencyId: string | null
   customerId: string | null
   checkIn: string
   checkOut: string
   /** The status it was cancelled from (HELD, REQUESTED or CONFIRMED). */
-  previousStatus: string
+  previousStatus: BookingStatus
   cancelledBy: CancelledByKind
 }>
 

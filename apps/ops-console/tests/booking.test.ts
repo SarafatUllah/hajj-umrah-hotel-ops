@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Permission } from '@hajj/contracts/constants/permissions'
-import { bookingActionsOf, guestActionsOf } from '../app/utils/booking'
+import { bookingActionsOf, bookingChangeKeys, guestActionsOf } from '../app/utils/booking'
 
 const allowed = (...permissions: Permission[]) => (p: Permission) => permissions.includes(p)
 const everything = allowed('booking.create', 'booking.edit', 'booking.cancel', 'booking.checkIn')
@@ -61,5 +61,12 @@ describe('what staff are offered on a pilgrim at the desk', () => {
   it('nothing moves after the stay or without the desk permission', () => {
     expect(guestActionsOf({ status: 'CHECKED_IN', roomNumber: '101' }, confirmed, '2027-06-04', everything, true).move).toBe(false)
     expect(guestActionsOf({ status: 'READY', roomNumber: '101' }, confirmed, '2027-06-01', allowed('booking.edit'), true)).toMatchObject({ checkIn: false, noShow: false, move: true })
+  })
+})
+
+describe('what a booking\'s change shows in', () => {
+  it('every screen that reads bookings, and the booking\'s own page when named', () => {
+    expect(bookingChangeKeys()).toEqual([['bookings'], ['occupancy'], ['occupancy-day'], ['tasks'], ['quotes'], ['quote']])
+    expect(bookingChangeKeys('b1').slice(0, 3)).toEqual([['booking', 'b1'], ['booking-guests', 'b1'], ['booking-receipt', 'b1']])
   })
 })
