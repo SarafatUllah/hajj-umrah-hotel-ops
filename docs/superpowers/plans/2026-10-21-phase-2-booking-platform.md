@@ -36,7 +36,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | done |
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
-| 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | |
+| 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | 15a public request flow done |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | |
 | 17 | Final review (code, security, database, architecture) and docs | |
 
@@ -489,6 +489,29 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   500; no customer request lock (a date change opens no request). Deliberately kept simple: a DONE extra-bed set-up of
   the old dates gets no removal task (housekeeping sees the booking's new tasks), and claims released by a room move
   before the stay are replaced with the rest (`DATES_CHANGED` keeps the old rooms and dates).
+- **D-P2-50 (booking) Public request flow (v7 §6, §10, step 15a).** The public site's customer (phone OTP session,
+  D-P2-27) books at the public price, rooms of their own only (`b:` owner), at most `individualMaxRooms`, no quota:
+  `POST /api/customer/stays/search` (the hold's search with an INDIVIDUAL booker; `quoteId` is not part of the public
+  schema), `POST /api/customer/bookings` — the chosen option REQUESTED for `requestHours` (the hold's locks and
+  re-check, the per-customer request lock and `individualMaxOpenRequests`, default 1: 409 `TOO_MANY_OPEN_REQUESTS`)
+  together with the lead pilgrim's complete passport (v7: "at least the father's passport"): an adult on the check-in
+  day (422 `LEAD_NOT_ADULT`, checked before any lock), put in the first adult slot of their side (422
+  `LEAD_DOES_NOT_FIT`), saved by the same code as any booker's details (`saveSlot`, actor `customer`, no master) in
+  the request's transaction — no request without it. Then `GET /api/customer/bookings[/:id]` (own only: anyone
+  else's is 404), `…/:id/receipt` once the hotel confirmed (staff `booking.create`, D-P2-37), `…/:id/withdraw` (an
+  open request only; a confirmed booking is the hotel's to cancel: 409 `CANCEL_BY_HOTEL`), `…/:id/guests` and
+  `PUT …/:id/guests/:guestId`. D-P2-27b applied (security review): whoever holds the phone holds the session, so a
+  customer session reads back names, nationality, completeness and a masked passport number only — never dates of
+  birth, expiry dates, extras or a full number — and cannot change a slot once its details are complete (READY:
+  409 `GUEST_LOCKED`; corrections go through the hotel), only fill the others. The receipt's QR token is shown (it
+  admits no one by itself: only staff look it up, D-P2-37). `GET /api/public/hotels?organization=<slug>` (no
+  session) lists the organization's active hotels (id, name, city, country, address; no internal code). Abuse
+  limits (consume-first): hotel list 300 / 15 min per client address; searches 120 / hour per customer; request
+  attempts 30 / day per customer, counted after the free checks (the lead's age and passport, before any lock), so
+  retrying a busy hotel does not shut a family out; detail saves 120 / hour per customer — on top of the OTP limits
+  (D-P2-27) and the one open request; a REQUESTED booking expires by itself after `requestHours` (the minute sweep).
+  Accepted: the slug's existence shows (it is a sign-in input anyway); searches are bounded per customer, whose
+  accounts cost an SMS each.
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

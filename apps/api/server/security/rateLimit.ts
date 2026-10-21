@@ -62,6 +62,17 @@ export const RATE_LIMITS = {
   passportImagePerUser: { name: 'passport-image-user', limit: 1200, windowSeconds: 60 * 60 },
   /** Passports sent to the external AI reader per organization (each is a paid call and a disclosure). */
   passportAiPerOrganization: { name: 'passport-ai-org', limit: 300, windowSeconds: 60 * 60 },
+  /** The public site's hotel list per client address (unauthenticated; carrier NAT shares addresses, hence generous). */
+  publicCatalogPerIp: { name: 'public-catalog-ip', limit: 300, windowSeconds: 15 * 60 },
+  /** Stay searches per customer (each runs the allocator; a family compares a few hotels and dates). */
+  staySearchPerCustomer: { name: 'stay-search-customer', limit: 120, windowSeconds: 60 * 60 },
+  /**
+   * Request attempts per customer per day that reach the locks (each locks rooms; one may be open at a time, v7 §10).
+   * Counted after the free checks (the lead's passport), so a family retrying a busy hotel is not shut out.
+   */
+  requestPerCustomer: { name: 'request-customer', limit: 30, windowSeconds: 24 * 60 * 60 },
+  /** Pilgrim detail saves per customer (a family's handful of passports, corrected a few times). */
+  guestSavePerCustomer: { name: 'guest-save-customer', limit: 120, windowSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>
 
 /** Buckets are kept this long after their window started (far beyond the longest window), then purged. */

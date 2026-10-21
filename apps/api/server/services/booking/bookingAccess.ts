@@ -5,6 +5,14 @@ import type { BookingRow } from '../../repositories/booking'
 import type { AgencyContext } from '../../security/agencyContext'
 import type { AuthContext } from '../../security/authContext'
 import { authorizeHotel } from '../../security/authorize'
+import type { CustomerContext } from '../../security/customerContext'
+
+/** A customer reaches only their own bookings; anyone else's is "not found". */
+export async function loadForCustomer(ctx: CustomerContext, bookingId: string): Promise<BookingRow> {
+  const row = await bookingOrgRepos(ctx.db, ctx.scope).records.findById(bookingId)
+  if (!row || row.customerId !== ctx.scope.customerId) throw new NotFoundError('BOOKING_NOT_FOUND')
+  return row
+}
 
 /** An agency reaches only its own bookings; another agency's booking is "not found". */
 export async function loadForAgency(ctx: AgencyContext, bookingId: string): Promise<BookingRow> {

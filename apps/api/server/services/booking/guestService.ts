@@ -1,7 +1,7 @@
 import { type AgeGroup, type BookingType, type Gender, type Occupancy, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { GuestDetailsInput, ListGuestsQuery } from '@hajj/contracts/schemas/guest'
-import { checkGuest, isComplete, maskPassport, PASSPORT_LOOKUP_CONTEXT, passportLookupInput } from '../../domain/booking/guestRules'
+import { checkGuest, isComplete, maskPassport, PASSPORT_LOOKUP_CONTEXT, passportLookupInput, type SlotFacts } from '../../domain/booking/guestRules'
 import { orgCan } from '../../domain/rbac/authorize'
 import { rethrowDbError } from '../../errors/dbErrors'
 import { ConflictError, NotFoundError, ValidationError } from '../../errors/domainError'
@@ -9,12 +9,13 @@ import { bookingOrgRepos } from '../../repositories'
 import type { BookingRow, GuestSlotRow, PassportOverlap } from '../../repositories/booking'
 import type { AgencyContext } from '../../security/agencyContext'
 import type { AuthContext } from '../../security/authContext'
+import type { CustomerContext } from '../../security/customerContext'
 import { requireOrgPermission } from '../../security/authorize'
 import { type PiiCipher, PiiDecryptionError } from '../../security/piiCrypto'
 import { consumeRateLimit, RATE_LIMITS } from '../../security/rateLimit'
 import type { OrganizationScope } from '../../security/scope'
 import { usePiiCipher } from '../../utils/pii'
-import { loadForAgency, loadForStaff } from './bookingAccess'
+import { loadForAgency, loadForCustomer, loadForStaff } from './bookingAccess'
 import { loadBookingSettings } from './bookingSettingsService'
 
 type Db = Parameters<typeof bookingOrgRepos>[0]
@@ -115,9 +116,14 @@ function readDetails(row: GuestSlotRow, booking: BookingRow, settings: Settings,
     ...checkGuest(slot, facts, settings).issues.filter(i => !i.blocking).map(i => ({ code: i.code as 'PASSPORT_EXPIRES_SOON' })),
     ...overlaps.filter(o => o.passportLookup === detail.passportLookup).map(o => ({ code: 'DUPLICATE_PASSPORT' as const, bookingNo: o.bookingNo })),
   ]
+  // D-P2-27b: whoever holds the phone holds a customer session, so it never reads identity data back — names,
+  // nationality and a masked number only (the warnings still say a passport expires too soon).
+  const datesHidden = viewer.actor.kind === 'customer'
   return {
     details: {
       ...facts,
+      dateOfBirth: datesHidden ? null : facts.dateOfBirth,
+      passportExpiry: datesHidden ? null : facts.passportExpiry,
       passportNo: passportNo && (viewer.full ? passportNo : maskPassport(passportNo)),
       extras: viewer.full && detail.detailsEncrypted ? JSON.parse(cipher.decrypt(detail.detailsEncrypted, extrasContext(guest.id))) as Record<string, string> : null,
       complete: isComplete(facts),
@@ -166,6 +172,14 @@ async function linkMaster(repos: Repos, lookup: string, input: GuestDetailsInput
   return { pilgrimId: row.id, differs }
 }
 
+/** The details' checks against the slot; a blocking issue refuses them (422 `GUEST_DETAILS_REJECTED`). */
+export function assertGuestFits(slot: SlotFacts, input: GuestDetailsInput, settings: Settings): ReturnType<typeof checkGuest> {
+  const checked = checkGuest(slot, input, settings)
+  const blocking = checked.issues.filter(i => i.blocking).map(i => i.code)
+  if (blocking.length > 0) throw new ValidationError('GUEST_DETAILS_REJECTED', 'These details do not fit this slot; use another slot', { issues: blocking })
+  return checked
+}
+
 /**
  * Saves one slot's details (v7 §7, §13): the booker's copy (passport number and extras encrypted), the slot's age
  * group from the date of birth on the check-in day, READY once complete. Refused (422 `GUEST_DETAILS_REJECTED`) when
@@ -186,9 +200,7 @@ export async function saveSlot(db: Db, scope: OrganizationScope, booking: Bookin
     const slot = await repos.guests.findSlot(booking.id, guestId, { forUpdate: true })
     if (!slot) throw new NotFoundError('GUEST_NOT_FOUND')
     if (writer.lockedStatuses.includes(slot.guest.status)) throw new ConflictError('GUEST_LOCKED', `A pilgrim who is ${slot.guest.status} can only be changed by the hotel`)
-    const checked = checkGuest({ bookingType: booking.bookingType as BookingType, ageGroup: slot.guest.ageGroup as AgeGroup, occupancy: slot.occupancy as Occupancy | null, checkIn: booking.checkIn }, input, settings)
-    const blocking = checked.issues.filter(i => i.blocking).map(i => i.code)
-    if (blocking.length > 0) throw new ValidationError('GUEST_DETAILS_REJECTED', 'These details do not fit this slot; use another slot', { issues: blocking })
+    const checked = assertGuestFits({ bookingType: booking.bookingType as BookingType, ageGroup: slot.guest.ageGroup as AgeGroup, occupancy: slot.occupancy as Occupancy | null, checkIn: booking.checkIn }, input, settings)
     if (lookup && (await repos.guests.listForBooking(booking.id)).some(r => r.guest.id !== guestId && r.guest.status !== 'REMOVED' && r.detail?.passportLookup === lookup)) {
       throw new ValidationError('DUPLICATE_PASSPORT_IN_BOOKING', 'This passport is already in another slot of this booking')
     }
@@ -267,4 +279,31 @@ const visibleHotels = (ctx: AuthContext): readonly string[] | null => (ctx.authz
 export async function saveGuest(ctx: AuthContext, bookingId: string, guestId: string, input: GuestDetailsInput): Promise<GuestSlotDto> {
   const booking = await loadForStaff(ctx, bookingId, 'booking.edit')
   return saveSlot(ctx.db, ctx.scope, booking, guestId, input, staffWriter(ctx))
+}
+
+// ---- Customers (public site, v7 §6: the lead pilgrim's passport with the request, the others later) ----
+
+/**
+ * Slot statuses a customer can no longer change: complete details too (D-P2-27b: a stolen phone session must not
+ * replace a confirmed pilgrim's identity; corrections go through the hotel).
+ */
+const CUSTOMER_LOCKED = ['READY', ...AGENCY_LOCKED]
+
+/** The writer of a customer save: no master; once a slot is complete, only the hotel changes it. */
+export const customerWriter = (ctx: CustomerContext): Writer => ({ actor: { kind: 'customer', id: ctx.scope.customerId }, writesMaster: false, mergesMaster: false, lockedStatuses: CUSTOMER_LOCKED })
+
+/**
+ * Public site: the booking's slots — names, nationality, a masked passport number; never dates or a full number
+ * (D-P2-27b: whoever holds the phone holds the account).
+ */
+export async function listCustomerGuests(ctx: CustomerContext, bookingId: string): Promise<GuestSlotDto[]> {
+  const booking = await loadForCustomer(ctx, bookingId)
+  return slotsOf(ctx.db, ctx.scope, booking, { actor: { kind: 'customer', id: ctx.scope.customerId }, full: false })
+}
+
+/** Public site: enter or correct a pilgrim's details on the customer's own booking. */
+export async function saveCustomerGuest(ctx: CustomerContext, bookingId: string, guestId: string, input: GuestDetailsInput): Promise<GuestSlotDto> {
+  const booking = await loadForCustomer(ctx, bookingId)
+  await consumeRateLimit(ctx.db, RATE_LIMITS.guestSavePerCustomer, ctx.scope.customerId, ctx.now())
+  return saveSlot(ctx.db, ctx.scope, booking, guestId, input, customerWriter(ctx))
 }

@@ -3,10 +3,12 @@ import { encodeAuditCursor, type CreateHotelInput, type ListHotelAuditQuery, typ
 import { type IsoDate, maxIsoDate, minIsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { orgCan, hasHotelAccess } from '../domain/rbac/authorize'
 import { translateDbError } from '../errors/dbErrors'
-import { ConflictError } from '../errors/domainError'
+import { ConflictError, NotFoundError } from '../errors/domainError'
 import { hotelRepos, tenantRepos } from '../repositories'
 import type { HotelPatch, HotelRow } from '../repositories/tenant'
 import type { AuthContext } from '../security/authContext'
+import { consumeRateLimit, RATE_LIMITS } from '../security/rateLimit'
+import { resolveTenantBySlug } from '../security/tenantResolver'
 import type { HotelScope } from '../security/scope'
 import { authorizeHotel, requireAllHotels, requireOrgPermission } from '../security/authorize'
 import { recordAudit } from './audit'
@@ -77,6 +79,24 @@ export async function listHotels(ctx: AuthContext): Promise<HotelSummary[]> {
   return accessible
     .map(hotel => toHotelSummary(hotel, hotelExtras(ctx, hotel, floorCounts, roomCounts)))
     .sort(byName)
+}
+
+/** What the public site shows of a hotel (nothing internal: no code, settings, counts or contact data). */
+export interface PublicHotel { id: string, name: string, city: string, country: string, address: string | null }
+
+/**
+ * Public site (v7 §6, unauthenticated): the organization's active hotels by name, to choose where to stay. Rate
+ * limited per client address; an unknown organization is 404 `ORGANIZATION_NOT_FOUND`.
+ */
+export async function listPublicHotels(db: Parameters<typeof tenantRepos>[0], organizationSlug: string, request: { clientIp: string, now: Date }): Promise<PublicHotel[]> {
+  await consumeRateLimit(db, RATE_LIMITS.publicCatalogPerIp, request.clientIp, request.now)
+  const tenant = await resolveTenantBySlug(db, organizationSlug)
+  if (!tenant) throw new NotFoundError('ORGANIZATION_NOT_FOUND')
+  const hotels = await tenantRepos(db, tenant.scope).hotels.listAll()
+  return hotels
+    .filter(h => h.status === 'ACTIVE')
+    .map(h => ({ id: h.id, name: h.name, city: h.city, country: h.country, address: h.address }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 export async function getHotel(ctx: AuthContext, hotelId: string): Promise<HotelDetail> {

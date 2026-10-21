@@ -114,7 +114,7 @@ function toBookingDto(row: BookingRow, totalHalalas: number, now: Date): Booking
   }
 }
 
-const toPage = (result: { rows: BookingListRow[], total: number }, query: Pick<ListBookingsQuery, 'page' | 'pageSize'>, now: Date): BookingPage =>
+export const toPage = (result: { rows: BookingListRow[], total: number }, query: Pick<ListBookingsQuery, 'page' | 'pageSize'>, now: Date): BookingPage =>
   ({ items: result.rows.map(r => toBookingDto(r, r.totalHalalas, now)), total: result.total, page: query.page, pageSize: query.pageSize })
 
 /** A booking as its detail endpoints answer it (used by the module's other services after a change). */
@@ -162,7 +162,7 @@ async function confirm(db: Db, scope: OrganizationScope, row: BookingRow, actor:
 }
 
 /** The receipt of a confirmed booking (a pending one has none yet: 409 `NOT_CONFIRMED`). */
-async function receiptOf(db: Db, scope: OrganizationScope, row: BookingRow): Promise<ReceiptDto> {
+export async function receiptOf(db: Db, scope: OrganizationScope, row: BookingRow): Promise<ReceiptDto> {
   if (!CONFIRMED.includes(row.status) || !row.receiptToken || !row.confirmedAt) throw new ConflictError('NOT_CONFIRMED', 'A receipt exists once the booking is confirmed')
   const tenant = tenantRepos(db, scope)
   const [hotel, agency, details] = await Promise.all([

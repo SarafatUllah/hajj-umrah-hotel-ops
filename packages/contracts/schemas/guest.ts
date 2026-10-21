@@ -40,3 +40,17 @@ export type GuestDetailsInput = z.infer<typeof guestDetailsSchema>
 /** `GET /api/bookings/:id/guests?reveal=passport`: staff with `pilgrim.viewSensitive` see full passport numbers (logged). */
 export const listGuestsQuerySchema = z.object({ reveal: z.enum(['passport']).optional() })
 export type ListGuestsQuery = z.infer<typeof listGuestsQuerySchema>
+
+/** What a complete passport entry gives (the slot is READY with all of them). */
+const PASSPORT_FIELDS = ['gender', 'nationality', 'dateOfBirth', 'passportNo', 'passportExpiry'] as const
+
+/**
+ * v7 §6 (public site): a request carries at least one pilgrim's passport — the lead pilgrim (a family's father, say),
+ * with every passport field.
+ */
+export const leadPilgrimSchema = guestDetailsSchema.superRefine((body, ctx) => {
+  for (const field of PASSPORT_FIELDS) {
+    if (!body[field]) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: 'Required for the lead pilgrim' })
+  }
+})
+export type LeadPilgrimInput = z.infer<typeof leadPilgrimSchema>

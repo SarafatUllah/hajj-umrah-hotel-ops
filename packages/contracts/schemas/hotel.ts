@@ -119,3 +119,7 @@ export const listHotelAuditQuerySchema = z.object({
 }).strict()
 
 export type ListHotelAuditQuery = z.infer<typeof listHotelAuditQuerySchema>
+
+/** `GET /api/public/hotels?organization=<slug>` (public site): the organization whose hotels to list. */
+export const publicHotelsQuerySchema = z.object({ organization: z.string().trim().min(1).max(100) })
+export type PublicHotelsQuery = z.infer<typeof publicHotelsQuerySchema>

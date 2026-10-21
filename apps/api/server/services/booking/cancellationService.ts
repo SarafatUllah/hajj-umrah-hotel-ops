@@ -8,8 +8,9 @@ import { bookingOrgRepos } from '../../repositories'
 import type { BookingRow } from '../../repositories/booking'
 import type { AgencyContext } from '../../security/agencyContext'
 import type { AuthContext } from '../../security/authContext'
+import type { CustomerContext } from '../../security/customerContext'
 import type { OrganizationScope } from '../../security/scope'
-import { loadForAgency, loadForStaff } from './bookingAccess'
+import { loadForAgency, loadForCustomer, loadForStaff } from './bookingAccess'
 import { bookingCancelledEvent } from './bookingEvents'
 import { type BookingDetailDto, bookingDetail } from './bookingService'
 
@@ -20,6 +21,8 @@ interface Actor { kind: ActorKind, id: string | null }
 const CANCELLABLE: readonly BookingStatus[] = ['HELD', 'REQUESTED', 'CONFIRMED']
 /** An agency lets go only of its own hold (v7 §12: other changes need the manager). */
 const AGENCY_RELEASABLE: readonly BookingStatus[] = ['HELD']
+/** A customer withdraws only an open request; once confirmed, the hotel cancels (its cancellation policy). */
+const CUSTOMER_WITHDRAWABLE: readonly BookingStatus[] = ['REQUESTED']
 
 /**
  * v7 §12 cancel: the whole booking becomes CANCELLED under its row lock — its room claims follow (database trigger), so
@@ -38,7 +41,7 @@ async function cancel(db: Db, scope: OrganizationScope, row: BookingRow, actor: 
     if (locked.status === 'CANCELLED') return locked
     if (locked.status === 'IN_HOUSE') throw new ConflictError('BOOKING_IN_HOUSE', 'Pilgrims of this booking are in the house: check them out instead')
     const status = effectiveBookingStatus({ status: locked.status as BookingStatus, holdExpiresAt: locked.holdExpiresAt }, now)
-    if (actor.kind === 'agency' && status === 'CONFIRMED') throw new ConflictError('CANCEL_BY_HOTEL', 'Ask the hotel to cancel a confirmed booking')
+    if (actor.kind !== 'staff' && status === 'CONFIRMED') throw new ConflictError('CANCEL_BY_HOTEL', 'Ask the hotel to cancel a confirmed booking')
     if (!allowed.includes(status)) throw new ConflictError('BOOKING_NOT_CANCELLABLE', `A booking that is ${status} cannot be cancelled`)
     const updated = (await repos.records.cancel(locked.id, { at: now, by: actor.kind === 'staff' ? actor.id : null, reason }))!
     await repos.hotelTasks.cancelOpenForBooking(locked.id, now)
@@ -66,4 +69,10 @@ export async function cancelBooking(ctx: AuthContext, bookingId: string, input: 
 export async function releaseAgencyHold(ctx: AgencyContext, bookingId: string): Promise<BookingDetailDto> {
   const row = await loadForAgency(ctx, bookingId)
   return cancel(ctx.db, ctx.scope, row, { kind: 'agency', id: ctx.identity.agencyUserId }, null, ctx.now(), AGENCY_RELEASABLE)
+}
+
+/** Public site (v7 §6, §10): a customer withdraws their open request; its rooms are free at once. */
+export async function withdrawCustomerRequest(ctx: CustomerContext, bookingId: string): Promise<BookingDetailDto> {
+  const row = await loadForCustomer(ctx, bookingId)
+  return cancel(ctx.db, ctx.scope, row, { kind: 'customer', id: ctx.scope.customerId }, null, ctx.now(), CUSTOMER_WITHDRAWABLE)
 }

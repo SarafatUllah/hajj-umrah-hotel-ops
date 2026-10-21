@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { BOOKING_STATUSES, BOOKING_TYPES, CHILD_SIDES, HOTEL_TASK_STATUSES, OCCUPANCIES } from '../constants/booking'
 import { isoDate, pagination, safeText, uuid } from './common'
+import { leadPilgrimSchema } from './guest'
 import { addStayDateIssues } from './stay'
 
 /** The most seated pilgrims in one booking (two 300-pilgrim sides; keeps the allocator well under 100 ms per side). */
@@ -146,3 +147,14 @@ export type DateChangeSearchInput = z.infer<typeof dateChangeSearchSchema>
 /** `POST /api/bookings/:id/dates`: move the booking to the new dates, in the rooms of the chosen option. */
 export const changeDatesSchema = z.object({ ...dateChangeFields, rooms: z.array(chosenRoomSchema).min(1).max(MAX_BOOKING_ROOMS) }).strict().superRefine(addStayDateIssues)
 export type ChangeDatesInput = z.infer<typeof changeDatesSchema>
+
+/** `POST /api/customer/stays/search` (public site, v7 §6): the options for a customer's stay, at the public price. */
+export const customerStaySearchSchema = z.object(stayFields).omit({ quoteId: true }).strict().superRefine(stayRules)
+export type CustomerStaySearchInput = z.infer<typeof customerStaySearchSchema>
+
+/**
+ * `POST /api/customer/bookings` (public site, v7 §6): request the chosen option (REQUESTED until the hotel confirms),
+ * with the lead pilgrim's passport.
+ */
+export const customerRequestSchema = z.object(holdFields).omit({ quoteId: true }).extend({ lead: leadPilgrimSchema }).strict().superRefine(stayRules)
+export type CustomerRequestInput = z.infer<typeof customerRequestSchema>
