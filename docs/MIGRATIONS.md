@@ -4,7 +4,7 @@ Migrations are **forward-only**. There is no down-migration tooling and none
 should be added: fixing a mistake means writing a new forward migration, not
 reverting an old one.
 
-## The current chain (end of Phase 1)
+## The current chain
 
 Migrations live in `packages/db/migrations/` (SQL files plus Drizzle's
 `meta/_journal.json` and snapshots) and are applied in journal order:
@@ -19,6 +19,7 @@ Migrations live in `packages/db/migrations/` (SQL files plus Drizzle's
 | `0005_capacity_periods.sql` | Task 15 | `capacity_period`, `room_capacity_override` + exclusion constraint `room_override_no_overlap` + the dates-sync composite FK (`ON UPDATE CASCADE`) |
 | `0006_room_blocks.sql` | Task 16 | `room_operational_block` (incl. the ended-early columns) + partial exclusion constraint `room_block_no_overlap` |
 | `0007_documents.sql` | Task 19 | `document_asset`, `hotel_document` |
+| `0008_security_prerequisites.sql` | Phase 2a, security prerequisites | `rate_limit_bucket`; `app_user.totp_*` (+ check `app_user_totp_consistency`); `role.requires_two_factor` |
 
 ## Committed migrations are immutable
 

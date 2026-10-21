@@ -60,3 +60,11 @@ export class ConflictError extends DomainError {
     this.name = 'ConflictError'
   }
 }
+
+/** 429 — too many attempts; `details.retryAfterSeconds` also becomes the `Retry-After` header (defineApiHandler). */
+export class TooManyRequestsError extends DomainError {
+  constructor(code: string, readonly retryAfterSeconds: number, message: string = code) {
+    super(code, message, 429, { retryAfterSeconds })
+    this.name = 'TooManyRequestsError'
+  }
+}

@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull } from 'drizzle-orm'
 import { appUser, auditLog, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
 import type { DbOrTx } from '@hajj/db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
@@ -170,6 +170,25 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: (db, scope, ids) => new RoleRepository(db, scope).permissionKeysForUser(ids.userId),
     expect: 'empty',
   }),
+  'RoleRepository.requiresTwoFactorForUser': isolationCase({
+    arrange: async (db, orgA) => {
+      const { user, role: created } = await makeUserWithPermissions(db, orgA, ['hotel.view'])
+      await new RoleRepository(db, orgA).setRequiresTwoFactor(created.id, true)
+      return { userId: user.id }
+    },
+    act: async (db, scope, ids) => ((await new RoleRepository(db, scope).requiresTwoFactorForUser(ids.userId)) ? [true] : []),
+    expect: 'empty',
+  }),
+
+  'RoleRepository.setRequiresTwoFactor': isolationCase({
+    arrange: async (db, orgA) => ({ roleId: (await makeRole(db, orgA)).id }),
+    act: async (db, scope, ids) => {
+      await new RoleRepository(db, scope).setRequiresTwoFactor(ids.roleId, true)
+      return db.select().from(role).where(and(eq(role.id, ids.roleId), eq(role.requiresTwoFactor, true)))
+    },
+    expect: 'empty',
+  }),
+
   'RoleRepository.rolesForUser': isolationCase({
     arrange: async (db, orgA) => ({ userId: (await makeUserWithPermissions(db, orgA, ['probe.read'])).user.id }),
     act: (db, scope, ids) => new RoleRepository(db, scope).rolesForUser(ids.userId),
@@ -337,6 +356,50 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: async (db, scope, ids) => {
       await new UserRepository(db, scope).setAllHotels(ids.userId, true)
       return db.select().from(appUser).where(and(eq(appUser.id, ids.userId), eq(appUser.allHotels, true)))
+    },
+    expect: 'empty',
+  }),
+
+  'UserRepository.setPendingTotpSecret': isolationCase({
+    arrange: async (db, orgA) => ({ userId: (await makeUser(db, orgA)).id }),
+    act: async (db, scope, ids) => {
+      await new UserRepository(db, scope).setPendingTotpSecret(ids.userId, 'pii1.planted')
+      return db.select().from(appUser).where(and(eq(appUser.id, ids.userId), eq(appUser.totpPendingSecret, 'pii1.planted')))
+    },
+    expect: 'empty',
+  }),
+
+  'UserRepository.enableTotp': isolationCase({
+    arrange: async (db, orgA) => ({ userId: (await makeUser(db, orgA)).id }),
+    act: async (db, scope, ids) => {
+      await new UserRepository(db, scope).enableTotp(ids.userId, 'pii1.planted', new Date(), 1)
+      return db.select().from(appUser).where(and(eq(appUser.id, ids.userId), isNotNull(appUser.totpEnabledAt)))
+    },
+    expect: 'empty',
+  }),
+
+  'UserRepository.disableTotp': isolationCase({
+    arrange: async (db, orgA) => {
+      const user = await makeUser(db, orgA)
+      await new UserRepository(db, orgA).enableTotp(user.id, 'pii1.enabled', new Date(), 1)
+      return { userId: user.id }
+    },
+    act: async (db, scope, ids) => {
+      await new UserRepository(db, scope).disableTotp(ids.userId)
+      return db.select().from(appUser).where(and(eq(appUser.id, ids.userId), isNull(appUser.totpEnabledAt)))
+    },
+    expect: 'empty',
+  }),
+
+  'UserRepository.advanceTotpStep': isolationCase({
+    arrange: async (db, orgA) => {
+      const user = await makeUser(db, orgA)
+      await new UserRepository(db, orgA).enableTotp(user.id, 'pii1.enabled', new Date(), 1)
+      return { userId: user.id }
+    },
+    act: async (db, scope, ids) => {
+      await new UserRepository(db, scope).advanceTotpStep(ids.userId, 5)
+      return db.select().from(appUser).where(and(eq(appUser.id, ids.userId), eq(appUser.totpLastStep, 5)))
     },
     expect: 'empty',
   }),

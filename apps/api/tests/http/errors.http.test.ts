@@ -49,6 +49,6 @@ describe('Global non-2xx error-shape invariant (proof 10)', () => {
 
     expect(res.status).toBeGreaterThanOrEqual(400)
     expect(res.status).toBeLessThan(500)
-    expectStandardError({ status: res.status, json, setCookie: [] })
+    expectStandardError({ status: res.status, json, setCookie: [], headers: res.headers })
   })
 })

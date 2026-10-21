@@ -1,7 +1,7 @@
 import type { H3Event } from 'h3'
-import { createError, defineEventHandler, getQuery, getRouterParams, isError, readBody } from 'h3'
+import { createError, defineEventHandler, getQuery, getRouterParams, isError, readBody, setResponseHeader } from 'h3'
 import { z, ZodError, type ZodIssue } from 'zod'
-import { DomainError, ValidationError } from '../errors/domainError'
+import { DomainError, ForbiddenError, TooManyRequestsError, ValidationError } from '../errors/domainError'
 import { translateDbError } from '../errors/dbErrors'
 import type { AuthContext } from '../security/authContext'
 import { requireAuthContext } from './requireAuth'
@@ -30,6 +30,12 @@ export interface DefineApiHandlerOptions<P, Q, B, R, A extends AuthRequirement =
   body?: z.ZodType<B, z.ZodTypeDef, unknown>
   /** `'required'` resolves the caller's `AuthContext` (via `requireAuthContext`) before the handler runs, and hands it the result as `ctx`. */
   auth?: A
+  /**
+   * With `auth: 'required'`: lets a user who must enrol in two-factor authentication first (see
+   * `AuthContext.twoFactorEnrollmentPending`) reach this route. Only the auth and 2FA routes set it; every
+   * other route answers such a user 403 `TWO_FACTOR_ENROLLMENT_REQUIRED`.
+   */
+  allowTwoFactorEnrollmentPending?: boolean
   handler: (args: ApiHandlerArgs<P, Q, B, A>) => Promise<R>
 }
 
@@ -138,7 +144,7 @@ function normalizeBareFrameworkError(error: ReturnType<typeof createError>): nev
   throw createError({ statusCode, statusMessage: error.statusMessage || 'Error', data: { code: fallbackCodeForStatus(statusCode) } })
 }
 
-function handleError(error: unknown): never {
+function handleError(event: H3Event, error: unknown): never {
   // A route (or a lower layer) may already have built a full H3Error — e.g.
   // login's deliberately generic "invalid organization, email, or password"
   // (never distinguishing which one failed). Passed through unchanged by
@@ -146,6 +152,7 @@ function handleError(error: unknown): never {
   // normalized there (see its docstring).
   if (isError(error)) normalizeBareFrameworkError(error)
 
+  if (error instanceof TooManyRequestsError) setResponseHeader(event, 'Retry-After', error.retryAfterSeconds)
   if (error instanceof DomainError) domainErrorToHttp(error)
   if (error instanceof ZodError) domainErrorToHttp(zodErrorToValidationError(error))
 
@@ -181,10 +188,13 @@ export function defineApiHandler<P = void, Q = void, B = void, R = unknown, A ex
       const query = querySchema ? parseOrThrow(querySchema, getQuery(event)) : (undefined as Q)
       const body = bodySchema ? parseOrThrow(bodySchema, await readBody(event)) : (undefined as B)
       const ctx = (opts.auth === 'required' ? await requireAuthContext(event) : undefined) as ApiHandlerArgs<P, Q, B, A>['ctx']
+      if (ctx?.twoFactorEnrollmentPending && !opts.allowTwoFactorEnrollmentPending) {
+        throw new ForbiddenError('TWO_FACTOR_ENROLLMENT_REQUIRED', 'Set up two-factor authentication to continue')
+      }
       return await opts.handler({ event, params, query, body, ctx })
     }
     catch (error) {
-      return handleError(error)
+      return handleError(event, error)
     }
   })
 }

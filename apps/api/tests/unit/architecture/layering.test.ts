@@ -150,7 +150,7 @@ describe('layering of this repository', () => {
   })
 
   it('(d) the unscoped Platform*Repository classes are exactly the allow-list', () => {
-    expect(platformRepositoryClasses(sources)).toEqual(['PlatformOrganizationRepository', 'PlatformPermissionCatalogRepository'])
+    expect(platformRepositoryClasses(sources)).toEqual(['PlatformOrganizationRepository', 'PlatformPermissionCatalogRepository', 'PlatformRateLimitRepository'])
     expect(unprefixedPlatformDirClasses(sources)).toEqual([])
   })
 })

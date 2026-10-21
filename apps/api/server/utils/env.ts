@@ -1,11 +1,40 @@
 import { z } from 'zod'
 import { DEFAULT_DEMO_ANCHOR_DATE, DEMO_ANCHOR_MAX, DEMO_ANCHOR_MIN, isValidDemoAnchorDate } from '../demo/catalog'
+import { parseKeyRing, parseLookupKey } from '../security/piiCrypto'
 
 /** Strict boolean flag: only the literal strings `true` / `false` (anything else is a configuration error, never a silent `false`). */
 const strictFlag = (name: string) => z
   .enum(['true', 'false'], { errorMap: () => ({ message: `${name} must be "true" or "false"` }) })
   .default('false')
   .transform(value => value === 'true')
+
+/** Runs a throwing parser as a Zod refinement, reporting its message (never the value itself — these are secrets). */
+const parsedBy = (parse: (value: string) => unknown) => (value: string, ctx: z.RefinementCtx) => {
+  try {
+    parse(value)
+  }
+  catch (error) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: error instanceof Error ? error.message : 'invalid value' })
+  }
+}
+
+const isExactOrigin = (value: string): boolean => {
+  try {
+    return new URL(value).origin === value
+  }
+  catch {
+    return false
+  }
+}
+
+/** `ALLOWED_ORIGINS`: comma-separated exact origins (`https://ops.example.com`), or unset = same host only. */
+const originList = z.string().optional().transform((value, ctx) => {
+  const origins = (value ?? '').split(',').map(part => part.trim()).filter(Boolean)
+  for (const origin of origins) {
+    if (!isExactOrigin(origin)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `ALLOWED_ORIGINS entries must be exact origins like https://ops.example.com (got "${origin}")` })
+  }
+  return origins
+})
 
 const envBase = z.object({
   APP_ENV: z.enum(['development', 'demo', 'staging', 'production']).default('development'),
@@ -23,6 +52,15 @@ const envBase = z.object({
   ALLOW_DEMO_SEED: strictFlag('ALLOW_DEMO_SEED'),
   DEMO_ANCHOR_DATE: z.string().trim().refine(isValidDemoAnchorDate, { message: `DEMO_ANCHOR_DATE must be a real YYYY-MM-DD date between ${DEMO_ANCHOR_MIN} and ${DEMO_ANCHOR_MAX}` }).default(DEFAULT_DEMO_ANCHOR_DATE),
   DEMO_SIGN_IN_ENABLED: strictFlag('DEMO_SIGN_IN_ENABLED'),
+  // Phase 2a security (design v7 §21). PII encryption key ring ("id:base64key[,id:base64key]", first encrypts,
+  // all decrypt) and the separate blind-index key; both required, never defaulted.
+  PII_ENCRYPTION_KEYS: z.string({ required_error: 'PII_ENCRYPTION_KEYS is required' }).min(1, 'PII_ENCRYPTION_KEYS is required').superRefine(parsedBy(parseKeyRing)),
+  PII_LOOKUP_KEY: z.string({ required_error: 'PII_LOOKUP_KEY is required' }).min(1, 'PII_LOOKUP_KEY is required').superRefine(parsedBy(parseLookupKey)),
+  // Trust X-Forwarded-For / X-Forwarded-Host (only behind a reverse proxy that sets them).
+  TRUST_PROXY: strictFlag('TRUST_PROXY'),
+  ALLOWED_ORIGINS: originList,
+  // Staff 2FA: `required-roles` makes users holding a role with requires_two_factor enrol TOTP before using the API.
+  STAFF_2FA_ENFORCEMENT: z.enum(['off', 'required-roles'], { errorMap: () => ({ message: 'STAFF_2FA_ENFORCEMENT must be off or required-roles' }) }).default('off'),
   // Phase 2 (jobs): which background queues this API process works. `light` (default) = everything
   // except CPU-heavy jobs (passport OCR), which run in the separate worker process; `all` = a single-process
   // deployment; `send` = enqueue only; `off` = no job runtime (enqueueing then fails loudly).
@@ -45,7 +83,29 @@ function refineDemoSignIn(env: { APP_ENV: string, DEMO_SIGN_IN_ENABLED: boolean 
   }
 }
 
-const envSchema = envBase.superRefine(refineDemoSignIn)
+/** Production may not run without staff two-factor enforcement (design v7 §21: a launch prerequisite). */
+function refineProductionSecurity(env: { APP_ENV: string, STAFF_2FA_ENFORCEMENT: string }, ctx: z.RefinementCtx): void {
+  if (env.APP_ENV === 'production' && env.STAFF_2FA_ENFORCEMENT !== 'required-roles') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['STAFF_2FA_ENFORCEMENT'], message: 'STAFF_2FA_ENFORCEMENT must be required-roles with APP_ENV=production' })
+  }
+}
+
+/** The blind-index key must never be one of the encryption keys (one leaked key would then break both). */
+function isLookupKeyReused(env: { PII_ENCRYPTION_KEYS: string, PII_LOOKUP_KEY: string }): boolean {
+  try {
+    const lookupKey = parseLookupKey(env.PII_LOOKUP_KEY)
+    return parseKeyRing(env.PII_ENCRYPTION_KEYS).some(({ key }) => key.equals(lookupKey))
+  }
+  catch {
+    return false // a malformed key is already reported by its own field
+  }
+}
+
+function refineDistinctPiiKeys(env: { PII_ENCRYPTION_KEYS: string, PII_LOOKUP_KEY: string }, ctx: z.RefinementCtx): void {
+  if (isLookupKeyReused(env)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['PII_LOOKUP_KEY'], message: 'PII_LOOKUP_KEY must differ from every PII_ENCRYPTION_KEYS key' })
+}
+
+const envSchema = envBase.superRefine(refineDemoSignIn).superRefine(refineProductionSecurity).superRefine(refineDistinctPiiKeys)
 
 export type Env = z.infer<typeof envSchema>
 

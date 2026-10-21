@@ -2,6 +2,8 @@ export interface ApiRequestInit {
   method?: string
   body?: unknown
   cookie?: string
+  /** Extra request headers (e.g. `Origin`, `Sec-Fetch-Site` for the CSRF check). */
+  headers?: Record<string, string>
 }
 
 export interface ApiResponse {
@@ -12,6 +14,7 @@ export interface ApiResponse {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   json: any
   setCookie: string[]
+  headers: Headers
 }
 
 export interface LoginResult {
@@ -31,7 +34,7 @@ export function apiClient(baseUrl: string): {
   login: (orgSlug: string, email: string, password: string) => Promise<LoginResult>
 } {
   async function request(path: string, init: ApiRequestInit = {}): Promise<ApiResponse> {
-    const headers: Record<string, string> = {}
+    const headers: Record<string, string> = { ...init.headers }
     if (init.body !== undefined) headers['content-type'] = 'application/json'
     if (init.cookie) headers.cookie = init.cookie
 
@@ -54,7 +57,7 @@ export function apiClient(baseUrl: string): {
       }
     }
 
-    return { status: res.status, json, setCookie }
+    return { status: res.status, json, setCookie, headers: res.headers }
   }
 
   async function login(orgSlug: string, email: string, password: string): Promise<LoginResult> {

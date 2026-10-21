@@ -18,12 +18,18 @@ export interface AuthContext {
   scope: OrganizationScope
   db: Database
   now: () => Date
+  /**
+   * True when STAFF_2FA_ENFORCEMENT=required-roles, the user holds a role that requires two-factor
+   * authentication and has not enrolled yet: only the auth/2FA routes may then be used. Absent = false.
+   */
+  twoFactorEnrollmentPending?: boolean
 }
 
 /**
  * Resolves authorization from the database, fresh, on every call — nothing about permissions,
  * `allHotels`, or hotel access is ever cached across requests. Returns `null` when the user does not
- * exist in `identity.organizationId`, is inactive, or has been deleted; a caller must treat `null` as
+ * exist in `identity.organizationId`, is inactive, has been deleted, or (when the session carries one) the
+ * session's version is no longer the user's current one; a caller must treat `null` as
  * "no valid session" (see `requireAuthContext`), never retry with a fallback.
  *
  * Exactly three queries: the user row (org + id scoped), the user's current permission keys, and the
@@ -32,8 +38,9 @@ export interface AuthContext {
  */
 export async function resolveAuthContext(
   db: Database,
-  identity: { userId: string, organizationId: string },
+  identity: { userId: string, organizationId: string, sessionVersion?: number },
   now: () => Date = () => new Date(),
+  options: { enforceTwoFactor?: boolean } = {},
 ): Promise<AuthContext | null> {
   // Scoped to identity.organizationId: a user id that belongs to a different organization (or does
   // not exist at all) resolves to null here, exactly like a deleted user — the two are
@@ -43,11 +50,17 @@ export async function resolveAuthContext(
 
   const user = await repos.users.findById(identity.userId)
   if (!user || !user.isActive) return null
+  // A session minted before the user's last 2FA change (enable, disable, admin reset) is no longer valid.
+  if (identity.sessionVersion !== undefined && identity.sessionVersion !== user.sessionVersion) return null
 
   const [permissionKeys, hotelIds] = await Promise.all([
     repos.roles.permissionKeysForUser(user.id),
     repos.userHotelAccess.hotelIdsForUser(user.id),
   ])
+  // One extra query, only for a user who has not enrolled while enforcement is on.
+  const twoFactorEnrollmentPending = options.enforceTwoFactor === true && user.totpEnabledAt === null
+    ? await repos.roles.requiresTwoFactorForUser(user.id)
+    : false
 
   return {
     identity: {
@@ -64,5 +77,6 @@ export async function resolveAuthContext(
     scope,
     db,
     now,
+    twoFactorEnrollmentPending,
   }
 }

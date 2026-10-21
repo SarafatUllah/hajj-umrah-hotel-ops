@@ -8,6 +8,9 @@ type HotelTable = OrgTable & { hotelId: AnyPgColumn }
 
 type InsertOf<T extends PgTable> = T['$inferInsert']
 
+/** An UPDATE's SET: column values, or SQL expressions computed by the database (e.g. `version + 1`). */
+type UpdateSet<T extends PgTable, Fixed extends string> = { [K in Exclude<keyof InsertOf<T>, Fixed>]?: InsertOf<T>[K] | SQL }
+
 export interface SelectOptions { orderBy?: SQL[], limit?: number, offset?: number, forUpdate?: boolean }
 
 async function run<T extends PgTable>(db: DbOrTx, table: T, where: SQL, o: SelectOptions = {}): Promise<Array<T['$inferSelect']>> {
@@ -50,7 +53,7 @@ export class OrgQuery {
     return this.db.insert(table).values(valuesList.map(values => ({ ...values, organizationId: this.scope.organizationId } as InsertOf<T>)))
   }
 
-  update<T extends OrgTable>(table: T, set: Partial<Omit<InsertOf<T>, 'organizationId' | 'id'>>, ...extra: Array<SQL | undefined>) {
+  update<T extends OrgTable>(table: T, set: UpdateSet<T, 'organizationId' | 'id'>, ...extra: Array<SQL | undefined>) {
     // The scope's value is applied last, so even a cast-away `set` cannot move a row to another organization.
     return this.db.update(table).set({ ...set, organizationId: this.scope.organizationId } as never).where(this.cond(table, ...extra))
   }
@@ -81,7 +84,7 @@ export class HotelQuery {
     return this.db.insert(table).values(valuesList.map(values => ({ ...values, organizationId: this.scope.organizationId, hotelId: this.scope.hotelId } as InsertOf<T>)))
   }
 
-  update<T extends HotelTable>(table: T, set: Partial<Omit<InsertOf<T>, 'organizationId' | 'hotelId' | 'id'>>, ...extra: Array<SQL | undefined>) {
+  update<T extends HotelTable>(table: T, set: UpdateSet<T, 'organizationId' | 'hotelId' | 'id'>, ...extra: Array<SQL | undefined>) {
     // The scope's values are applied last, so even a cast-away `set` cannot move a row to another organization or hotel.
     return this.db.update(table).set({ ...set, organizationId: this.scope.organizationId, hotelId: this.scope.hotelId } as never).where(this.cond(table, ...extra))
   }

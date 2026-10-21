@@ -57,6 +57,13 @@
       "when": 1791046092077,
       "tag": "0007_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792548638272,
+      "tag": "0008_security_prerequisites",
+      "breakpoints": true
     }
   ]
 }

@@ -3,6 +3,8 @@ import { DEMO_ONLY_PERMISSIONS, PERMISSIONS, type Permission } from './permissio
 export interface RoleDefinition {
   name: string
   permissions: Permission[]
+  /** Holding this role requires TOTP enrolment when STAFF_2FA_ENFORCEMENT=required-roles (design v7 §21). */
+  requiresTwoFactor?: boolean
 }
 
 const DEMO_ONLY = new Set<string>(DEMO_ONLY_PERMISSIONS)
@@ -13,10 +15,12 @@ export const ROLE_DEFINITIONS: Record<string, RoleDefinition> = {
   // (db/seed/demo-org.ts) — never generically to every organization's Super Admin.
   SUPER_ADMIN: {
     name: 'Super Admin',
+    requiresTwoFactor: true,
     permissions: PERMISSIONS.filter(p => !DEMO_ONLY.has(p)),
   },
   HOTEL_MANAGER: {
     name: 'Hotel Manager',
+    requiresTwoFactor: true,
     permissions: [
       'hotel.view', 'hotel.manage', 'room.view', 'room.manage', 'capacity.manage', 'room.block',
       'booking.view', 'booking.create', 'booking.edit', 'booking.cancel', 'booking.override',

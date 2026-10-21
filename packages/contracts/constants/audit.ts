@@ -34,6 +34,12 @@ export const AUDIT_ACTIONS = [
   'DOCUMENT_ADDED',
   'DOCUMENT_ARCHIVED',
   'DEMO_RESET',
+  // Staff two-factor authentication (entityType 'app_user', entityId = the user's id).
+  'TWO_FACTOR_SETUP_STARTED',
+  'TWO_FACTOR_ENABLED',
+  'TWO_FACTOR_DISABLED',
+  // An administrator removed another user's second factor (lost device); `reason` says why.
+  'TWO_FACTOR_RESET',
 ] as const
 
 export type AuditAction = typeof AUDIT_ACTIONS[number]

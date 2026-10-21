@@ -3,6 +3,8 @@ import { getSessionContext } from '../../services/sessionContextService'
 
 export default defineApiHandler({
   auth: 'required',
+  // The client learns here that it must send the user to two-factor setup first.
+  allowTwoFactorEnrollmentPending: true,
   handler: async ({ ctx }) => {
     const { organization, roles } = await getSessionContext(ctx)
     return {
@@ -12,6 +14,7 @@ export default defineApiHandler({
       permissions: Array.from(ctx.authz.permissions),
       allHotels: ctx.authz.allHotels,
       hotelIds: Array.from(ctx.authz.hotelIds),
+      twoFactorEnrollmentRequired: ctx.twoFactorEnrollmentPending === true,
     }
   },
 })

@@ -4,6 +4,8 @@ import { getDemoEnv, getEnv, getStorageEnv, isDemoSignInEnabled, resetEnvCache }
 const REQUIRED_VARS = {
   DATABASE_URL: 'postgres://user:pass@localhost:5433/db',
   NUXT_SESSION_PASSWORD: 'a'.repeat(32),
+  PII_ENCRYPTION_KEYS: `t1:${Buffer.alloc(32, 1).toString('base64')}`,
+  PII_LOOKUP_KEY: Buffer.alloc(32, 2).toString('base64'),
 }
 
 describe('getEnv', () => {
@@ -152,7 +154,7 @@ describe('getEnv', () => {
     })
 
     it.each(['production', 'staging'])('allows DEMO_SIGN_IN_ENABLED=false under APP_ENV=%s', (appEnv) => {
-      Object.assign(process.env, REQUIRED_VARS, { APP_ENV: appEnv, DEMO_SIGN_IN_ENABLED: 'false' })
+      Object.assign(process.env, REQUIRED_VARS, { APP_ENV: appEnv, DEMO_SIGN_IN_ENABLED: 'false', STAFF_2FA_ENFORCEMENT: 'required-roles' })
       expect(getEnv().DEMO_SIGN_IN_ENABLED).toBe(false)
     })
 
@@ -194,5 +196,60 @@ describe('getEnv', () => {
         expect(isDemoSignInEnabled({ APP_ENV: appEnv, ...(flag === undefined ? {} : { DEMO_SIGN_IN_ENABLED: flag }) })).toBe(expected)
       })
     })
+  })
+})
+
+describe('getEnv: Phase 2a security settings', () => {
+  const originalEnv = { ...process.env }
+
+  beforeEach(() => {
+    resetEnvCache()
+    process.env = { ...REQUIRED_VARS }
+  })
+
+  afterEach(() => {
+    process.env = { ...originalEnv }
+    resetEnvCache()
+  })
+
+  it('requires the PII key ring and lookup key, and rejects malformed ones without echoing them', () => {
+    delete process.env.PII_ENCRYPTION_KEYS
+    expect(() => getEnv()).toThrow(/PII_ENCRYPTION_KEYS/)
+    resetEnvCache()
+    process.env.PII_ENCRYPTION_KEYS = 'k1:dG9vLXNob3J0'
+    expect(() => getEnv()).toThrow(/32 bytes/)
+    expect(() => getEnv()).not.toThrow(/dG9vLXNob3J0/)
+    resetEnvCache()
+    process.env.PII_ENCRYPTION_KEYS = REQUIRED_VARS.PII_ENCRYPTION_KEYS
+    process.env.PII_LOOKUP_KEY = 'c2hvcnQ='
+    expect(() => getEnv()).toThrow(/PII lookup key/)
+  })
+
+  it('refuses a lookup key that is also an encryption key', () => {
+    process.env.PII_LOOKUP_KEY = Buffer.alloc(32, 1).toString('base64')
+    expect(() => getEnv()).toThrow(/PII_LOOKUP_KEY must differ/)
+  })
+
+  it('defaults TRUST_PROXY off, ALLOWED_ORIGINS empty and 2FA enforcement off outside production', () => {
+    const env = getEnv()
+    expect(env.TRUST_PROXY).toBe(false)
+    expect(env.ALLOWED_ORIGINS).toEqual([])
+    expect(env.STAFF_2FA_ENFORCEMENT).toBe('off')
+  })
+
+  it('parses ALLOWED_ORIGINS as exact origins and rejects paths or junk', () => {
+    process.env.ALLOWED_ORIGINS = 'https://ops.example.com, https://agency.example.com'
+    expect(getEnv().ALLOWED_ORIGINS).toEqual(['https://ops.example.com', 'https://agency.example.com'])
+    resetEnvCache()
+    process.env.ALLOWED_ORIGINS = 'https://ops.example.com/path'
+    expect(() => getEnv()).toThrow(/exact origins/)
+  })
+
+  it('refuses production without staff 2FA enforcement', () => {
+    process.env.APP_ENV = 'production'
+    expect(() => getEnv()).toThrow(/STAFF_2FA_ENFORCEMENT must be required-roles/)
+    resetEnvCache()
+    process.env.STAFF_2FA_ENFORCEMENT = 'required-roles'
+    expect(getEnv().STAFF_2FA_ENFORCEMENT).toBe('required-roles')
   })
 })

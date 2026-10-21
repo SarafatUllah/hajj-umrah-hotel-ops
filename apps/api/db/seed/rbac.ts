@@ -27,6 +27,7 @@ export async function seedOrganizationRoles(db: DbOrTx, organizationId: string, 
   for (const [key, definition] of Object.entries(ROLE_DEFINITIONS)) {
     const roleRow = await roles.findByKey(key) ?? await roles.insert({ ...(options.roleId ? { id: options.roleId(key) } : {}), key, name: definition.name })
     roleIdByKey[key] = roleRow.id
+    await roles.setRequiresTwoFactor(roleRow.id, definition.requiresTwoFactor ?? false)
     const extra = options.extraPermissions?.[key] ?? []
     await roles.grantPermissions(roleRow.id, [...definition.permissions, ...extra])
   }

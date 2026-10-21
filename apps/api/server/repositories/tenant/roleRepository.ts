@@ -69,6 +69,22 @@ export class RoleRepository {
     return Array.from(new Set(rows.map(r => r.permissionKey)))
   }
 
+  /** Whether any role the user holds requires two-factor authentication (same org guard as `permissionKeysForUser`). */
+  async requiresTwoFactorForUser(userId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ roleId: role.id })
+      .from(userRole)
+      .innerJoin(role, eq(role.id, userRole.roleId))
+      .where(and(this.q.cond(userRole, eq(userRole.userId, userId)), this.q.cond(role, eq(role.requiresTwoFactor, true))))
+      .limit(1)
+    return rows.length > 0
+  }
+
+  /** Seed/admin: sets whether holding the role requires two-factor authentication. */
+  async setRequiresTwoFactor(roleId: string, value: boolean): Promise<void> {
+    await this.q.update(role, { requiresTwoFactor: value }, eq(role.id, roleId))
+  }
+
   /** Role key/name pairs held by a user (S1: session context display). Same org-guard pattern as `permissionKeysForUser` — a forced cross-org `user_role` row can never surface a foreign role here either. */
   async rolesForUser(userId: string): Promise<Array<{ key: string, name: string }>> {
     const rows = await this.db

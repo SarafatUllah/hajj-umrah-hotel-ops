@@ -3,6 +3,7 @@ import type { HotelScope, OrganizationScope } from '../security/scope'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from './hotel'
 import { PlatformOrganizationRepository } from './platform/organizationRepository'
 import { PlatformPermissionCatalogRepository } from './platform/permissionCatalogRepository'
+import { PlatformRateLimitRepository } from './platform/rateLimitRepository'
 import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from './tenant'
 
 export type * from './tenant'
@@ -28,6 +29,7 @@ export function platformRepos(db: DbOrTx) {
   return lazy({
     organizations: () => new PlatformOrganizationRepository(db),
     permissionCatalog: () => new PlatformPermissionCatalogRepository(db),
+    rateLimits: () => new PlatformRateLimitRepository(db),
   })
 }
 

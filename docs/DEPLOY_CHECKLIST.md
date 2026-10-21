@@ -24,6 +24,22 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
       and the health check below answers 200 (the first database use validates `DATABASE_URL` and
       `NUXT_SESSION_PASSWORD`; an invalid value shows up there as 503).
 
+- [ ] `PII_ENCRYPTION_KEYS` (key ring `id:base64key[,…]`, each 32 random bytes) and `PII_LOOKUP_KEY` (≥ 32 random
+      bytes) come from the secret manager, are unique per environment and are **backed up separately from the
+      database**: encrypted personal data and TOTP secrets cannot be read without them. Rotation = prepend a new key
+      and keep the old one until every value has been re-encrypted. Never change `PII_LOOKUP_KEY` (blind indexes
+      would no longer match).
+- [ ] `STAFF_2FA_ENFORCEMENT=required-roles` (production refuses to start otherwise). Users holding Super Admin or
+      Hotel Manager (migration 0008 marks these roles in existing organizations) must enrol an authenticator app at
+      their first login; plan who enrols first, and who holds `user.manage` to reset a lost device
+      (`POST /api/users/:userId/2fa/reset`).
+- [ ] `TRUST_PROXY=true` **only** when exactly one reverse proxy in front of the API sets `X-Forwarded-For`/`-Host`
+      (the client IP for rate limiting is then the last `X-Forwarded-For` entry), and the API port is **not reachable
+      except through that proxy** (otherwise a client could choose its own address). Without a proxy: `false`. Behind
+      a proxy with `false`, every client shares one address and the per-address login limit applies to all of them.
+- [ ] `ALLOWED_ORIGINS` lists the exact origins of the separate frontends (ops console, agency portal, public site)
+      when they are not served from the API host; unset = same host only.
+
 ## Database and migrations
 
 - [ ] The migrating role can run `CREATE EXTENSION btree_gist` — on PostgreSQL 13+ `btree_gist` is a trusted
@@ -58,3 +74,5 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
       is unreachable or the environment is invalid).
 - [ ] The session cookie set by `POST /api/auth/login` carries `Secure`, `HttpOnly` and `SameSite=Lax`.
 - [ ] Production and staging: `GET /api/public/demo-sign-in` answers 404.
+- [ ] A state-changing request with a foreign `Origin` (e.g. `curl -X POST -H 'Origin: https://example.org'
+      …/api/auth/logout`) answers 403 `CSRF_ORIGIN_MISMATCH`.

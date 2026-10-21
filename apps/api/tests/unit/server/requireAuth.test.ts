@@ -4,6 +4,9 @@ import { UnauthenticatedError } from '../../../server/errors/domainError'
 
 vi.mock('../../../server/utils/db', () => ({ useDb: () => 'fake-db' }))
 
+const envState = { STAFF_2FA_ENFORCEMENT: 'off' as 'off' | 'required-roles' }
+vi.mock('../../../server/utils/env', () => ({ getEnv: () => envState }))
+
 const resolveAuthContextMock = vi.fn()
 vi.mock('../../../server/security/authContext', () => ({
   resolveAuthContext: (...args: unknown[]) => resolveAuthContextMock(...args),
@@ -22,6 +25,7 @@ describe('requireAuthContext', () => {
   let clearUserSessionMock: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
+    envState.STAFF_2FA_ENFORCEMENT = 'off'
     resolveAuthContextMock.mockReset()
     requireUserSessionMock = vi.fn(async () => ({ user: SESSION_USER }))
     clearUserSessionMock = vi.fn(async () => {})
@@ -68,10 +72,45 @@ describe('requireAuthContext', () => {
     expect(clearUserSessionMock).toHaveBeenCalled()
   })
 
-  it('passes only the bare identity tuple (userId, organizationId) from the session to resolveAuthContext', async () => {
+  it('passes only the bare identity tuple (userId, organizationId, sessionVersion — 1 when absent) from the session to resolveAuthContext', async () => {
     resolveAuthContextMock.mockResolvedValue({ identity: SESSION_USER, authz: { permissions: new Set(), allHotels: false, hotelIds: new Set() }, scope: {}, db: 'fake-db', now: () => new Date() })
     await requireAuthContext(makeEvent())
 
-    expect(resolveAuthContextMock).toHaveBeenCalledWith('fake-db', { userId: 'user-1', organizationId: 'org-1' })
+    expect(resolveAuthContextMock).toHaveBeenCalledWith('fake-db', { userId: 'user-1', organizationId: 'org-1', sessionVersion: 1 }, undefined, { enforceTwoFactor: false })
+  })
+
+  it('passes the session version the session carries', async () => {
+    resolveAuthContextMock.mockResolvedValue({ identity: SESSION_USER })
+    requireUserSessionMock.mockResolvedValueOnce({ user: { ...SESSION_USER, kind: 'staff', sessionVersion: 4 } })
+    await requireAuthContext(makeEvent())
+
+    expect(resolveAuthContextMock).toHaveBeenCalledWith('fake-db', { userId: 'user-1', organizationId: 'org-1', sessionVersion: 4 }, undefined, { enforceTwoFactor: false })
+  })
+
+  it('asks for the two-factor enrollment check only when STAFF_2FA_ENFORCEMENT=required-roles', async () => {
+    envState.STAFF_2FA_ENFORCEMENT = 'required-roles'
+    resolveAuthContextMock.mockResolvedValue({ identity: SESSION_USER })
+    await requireAuthContext(makeEvent())
+
+    expect(resolveAuthContextMock).toHaveBeenCalledWith('fake-db', { userId: 'user-1', organizationId: 'org-1', sessionVersion: 1 }, undefined, { enforceTwoFactor: true })
+  })
+
+  it('accepts a session without a kind (pre-Phase-2) and an explicit staff session', async () => {
+    resolveAuthContextMock.mockResolvedValue({ identity: SESSION_USER })
+    requireUserSessionMock.mockResolvedValueOnce({ user: { ...SESSION_USER, kind: 'staff' } })
+
+    await expect(requireAuthContext(makeEvent())).resolves.toEqual({ identity: SESSION_USER })
+    await expect(requireAuthContext(makeEvent())).resolves.toEqual({ identity: SESSION_USER })
+  })
+
+  it.each(['agency', 'customer'])('answers a %s session 401 UNAUTHENTICATED without resolving or clearing it', async (kind) => {
+    requireUserSessionMock.mockResolvedValue({ user: { ...SESSION_USER, kind } })
+
+    const error = await requireAuthContext(makeEvent()).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(UnauthenticatedError)
+    expect((error as UnauthenticatedError).code).toBe('UNAUTHENTICATED')
+    expect(resolveAuthContextMock).not.toHaveBeenCalled()
+    expect(clearUserSessionMock).not.toHaveBeenCalled()
   })
 })

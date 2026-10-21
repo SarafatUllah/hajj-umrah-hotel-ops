@@ -66,7 +66,7 @@ async function uploadRequest(hotelId: string, o: UploadOptions = {}): Promise<Ap
   const text = await res.text()
   let json: unknown = null
   if (text.length > 0) { try { json = JSON.parse(text) } catch { json = text } }
-  return { status: res.status, json, setCookie: [] }
+  return { status: res.status, json, setCookie: [], headers: res.headers }
 }
 
 async function download(hotelId: string, documentId: string, cookie?: string, query = '') {

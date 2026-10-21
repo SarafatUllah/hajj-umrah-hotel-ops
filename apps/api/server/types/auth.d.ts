@@ -1,9 +1,15 @@
+import type { PrincipalKind } from '@hajj/contracts/constants/principals'
+
 declare module '#auth-utils' {
   interface User {
     id: string
     organizationId: string
     email: string
     fullName: string
+    /** Absent on sessions created before Phase 2 — those are staff sessions. */
+    kind?: PrincipalKind
+    /** The user's `session_version` at sign-in (absent before Phase 2 = 1). */
+    sessionVersion?: number
   }
 
   /**
