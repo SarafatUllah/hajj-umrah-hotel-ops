@@ -14,7 +14,7 @@ import type { AuthContext } from '../../security/authContext'
 import { authorizeHotel, requireOrgPermission } from '../../security/authorize'
 import { consumeRateLimit, RATE_LIMITS } from '../../security/rateLimit'
 import type { OrganizationScope } from '../../security/scope'
-import { findAgencyBrief } from '../accounts'
+import { findAgencyBrief, findAgencyNames } from '../accounts'
 import { recordAudit } from '../audit'
 import { loadBookingSettings } from './bookingSettingsService'
 import { sweepOrganizations } from './sweep'
@@ -24,11 +24,12 @@ type Db = Parameters<typeof bookingOrgRepos>[0]
 
 export type { OfferedQuote, QuoteDto, QuotePage, RequestedQuote }
 
-function toQuoteDto(row: PriceQuoteRow, now: Date): QuoteDto {
+function toQuoteDto(row: PriceQuoteRow, now: Date, agencyName: string | null): QuoteDto {
   return {
     id: row.id,
     refNo: row.refNo,
     agencyId: row.agencyId,
+    agencyName,
     hotelId: row.hotelId,
     bookingType: row.bookingType,
     checkIn: row.checkIn,
@@ -45,6 +46,13 @@ function toQuoteDto(row: PriceQuoteRow, now: Date): QuoteDto {
     createdAt: row.createdAt.toISOString(),
   }
 }
+
+/** Quotes with their agencies' names, in one lookup (the accounts module's, not its tables). */
+async function quoteDtos(db: Db, scope: OrganizationScope, rows: readonly PriceQuoteRow[], now: Date): Promise<QuoteDto[]> {
+  const names = await findAgencyNames(db, scope, [...new Set(rows.map(r => r.agencyId))])
+  return rows.map(r => toQuoteDto(r, now, names.get(r.agencyId) ?? null))
+}
+const quoteDto = async (db: Db, scope: OrganizationScope, row: PriceQuoteRow, now: Date): Promise<QuoteDto> => (await quoteDtos(db, scope, [row], now))[0]!
 
 async function activeHotel(db: Db, scope: OrganizationScope, hotelId: string): Promise<HotelRow> {
   const hotel = await tenantRepos(db, scope).hotels.findById(hotelId)
@@ -86,7 +94,7 @@ async function createQuote(db: Db, scope: OrganizationScope, input: QuoteRequest
   })
 
   const message = quoteMessage({ refNo: row.refNo, agencyName: agency.name, hotelCode: hotel.code, hotelName: hotel.name, checkIn: row.checkIn, checkOut: row.checkOut, bookingType: input.bookingType, maleCount: row.maleCount, femaleCount: row.femaleCount, totalCount: row.totalCount }, settings.whatsappTemplate ?? undefined)
-  return { quote: toQuoteDto(row, now), whatsappLink: settings.whatsappNumber ? whatsappLink(settings.whatsappNumber, message) : null }
+  return { quote: toQuoteDto(row, now, agency.name), whatsappLink: settings.whatsappNumber ? whatsappLink(settings.whatsappNumber, message) : null }
 }
 
 /** Agency portal: "ask the price on WhatsApp" (v7 §8). The route already requires an approved agency; requests are rate limited per agency. */
@@ -103,14 +111,14 @@ export async function createQuoteForAgency(ctx: AuthContext, input: StaffQuoteCr
 
 export async function listAgencyQuotes(ctx: AgencyContext, query: ListQuotesQuery): Promise<QuotePage> {
   const { rows, total } = await bookingOrgRepos(ctx.db, ctx.scope).quotes.list({ ...query, agencyId: ctx.scope.agencyId })
-  return { items: rows.map(r => toQuoteDto(r, ctx.now())), total, page: query.page, pageSize: query.pageSize }
+  return { items: await quoteDtos(ctx.db, ctx.scope, rows, ctx.now()), total, page: query.page, pageSize: query.pageSize }
 }
 
 /** An agency sees only its own quotes; another agency's quote is "not found". */
 export async function getAgencyQuote(ctx: AgencyContext, quoteId: string): Promise<QuoteDto> {
   const row = await bookingOrgRepos(ctx.db, ctx.scope).quotes.findById(quoteId)
   if (!row || row.agencyId !== ctx.scope.agencyId) throw new NotFoundError('QUOTE_NOT_FOUND')
-  return toQuoteDto(row, ctx.now())
+  return quoteDto(ctx.db, ctx.scope, row, ctx.now())
 }
 
 /** Staff list (`booking.view`): only quotes of hotels the caller can access. */
@@ -118,7 +126,7 @@ export async function listQuotes(ctx: AuthContext, query: ListQuotesQuery): Prom
   requireOrgPermission(ctx, 'booking.view')
   const hotelIds = ctx.authz.allHotels ? undefined : [...ctx.authz.hotelIds]
   const { rows, total } = await bookingOrgRepos(ctx.db, ctx.scope).quotes.list({ ...query, hotelIds })
-  return { items: rows.map(r => toQuoteDto(r, ctx.now())), total, page: query.page, pageSize: query.pageSize }
+  return { items: await quoteDtos(ctx.db, ctx.scope, rows, ctx.now()), total, page: query.page, pageSize: query.pageSize }
 }
 
 /**
@@ -136,7 +144,7 @@ async function loadQuoteForStaff(ctx: AuthContext, db: Db, quoteId: string, perm
 }
 
 export async function getQuote(ctx: AuthContext, quoteId: string): Promise<QuoteDto> {
-  return toQuoteDto((await loadQuoteForStaff(ctx, ctx.db, quoteId, 'booking.view')).row, ctx.now())
+  return quoteDto(ctx.db, ctx.scope, (await loadQuoteForStaff(ctx, ctx.db, quoteId, 'booking.view')).row, ctx.now())
 }
 
 /**
@@ -158,7 +166,7 @@ export async function offerQuote(ctx: AuthContext, quoteId: string, input: Quote
     const rates = (await bookingRepos(tx, scope).rates.list()).map(toRateRule)
     const highest = highestPublicRate(rates, input.unit, row.checkIn, row.checkOut)
     await recordAudit(tenantRepos(tx, ctx.scope).audit, ctx.identity.userId, { hotelId: hotel.id, entityType: 'price_quote', entityId: row.id, action: 'QUOTE_OFFERED', before: { status: row.status, amountHalalas: row.amountHalalas }, after: { status: 'OFFERED', amountHalalas: input.amountHalalas, unit: input.unit, validUntil: validUntil.toISOString() } })
-    return { quote: toQuoteDto(updated, now), aboveHighestPublicRate: highest !== null && input.amountHalalas > highest }
+    return { quote: await quoteDto(tx, ctx.scope, updated, now), aboveHighestPublicRate: highest !== null && input.amountHalalas > highest }
   })
 }
 
@@ -171,7 +179,7 @@ export async function declineQuote(ctx: AuthContext, quoteId: string, input: Quo
     if (status !== 'REQUESTED' && status !== 'OFFERED') throw new ConflictError('QUOTE_NOT_OPEN', `A quote that is ${status} cannot be declined`)
     const updated = (await bookingOrgRepos(tx, ctx.scope).quotes.setStatus(row.id, 'DECLINED', now))!
     await recordAudit(tenantRepos(tx, ctx.scope).audit, ctx.identity.userId, { hotelId: hotel.id, entityType: 'price_quote', entityId: row.id, action: 'QUOTE_DECLINED', before: { status: row.status }, after: { status: 'DECLINED' }, reason: input.reason })
-    return toQuoteDto(updated, now)
+    return quoteDto(tx, ctx.scope, updated, now)
   })
 }
 

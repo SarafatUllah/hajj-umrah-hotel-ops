@@ -429,5 +429,18 @@
     "search": "See where they sleep",
     "add": "Add them",
     "added": "Pilgrims added."
+  },
+  "agencyForm": {
+    "name": "Agency name",
+    "licenseNo": "Licence number",
+    "contactName": "Contact person",
+    "phone": "Phone",
+    "agencyEmail": "Agency email",
+    "whatsapp": "WhatsApp number",
+    "address": "Address",
+    "fullName": "Full name",
+    "email": "Sign-in email",
+    "password": "Password",
+    "passwordHelp": "At least 10 characters."
   }
 }

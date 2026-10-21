@@ -5,6 +5,8 @@ export interface QuoteDto {
   id: string
   refNo: string
   agencyId: string
+  /** The agency's name: the quote desk reads who asked without an agency list. */
+  agencyName: string | null
   hotelId: string
   bookingType: string
   checkIn: string

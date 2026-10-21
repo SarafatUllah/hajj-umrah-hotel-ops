@@ -44,7 +44,8 @@ export type StaffQuoteCreateInput = z.infer<typeof staffQuoteCreateSchema>
 
 /** `POST /api/quotes/:quoteId/offer` (staff after the WhatsApp talk): the price and how long it holds. */
 export const quoteOfferSchema = z.object({
-  amountHalalas: halalas,
+  /** A price: never free (an offer of nothing is a slip, not a deal). */
+  amountHalalas: halalas.min(1),
   unit: z.enum(PRICE_UNITS),
   vatIncluded: z.boolean(),
   /** Defaults to the booking setting `quoteValidityHours` (48). */

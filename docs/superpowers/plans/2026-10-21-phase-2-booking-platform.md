@@ -37,7 +37,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
-| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done |
+| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done; 16g quotes, agencies done |
 | 17 | Final review (code, security, database, architecture) and docs | |
 
 ## Local environment note
@@ -745,6 +745,34 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   still an agency, never "individual"; a booking change asks the calendar, the desk lists and housekeeping again; the
   room drawer closes on another view or hotel; a calendar link outside 1900–2199 falls back to today; one day query
   shared by the calendar and the desk (`useOccupancyDay`).
+- **D-P2-59 (frontends) The ops console: WhatsApp quotes and agencies (step 16g, v7 §8–§9, §15).** Quotes
+  (`booking.view`), a portfolio page waiting on the team by default (requested), filtered by status, hotel (the
+  switcher's) and agency; a quote opens in a drawer named in the URL (`?quote=`): what was asked (hotel, nights,
+  pilgrims, room mix, the agency or the customer with their WhatsApp link), the offer (an amount in riyals sent in
+  halalas, per pilgrim a night, per room a night or for the stay, with or without VAT, valid for so many hours) or a
+  decline with its reason — both `quote.manage` on an active hotel, on a requested or offered quote; an offer above
+  the hotel's highest public rate is allowed and said once, as a warning. A new quote on an agency's behalf (or a
+  customer's phone) from the same page. `QuoteDto.agencyName` (one query per page of quotes) names the agency in the
+  list. Agencies (`agency.view`): the list with the ones waiting for approval first-named in a banner, searched by
+  name, filtered by status; an agency's page with its profile, its decisions (approve, suspend, reject — each with a
+  reason; only the moves the API allows: `agencyDecisions` mirrors its transitions) and its users (add one; sign-in on
+  or off). Creating an agency and deciding on one are `agency.manage` with every hotel (agencies are not a hotel's).
+  Shared layer: the agency's profile and first user's fields (`AgencyProfileFields`, `AgencyUserFields`, their values
+  and request in `utils/agency.ts`) — the portal's registration and the console's new agency use the same ones, and
+  their strings moved from the portal's `register.*` to the layer's `agencyForm.*`. Verified in a browser against the
+  built API and the demo (Arabic): a registration in the portal, the console's waiting banner, an approval with a
+  reason, a user's sign-in turned off and on, a quote on an agency's behalf, an offer, a second offer above the
+  highest public rate (the warning), a decline and the declined list; then (English) a new agency (approved at once
+  with its first sign-in), a second sign-in, a suspension, an empty and a zero price refused, a link to an unknown
+  quote. Review outcomes: an offer is a price — the shared schema refuses nothing (`amountHalalas` from 1 halala) and
+  the drawer starts empty for a quote without one (no SAR 0 by default); a quote refreshed in the background keeps
+  what is being typed (the forms start again only when a quote opens); a link to a quote that cannot be shown says
+  why and leaves the URL; the drawer and the decision dialog keep their words while they close; the new quote starts
+  at the switcher's hotel only where this user may quote, or the only such hotel; a list's page from the URL is a
+  whole number from 1 (`pageOf`, every list page); the console does not offer to fill in the staff member's own name
+  and email for someone else's sign-in (`AgencyUserFields` `own`, the portal's registration only); riyals and
+  halalas convert in the layer's formatting (`toHalalas`, `toRiyals`). Known limit: the agency filter and picker
+  list the first 100 agencies (as for bookings, D-P2-57).
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on

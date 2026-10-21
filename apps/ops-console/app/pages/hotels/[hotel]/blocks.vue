@@ -10,7 +10,7 @@ import { addDays, todayInTimezone } from '@hajj/contracts/utils/dates'
  */
 definePageMeta({ middleware: 'auth' })
 const { t } = useI18n()
-const { queryOf, setQuery } = useUrlQuery()
+const { queryOf, setQuery, pageOf } = useUrlQuery()
 const api = useApi()
 const format = useFormat()
 const notify = useNotify()
@@ -24,7 +24,7 @@ const NOW_NIGHTS = 400
 const view = computed<'now' | 'history'>({ get: () => (queryOf('view') === 'history' ? 'history' : 'now'), set: value => setQuery({ view: value === 'now' ? undefined : value, page: undefined }) })
 const kind = computed({ get: () => queryOf('kind') ?? 'ALL', set: value => setQuery({ kind: value === 'ALL' ? undefined : value, page: undefined }) })
 const includeCancelled = computed({ get: () => queryOf('cancelled') === '1', set: value => setQuery({ cancelled: value ? '1' : undefined, page: undefined }) })
-const page = computed({ get: () => Number(queryOf('page') ?? 1) || 1, set: value => setQuery({ page: value === 1 ? undefined : String(value) }) })
+const page = pageOf()
 const nightsShown = computed(() => {
   const today = hotel.value?.today ?? ''
   return view.value === 'now' ? { from: today, to: today && addDays(today, NOW_NIGHTS - 1) } : { from: today && addDays(today, -HISTORY_NIGHTS), to: today && addDays(today, -1) }

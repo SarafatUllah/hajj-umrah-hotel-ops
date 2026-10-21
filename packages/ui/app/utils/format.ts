@@ -50,6 +50,12 @@ export function formatStay(checkIn: string, checkOut: string, locale: string): s
   return dateFormatter(locale, 'medium').formatRange(utcDate(checkIn), utcDate(checkOut))
 }
 
+/** An amount typed in riyals as whole halalas, the unit the API counts money in (two decimals matter). */
+export const toHalalas = (riyals: number): number => Math.round(riyals * HALALAS_PER_RIYAL)
+
+/** Halalas as riyals, for a form's amount field. */
+export const toRiyals = (halalas: number): number => halalas / HALALAS_PER_RIYAL
+
 /** Money in halalas as Saudi riyals with the currency code and two decimals: "SAR 12,500.00". */
 export function formatMoney(halalas: number, locale: string): string {
   return new Intl.NumberFormat(localeTag(locale), { style: 'currency', currency: 'SAR', currencyDisplay: 'code', minimumFractionDigits: 2, maximumFractionDigits: 2 })

@@ -24,7 +24,9 @@
     "bookings": "Bookings",
     "frontDesk": "Front desk",
     "occupancy": "Occupancy",
-    "tasks": "Housekeeping"
+    "tasks": "Housekeeping",
+    "quotes": "Quotes",
+    "agencies": "Agencies"
   },
   "switcher": {
     "label": "Hotel",
@@ -869,5 +871,91 @@
     "doneNamed": "Room {room}: task done.",
     "noneOpen": "Nothing to do: no extra bed to set up or take away.",
     "none": "No tasks here."
+  },
+  "quotes": {
+    "number": "Quote {ref}",
+    "reference": "Quote",
+    "price": "Price",
+    "allStatuses": "All quotes",
+    "noneOpen": "No quote waits for a price.",
+    "none": "No quotes here.",
+    "familyOf": "A family of {count} | A family of {count}",
+    "validUntil": "Valid until {time}",
+    "offer": "Set the price",
+    "reoffer": "Change the price",
+    "amount": "Amount (SAR)",
+    "unit": "Priced",
+    "vatIncluded": "VAT included",
+    "validHours": "Valid for (hours)",
+    "validHoursHelp": "Empty: the booking setting.",
+    "sendOffer": "Offer this price",
+    "offered": "Price offered on {ref}.",
+    "aboveRate": "This price is above the hotel's highest public rate for the stay.",
+    "declineReason": "Decline with a reason",
+    "declineHelp": "Kept for the staff, not shown to the agency.",
+    "decline": "Decline the quote",
+    "declined": "Quote {ref} declined.",
+    "new": "New quote",
+    "newHelp": "A quote on an agency's behalf, when the talk started elsewhere. Its price is set afterwards.",
+    "create": "Open the quote",
+    "created": "Quote {ref} opened. Set its price from the list.",
+    "openWhatsapp": "Open WhatsApp",
+    "done": "Done"
+  },
+  "agencies": {
+    "new": "New agency",
+    "newHelp": "An agency whose licence you checked: it is approved at once, with its first sign-in.",
+    "profile": "Agency",
+    "firstUser": "First sign-in",
+    "create": "Add the agency",
+    "created": "{name} added and approved.",
+    "search": "Name, licence or email",
+    "allStatuses": "All agencies",
+    "none": "No agencies yet.",
+    "noMatch": "No agency matches these filters.",
+    "registered": "Registered",
+    "approvedAt": "Approved",
+    "waiting": "{count} agency waits for approval. | {count} agencies wait for approval.",
+    "showWaiting": "Show them",
+    "notFound": "This agency doesn't exist.",
+    "statusReason": "The staff's reason",
+    "itsBookings": "Its bookings",
+    "itsQuotes": "Its quotes",
+    "users": "Portal sign-ins",
+    "noUsers": "No sign-ins yet.",
+    "addUser": "Add a sign-in",
+    "addUserHelp": "Give the agency its email and first password.",
+    "userAdded": "Sign-in added for {name}.",
+    "lastSignIn": "Last signed in {time}",
+    "neverSignedIn": "Never signed in",
+    "signInOff": "Sign-in off",
+    "turnOff": "Turn sign-in off",
+    "turnOn": "Turn sign-in on",
+    "turnOffNamed": "Turn off the sign-in of {name}",
+    "turnOnNamed": "Turn on the sign-in of {name}",
+    "userOff": "{name} can no longer sign in.",
+    "userOn": "{name} can sign in again.",
+    "reason": "Reason",
+    "reasonHelp": "Kept for the staff.",
+    "decision": {
+      "APPROVED": {
+        "action": "Approve",
+        "title": "Approve {name}?",
+        "text": "The agency gets prices and quotes, and can book.",
+        "done": "{name} approved."
+      },
+      "SUSPENDED": {
+        "action": "Suspend",
+        "title": "Suspend {name}?",
+        "text": "The agency can no longer get prices or book. Its bookings stay.",
+        "done": "{name} suspended."
+      },
+      "REJECTED": {
+        "action": "Reject",
+        "title": "Reject {name}?",
+        "text": "The agency cannot get prices or book.",
+        "done": "{name} rejected."
+      }
+    }
   }
 }

@@ -10,7 +10,7 @@ import type { BlockRoom } from '../../../../utils/inventory'
 definePageMeta({ middleware: 'auth' })
 const { t } = useI18n()
 const router = useRouter()
-const { queryOf, setQuery, searchOf } = useUrlQuery()
+const { queryOf, setQuery, searchOf, pageOf } = useUrlQuery()
 const api = useApi()
 const notify = useNotify()
 const hotelRefresh = useHotelRefresh()
@@ -29,7 +29,7 @@ const asOf = computed({ get: () => queryOf('asOf') ?? hotel.value?.today ?? '', 
 // The number search waits for a pause in typing before asking (§27).
 const search = searchOf('q', { page: undefined })
 const q = computed(() => queryOf('q') ?? '')
-const page = computed({ get: () => Number(queryOf('page') ?? 1) || 1, set: (value: number) => setQuery({ page: value === 1 ? undefined : String(value) }) })
+const page = pageOf()
 
 const rooms = useApiQuery(
   () => ['rooms', hotelId.value, asOf.value, floor.value, type.value, inventory.value, q.value, page.value],

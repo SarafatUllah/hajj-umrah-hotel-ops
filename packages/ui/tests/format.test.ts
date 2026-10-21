@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate, formatMoney, formatNumber, formatStay, localeTag, nightsBetween } from '../app/utils/format'
+import { formatDate, formatMoney, formatNumber, formatStay, localeTag, nightsBetween, toHalalas, toRiyals } from '../app/utils/format'
 
 describe('formatting (D5, §13: Gregorian dates and Western digits in both languages)', () => {
   it('dates are calendar dates: the same day whatever the time zone, Gregorian with Western digits in Arabic', () => {
@@ -26,5 +26,12 @@ describe('formatting (D5, §13: Gregorian dates and Western digits in both langu
     expect(formatNumber(1490, 'en')).toBe('1,490')
     expect(formatNumber(1490, 'ar')).toMatch(/1.490/)
     expect(formatNumber(1490, 'ar')).not.toMatch(/[٠-٩]/)
+  })
+})
+
+describe('an amount typed in riyals', () => {
+  it('becomes whole halalas, rounded to the nearest one, and back', () => {
+    expect([toHalalas(350), toHalalas(350.5), toHalalas(0.015), toHalalas(12.345)]).toEqual([35000, 35050, 2, 1235])
+    expect([toRiyals(35000), toRiyals(35050), toRiyals(1)]).toEqual([350, 350.5, 0.01])
   })
 })

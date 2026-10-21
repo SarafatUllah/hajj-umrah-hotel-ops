@@ -12,7 +12,7 @@ definePageMeta({ middleware: 'auth', scope: 'portfolio' })
 const { t } = useI18n()
 const api = useApi()
 const access = useAccess()
-const { queryOf, setQuery, searchOf } = useUrlQuery()
+const { queryOf, setQuery, searchOf, pageOf } = useUrlQuery()
 const { hotels, current } = useHotelScope()
 useSeoMeta({ title: () => t('nav.bookings') })
 const PAGE_SIZE = 25
@@ -25,7 +25,7 @@ const agencies = useAgencies(seesAgencies)
 const agency = computed({ get: () => queryOf('agency') ?? ALL, set: (value: string) => setQuery({ agency: value === ALL ? undefined : value, page: undefined }) })
 const search = searchOf('q', { page: undefined })
 const q = computed(() => queryOf('q') ?? '')
-const page = computed({ get: () => Number(queryOf('page') ?? 1) || 1, set: (value: number) => setQuery({ page: value === 1 ? undefined : String(value) }) })
+const page = pageOf()
 
 const bookings = useApiQuery(
   () => ['bookings', current.value?.id ?? ALL, status.value, agency.value, q.value, page.value],

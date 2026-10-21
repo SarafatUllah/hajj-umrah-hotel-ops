@@ -1,9 +1,12 @@
 import { SEARCH_DELAY_MS, useDebounced } from './useDebounced'
 
+/** A list's page as the URL gives it: from 1 (a missing, zero, negative or broken one is the first). */
+export const pageNumber = (raw: string | undefined): number => Math.max(1, Math.trunc(Number(raw ?? 1)) || 1)
+
 /**
  * A page's view kept in its URL query (filters, page, the open item): read a value, change several at once (an empty
  * value leaves the URL), and a search box that writes to the URL after a pause in typing and follows the URL when it
- * changes elsewhere (back, "clear filters").
+ * changes elsewhere (back, "clear filters"), and a list's page.
  */
 export function useUrlQuery() {
   const route = useRoute()
@@ -40,5 +43,12 @@ export function useUrlQuery() {
     })
     return term
   }
-  return { queryOf, setQuery, searchOf }
+  /** A list's page (`page`; the first leaves the URL). */
+  function pageOf(): WritableComputedRef<number> {
+    return computed({
+      get: () => pageNumber(queryOf('page')),
+      set: (value: number) => setQuery({ page: value === 1 ? undefined : String(value) }),
+    })
+  }
+  return { queryOf, setQuery, searchOf, pageOf }
 }

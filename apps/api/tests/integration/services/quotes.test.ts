@@ -102,7 +102,7 @@ describe('WhatsApp quotes (v7 §8)', () => {
     const { quote } = await requestQuote(env.agency, request(env.hotel.id))
 
     const offered = await offerQuote(env.manager, quote.id, { amountHalalas: 35000, unit: 'PER_PERSON_NIGHT', vatIncluded: true })
-    expect(offered).toEqual({ quote: expect.objectContaining({ status: 'OFFERED', amountHalalas: 35000, validUntil: '2027-05-03T10:00:00.000Z' }), aboveHighestPublicRate: false })
+    expect(offered).toEqual({ quote: expect.objectContaining({ status: 'OFFERED', amountHalalas: 35000, validUntil: '2027-05-03T10:00:00.000Z', agencyName: 'Al-Noor Travels' }), aboveHighestPublicRate: false })
     expect((await offerQuote(env.manager, quote.id, { amountHalalas: 40000, unit: 'PER_PERSON_NIGHT', vatIncluded: true, validHours: 1 })).aboveHighestPublicRate).toBe(true)
     expect((await getAgencyQuote(env.agency, quote.id)).status).toBe('OFFERED')
 
@@ -142,6 +142,7 @@ describe('WhatsApp quotes (v7 §8)', () => {
     expect((await listQuotes(limited, { page: 1, pageSize: 20 })).items).toEqual([])
     await expect(getQuote(limited, quote.id)).rejects.toMatchObject({ code: 'QUOTE_NOT_FOUND', httpStatus: 404 })
     await expect(offerQuote(staff(env.scope, env.manager.identity.userId, ['booking.view']), quote.id, { amountHalalas: 1, unit: 'PER_PERSON_NIGHT', vatIncluded: true })).rejects.toMatchObject({ httpStatus: 403 })
-    expect((await listQuotes(env.manager, { page: 1, pageSize: 20, status: 'REQUESTED' })).items.map(q => q.id)).toEqual([quote.id])
+    // Staff read the agency by name (the quote desk has no agency list of its own).
+    expect((await listQuotes(env.manager, { page: 1, pageSize: 20, status: 'REQUESTED' })).items.map(q => [q.id, q.agencyName])).toEqual([[quote.id, 'Al-Noor Travels']])
   })
 })

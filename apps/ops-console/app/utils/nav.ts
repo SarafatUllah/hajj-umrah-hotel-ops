@@ -40,6 +40,8 @@ export const NAVIGATION: NavGroup[] = [
     { key: 'frontDesk', icon: 'i-lucide-concierge-bell', scope: 'hotel', path: 'front-desk', permission: 'booking.checkIn' },
     { key: 'occupancy', icon: 'i-lucide-layout-grid', scope: 'hotel', path: 'occupancy', permission: 'occupancy.view' },
     { key: 'tasks', icon: 'i-lucide-list-checks', scope: 'hotel', path: 'tasks', permission: 'booking.view' },
+    { key: 'quotes', icon: 'i-lucide-message-square-quote', scope: 'portfolio', path: '/quotes', permission: 'booking.view' },
+    { key: 'agencies', icon: 'i-lucide-briefcase', scope: 'organization', path: '/agencies', permission: 'agency.view' },
   ] },
   { key: 'admin', items: [
     { key: 'demo', icon: 'i-lucide-flask-conical', scope: 'organization', path: '/admin/demo', permission: 'organization.resetDemo', demoOnly: true },
