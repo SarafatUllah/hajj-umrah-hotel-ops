@@ -1,12 +1,13 @@
 import type { BookingStatus, GuestStatus } from '@hajj/contracts/constants/booking'
 import type { CheckInLookupInput } from '@hajj/contracts/schemas/booking'
-import { todayInTimezone } from '@hajj/contracts/utils/dates'
+import { addDays, type IsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { bookingStatusAfter, GUEST_MOVES, type GuestMove, type MoveRefusal, refuseMove } from '../../domain/booking/guestMoves'
 import { ConflictError, NotFoundError, ValidationError } from '../../errors/domainError'
 import { bookingOrgRepos, tenantRepos } from '../../repositories'
 import type { BookingGuestRow } from '../../repositories/booking'
 import type { AuthContext } from '../../security/authContext'
 import { authorizeStaffBooking, loadForStaff } from './bookingAccess'
+import { loadBookingSettings } from './bookingSettingsService'
 
 /** What the desk sees after scanning a receipt's QR code: which booking it is, to open it. */
 export interface CheckInLookupDto { bookingId: string, bookingNo: string, hotelId: string, status: string, checkIn: string, checkOut: string }
@@ -42,6 +43,18 @@ const toMoveDto = (guest: BookingGuestRow, bookingStatus: string): GuestMoveDto 
   bookingStatus: bookingStatus as BookingStatus,
 })
 
+/**
+ * From which night a move frees the pilgrim's seat, or null: a check-out frees the nights after today's (a pilgrim who
+ * checked in today keeps tonight — the room was used, and the history of who slept where stays); a no-show frees
+ * them from today when the hotel's policy says so.
+ */
+async function nightsFreedFrom(repos: ReturnType<typeof bookingOrgRepos>, bookingId: string, guestId: string, move: GuestMove, noShowReleases: boolean, today: IsoDate): Promise<IsoDate | null> {
+  if (move === 'NO_SHOW') return noShowReleases ? today : null
+  if (move !== 'CHECK_OUT') return null
+  const firstNight = await repos.guests.firstNight(bookingId, guestId)
+  return firstNight !== null && firstNight >= today ? addDays(today, 1) : today
+}
+
 /** Who did it and when, on the slot itself. */
 function stampsOf(move: GuestMove, userId: string, now: Date) {
   if (move === 'CHECK_IN') return { checkedInAt: now, checkedInBy: userId }
@@ -53,10 +66,13 @@ function stampsOf(move: GuestMove, userId: string, now: Date) {
  * v7 §12 at the desk (`booking.checkIn` on the hotel): one pilgrim at a time, under the booking's row lock (the
  * booking's status follows from all its slots: IN_HOUSE from the first arrival, COMPLETED when everyone has left or
  * never came). Days are the hotel's. Repeating a move answers the pilgrim unchanged (a double scan at the desk).
+ * Leaving before the last night frees the remaining nights (EARLY_CHECKOUT: the pilgrim's stays end today, a room
+ * nobody sleeps in any more is let go from today); so does a no-show when the hotel's policy says so
+ * (`noShowReleasesSeats`).
  */
 async function moveGuest(ctx: AuthContext, bookingId: string, guestId: string, move: GuestMove): Promise<GuestMoveDto> {
   const row = await loadForStaff(ctx, bookingId, 'booking.checkIn')
-  const hotel = await tenantRepos(ctx.db, ctx.scope).hotels.findById(row.hotelId)
+  const [hotel, settings] = await Promise.all([tenantRepos(ctx.db, ctx.scope).hotels.findById(row.hotelId), loadBookingSettings(ctx.db, ctx.scope)])
   const now = ctx.now()
   const today = todayInTimezone(hotel?.timezone ?? 'UTC', now)
   return ctx.db.transaction(async (tx) => {
@@ -72,13 +88,16 @@ async function moveGuest(ctx: AuthContext, bookingId: string, guestId: string, m
     if (refusal) throw REFUSALS[refusal]()
 
     const moved = await repos.guests.updateSlot(row.id, guestId, { status: to, ...stampsOf(move, ctx.identity.userId, now) })
+    const releaseFrom = await nightsFreedFrom(repos, row.id, guestId, move, settings.noShowReleasesSeats, today)
+    const freedClaims = releaseFrom ? await repos.guests.endStaysFrom(row.id, guestId, releaseFrom) : []
+    if (freedClaims.length > 0) await repos.records.trimClaims(row.id, freedClaims, releaseFrom!, now)
     const bookingStatus = bookingStatusAfter(booking.status as BookingStatus, await repos.guests.statuses(row.id))
     if (bookingStatus !== booking.status) await repos.records.setStatus(row.id, bookingStatus, now)
     await repos.records.recordChange({
       bookingId: row.id,
-      kind: CHANGE_KIND[move],
+      kind: move === 'CHECK_OUT' && freedClaims.length > 0 ? 'EARLY_CHECKOUT' : CHANGE_KIND[move],
       before: { slotNo: slot.guest.slotNo, status: before, bookingStatus: booking.status },
-      after: { slotNo: slot.guest.slotNo, status: to, bookingStatus },
+      after: { slotNo: slot.guest.slotNo, status: to, bookingStatus, ...(freedClaims.length > 0 ? { nightsFreedFrom: releaseFrom } : {}) },
       actor: { kind: 'staff', id: ctx.identity.userId },
     })
     return toMoveDto(moved!, bookingStatus)

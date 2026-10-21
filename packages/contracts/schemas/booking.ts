@@ -92,3 +92,9 @@ export const hotelTaskQuerySchema = z.object({
   to: isoDate.optional(),
 }).refine(q => !q.from || !q.to || q.from <= q.to, { message: '"to" must not be before "from"', path: ['to'] })
 export type HotelTaskQuery = z.infer<typeof hotelTaskQuerySchema>
+
+/** `POST /api/bookings/:id/cancel` (v7 §12): staff cancel with a reason (kept on the booking, erased with it later). */
+export const cancelBookingSchema = z.object({
+  reason: safeText(500).refine(value => value.length >= 3, 'Give the reason for the cancellation'),
+}).strict()
+export type CancelBookingInput = z.infer<typeof cancelBookingSchema>

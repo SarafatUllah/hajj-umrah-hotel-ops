@@ -35,7 +35,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | done |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | done |
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
-| 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | |
+| 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | 14a cancellation, early checkout, no-show policy done |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | |
 | 17 | Final review (code, security, database, architecture) and docs | |
@@ -407,6 +407,23 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   writes both kinds of copies and a master and checks `audit_log`, `booking_change`, `pii_access_log` and
   `event_receipt`. Customer accounts (phone, name) are account data, closed with the account, not by this sweep
   (follow-up: account closure in step 15).
+- **D-P2-46 (booking) Cancellation, early departure, no-show policy (v7 §12, step 14a).** Staff with
+  `booking.cancel` on the hotel cancel a HELD, REQUESTED or CONFIRMED booking with a reason (`POST
+  /api/bookings/:id/cancel`, 3–500 characters): under the booking's row lock it becomes CANCELLED (its room claims
+  follow by trigger: the seats are free at once), its open housekeeping tasks are CANCELLED, the quote it used is
+  ACCEPTED (spent, never reusable — also when a pending booking is cancelled), the change is logged — the reason is kept on the booking (erased by the retention
+  sweep), never in the append-only change log — and `booking.cancelled` v1 is published (the booker is texted when
+  the hotel cancelled). Cancelling twice answers the booking unchanged; a booking with someone in the house is 409
+  `BOOKING_IN_HOUSE` (check them out), a lapsed hold, a completed or expired booking 409 `BOOKING_NOT_CANCELLABLE`.
+  An agency lets go of its own HELD booking (`POST /api/agency/bookings/:id/release`); a confirmed one is the hotel's
+  to cancel (409 `CANCEL_BY_HOTEL`, v7 §12: changes other than adding pilgrims need the manager) — the statuses are
+  judged under the booking's lock. Cancelling works on an inactive hotel (it only frees seats) and locks only the
+  booking row (v7 §10's order is for changes that take seats). Checking out before the last night (the hotel's day)
+  is `EARLY_CHECKOUT`: the pilgrim's stays end that day — a pilgrim who checked in that same day keeps that night
+  (the room was used; who slept where stays on record) — and a claim nobody sleeps in any more ends there too
+  (RELEASED if it had not begun), so the remaining nights are free — the frozen price is not changed (refunds are the client's policy). A no-show keeps its seats by
+  default (it is usually paid); with `noShowReleasesSeats` (booking setting, migration 0017) it frees them from that
+  day the same way. Follow-up: an early departure's extra-bed removal task keeps its original due date.
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

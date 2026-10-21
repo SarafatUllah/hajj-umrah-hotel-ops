@@ -31,6 +31,24 @@ export type BookingConfirmedV1 = EventEnvelope<'booking.confirmed', 1, {
   confirmedBy: ConfirmedByKind
 }>
 
-export type DomainEvent = BookingConfirmedV1
+/** Who cancelled the booking: the booker itself (an agency releasing its hold, a customer) or staff. */
+export type CancelledByKind = ConfirmedByKind
+
+/** A booking was cancelled (v7 §12): its seats are free again. */
+export type BookingCancelledV1 = EventEnvelope<'booking.cancelled', 1, {
+  bookingId: string
+  bookingNo: string
+  hotelId: string
+  bookerType: 'AGENCY' | 'INDIVIDUAL'
+  agencyId: string | null
+  customerId: string | null
+  checkIn: string
+  checkOut: string
+  /** The status it was cancelled from (HELD, REQUESTED or CONFIRMED). */
+  previousStatus: string
+  cancelledBy: CancelledByKind
+}>
+
+export type DomainEvent = BookingConfirmedV1 | BookingCancelledV1
 export type DomainEventType = DomainEvent['type']
 export type DomainEventOf<T extends DomainEventType> = Extract<DomainEvent, { type: T }>

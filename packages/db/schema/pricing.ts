@@ -178,6 +178,8 @@ export const bookingSetting = pgTable('booking_setting', {
   passportAiAllowed: boolean('passport_ai_allowed').notNull().default(false),
   /** Bookers' copies of pilgrims' details (and unused staff masters) are erased this long after check-out (ticket 4, PDPL). */
   guestDataRetentionMonths: integer('guest_data_retention_months').notNull().default(24),
+  /** v7 §12 no-show policy: free a no-show's seats from that day (default: they stay booked). */
+  noShowReleasesSeats: boolean('no_show_releases_seats').notNull().default(false),
   whatsappNumber: text('whatsapp_number'),
   whatsappTemplate: text('whatsapp_template'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

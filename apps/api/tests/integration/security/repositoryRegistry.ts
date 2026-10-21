@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { and, eq, isNotNull, isNull } from 'drizzle-orm'
-import { agency, agencyQuota, agencyUser, allocationRule, appUser, auditLog, booking, bookingGuest, bookingGuestDetail, bookingPriceLine, passportScan, bookingSetting, eventReceipt, hotelTask, piiAccessLog, pilgrim, customer, documentSequence, extraBedPolicy, otpChallenge, priceQuote, rate, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
+import { agency, agencyQuota, agencyUser, allocationRule, appUser, auditLog, booking, bookingGuest, bookingGuestDetail, bookingRoom, guestStay, bookingPriceLine, passportScan, bookingSetting, eventReceipt, hotelTask, piiAccessLog, pilgrim, customer, documentSequence, extraBedPolicy, otpChallenge, priceQuote, rate, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
 import type { DbOrTx } from '@hajj/db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, EventReceiptRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
@@ -1637,6 +1637,40 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
   }),
   'PilgrimRepository.deleteUnreferenced': isolationCase({ arrange: arrangeGuestDetail, act: (db, scope) => new PilgrimRepository(db, scope).deleteUnreferenced(new Date(Date.now() + 60_000)), expect: 'zero-affected' }),
   'GuestRepository.statuses': isolationCase({ arrange: arrangeGuestDetail, act: (db, scope, ids) => new GuestRepository(db, scope).statuses(ids.bookingId), expect: 'empty' }),
+  // Step 14a: cancellation, early departure (org B never cancels, trims, ends or cancels anything of org A).
+  'BookingRecordRepository.cancel': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new BookingRecordRepository(db, scope).cancel(ids.bookingId, { at: new Date(), by: null, reason: 'probe' }), expect: 'null' }),
+  'BookingRecordRepository.trimClaims': isolationCase({
+    arrange: async (db, orgA) => {
+      const ids = await arrangeConfirmedBooking(db, orgA)
+      await db.delete(guestStay).where(eq(guestStay.bookingId, ids.bookingId))
+      const [claim] = await db.select().from(bookingRoom).where(eq(bookingRoom.bookingId, ids.bookingId))
+      return { ...ids, claimId: claim!.id }
+    },
+    act: async (db, scope, ids) => {
+      await new BookingRecordRepository(db, scope).trimClaims(ids.bookingId, [ids.claimId], '2027-06-03', new Date())
+      return db.select().from(bookingRoom).where(and(eq(bookingRoom.id, ids.claimId), eq(bookingRoom.checkOut, '2027-06-03')))
+    },
+    expect: 'empty',
+  }),
+  'HotelTaskRepository.cancelOpenForBooking': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new HotelTaskRepository(db, scope).cancelOpenForBooking(ids.bookingId, new Date()), expect: 'zero-affected' }),
+  'GuestRepository.firstNight': isolationCase({
+    arrange: async (db, orgA) => {
+      const ids = await arrangeConfirmedBooking(db, orgA)
+      const [stay] = await db.select().from(guestStay).where(eq(guestStay.bookingId, ids.bookingId))
+      return { ...ids, guestId: stay!.bookingGuestId }
+    },
+    act: (db, scope, ids) => new GuestRepository(db, scope).firstNight(ids.bookingId, ids.guestId),
+    expect: 'null',
+  }),
+  'GuestRepository.endStaysFrom': isolationCase({
+    arrange: async (db, orgA) => {
+      const ids = await arrangeConfirmedBooking(db, orgA)
+      const [stay] = await db.select().from(guestStay).where(eq(guestStay.bookingId, ids.bookingId))
+      return { ...ids, guestId: stay!.bookingGuestId }
+    },
+    act: (db, scope, ids) => new GuestRepository(db, scope).endStaysFrom(ids.bookingId, ids.guestId, '2027-06-03'),
+    expect: 'empty',
+  }),
   'BookingRecordRepository.findByReceiptToken': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new BookingRecordRepository(db, scope).findByReceiptToken(ids.receiptToken), expect: 'null' }),
   'BookingRecordRepository.setStatus': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new BookingRecordRepository(db, scope).setStatus(ids.bookingId, 'IN_HOUSE', new Date()), expect: 'null' }),
   'BookingRecordRepository.dueForDetailsReminder': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope) => new BookingRecordRepository(db, scope).dueForDetailsReminder('2027-05-01', '2027-06-30', 10), expect: 'empty' }),

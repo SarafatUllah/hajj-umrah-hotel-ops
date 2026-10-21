@@ -334,6 +334,29 @@ export class BookingRecordRepository {
     await this.#q.update(booking, { notes: null, cancelReason: null }, inArray(booking.id, [...bookingIds]))
   }
 
+  /** v7 §12: CANCELLED (its room claims follow by trigger, so the seats are free). The caller holds the row lock. */
+  async cancel(id: string, values: { at: Date, by: string | null, reason: string | null }): Promise<BookingRow | null> {
+    const [row] = await this.#q.update(booking, { status: 'CANCELLED', cancelledAt: values.at, cancelledBy: values.by, cancelReason: values.reason, updatedAt: values.at }, eq(booking.id, id)).returning()
+    return row ?? null
+  }
+
+  /**
+   * v7 §12 early departure / no-show: the booking's claims `claimIds` no longer hold the nights from `day` on that no
+   * stay of theirs uses — a claim nobody sleeps in after `day` ends that day (one that had not begun is RELEASED), so
+   * the room is free for others. The claims' stays were ended first (containment).
+   */
+  async trimClaims(bookingId: string, claimIds: readonly string[], day: IsoDate, at: Date): Promise<void> {
+    for (const claimId of claimIds) {
+      const [claim] = await this.#q.select(bookingRoom, and(eq(bookingRoom.bookingId, bookingId), eq(bookingRoom.id, claimId))!, { limit: 1 })
+      if (!claim || claim.checkOut <= day) continue
+      const [last] = await this.db.select({ end: sql<string | null>`max(${guestStay.checkOut})::text` }).from(guestStay).where(this.#q.cond(guestStay, eq(guestStay.bookingRoomId, claimId)))
+      const end = last?.end ?? null
+      if (end !== null && end >= claim.checkOut) continue
+      if (claim.checkIn >= day && end === null) await this.#q.update(bookingRoom, { status: 'RELEASED', updatedAt: at }, eq(bookingRoom.id, claimId))
+      else await this.#q.update(bookingRoom, { checkOut: end !== null && end > day ? end : day, updatedAt: at }, eq(bookingRoom.id, claimId))
+    }
+  }
+
   /** Every pending booking of the organization whose hold lapsed becomes EXPIRED, in batches. Returns their ids. */
   async expireLapsed(now: Date): Promise<string[]> {
     const expired: string[] = []

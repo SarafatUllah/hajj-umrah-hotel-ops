@@ -116,7 +116,8 @@ function toBookingDto(row: BookingRow, totalHalalas: number, now: Date): Booking
 const toPage = (result: { rows: BookingListRow[], total: number }, query: Pick<ListBookingsQuery, 'page' | 'pageSize'>, now: Date): BookingPage =>
   ({ items: result.rows.map(r => toBookingDto(r, r.totalHalalas, now)), total: result.total, page: query.page, pageSize: query.pageSize })
 
-async function detailOf(db: Db, scope: OrganizationScope, row: BookingRow, now: Date): Promise<BookingDetailDto> {
+/** A booking as its detail endpoints answer it (used by the module's other services after a change). */
+export async function bookingDetail(db: Db, scope: OrganizationScope, row: BookingRow, now: Date): Promise<BookingDetailDto> {
   const details = await bookingOrgRepos(db, scope).records.details(row.id)
   const count = (statuses: readonly string[]) => statuses.reduce((sum, s) => sum + (details.guestStatuses[s] ?? 0), 0)
   const total = Object.entries(details.guestStatuses).reduce((sum, [status, n]) => sum + (status === 'REMOVED' ? 0 : n), 0)
@@ -156,7 +157,7 @@ async function confirm(db: Db, scope: OrganizationScope, row: BookingRow, actor:
     await publishEvent(tx, bookingConfirmedEvent(updated, actor.kind, now))
     return updated
   })
-  return detailOf(db, scope, confirmed, now)
+  return bookingDetail(db, scope, confirmed, now)
 }
 
 /** The receipt of a confirmed booking (a pending one has none yet: 409 `NOT_CONFIRMED`). */
@@ -209,7 +210,7 @@ export async function listAgencyBookings(ctx: AgencyContext, query: ListBookings
 }
 
 export async function getAgencyBooking(ctx: AgencyContext, bookingId: string): Promise<BookingDetailDto> {
-  return detailOf(ctx.db, ctx.scope, await loadForAgency(ctx, bookingId), ctx.now())
+  return bookingDetail(ctx.db, ctx.scope, await loadForAgency(ctx, bookingId), ctx.now())
 }
 
 export async function confirmAgencyBooking(ctx: AgencyContext, bookingId: string): Promise<BookingDetailDto> {
@@ -245,7 +246,7 @@ export async function listBookings(ctx: AuthContext, query: ListBookingsQuery): 
 }
 
 export async function getBooking(ctx: AuthContext, bookingId: string): Promise<BookingDetailDto> {
-  return detailOf(ctx.db, ctx.scope, await loadForStaff(ctx, bookingId, 'booking.view', { allowInactive: true }), ctx.now())
+  return bookingDetail(ctx.db, ctx.scope, await loadForStaff(ctx, bookingId, 'booking.view', { allowInactive: true }), ctx.now())
 }
 
 /** Staff with `booking.create` on the hotel (sellers and managers) confirm an agency's hold or an individual's request (v7 §7). */

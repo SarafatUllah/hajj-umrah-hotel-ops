@@ -53,6 +53,26 @@ export class GuestRepository {
     return slots.map(s => ({ ...s, roomNumber: rooms.get(s.guest.id)?.roomNumber ?? null, occupancy: rooms.get(s.guest.id)?.occupancy ?? null }))
   }
 
+  /**
+   * v7 §12 early departure / no-show: the slot sleeps nowhere from `day` on — its stays end that day (one that had
+   * not begun is removed). Returns the room claims those stays were in.
+   */
+  async endStaysFrom(bookingId: string, guestId: string, day: IsoDate): Promise<string[]> {
+    const stays = await this.#q.select(guestStay, and(eq(guestStay.bookingId, bookingId), eq(guestStay.bookingGuestId, guestId), gt(guestStay.checkOut, day))!)
+    for (const stay of stays) {
+      if (stay.checkIn >= day) await this.#q.delete(guestStay, eq(guestStay.id, stay.id))
+      else await this.#q.update(guestStay, { checkOut: day }, eq(guestStay.id, stay.id))
+    }
+    return [...new Set(stays.map(s => s.bookingRoomId))]
+  }
+
+  /** The first night the slot sleeps in the hotel (its earliest stay), or null without a stay. */
+  async firstNight(bookingId: string, guestId: string): Promise<IsoDate | null> {
+    const [row] = await this.db.select({ first: sql<string | null>`min(${guestStay.checkIn})::text` }).from(guestStay)
+      .where(this.#q.cond(guestStay, eq(guestStay.bookingId, bookingId), eq(guestStay.bookingGuestId, guestId)))
+    return row?.first ?? null
+  }
+
   /** The status of every slot of the booking. */
   async statuses(bookingId: string): Promise<GuestStatus[]> {
     const rows = await this.db.select({ status: bookingGuest.status }).from(bookingGuest).where(this.#q.cond(bookingGuest, eq(bookingGuest.bookingId, bookingId)))

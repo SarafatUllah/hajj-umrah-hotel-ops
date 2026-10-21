@@ -6,7 +6,7 @@ import type { Permission } from '@hajj/contracts/constants/permissions'
 import { holdRequestSchema } from '@hajj/contracts/schemas/booking'
 import { guestDetailsSchema } from '@hajj/contracts/schemas/guest'
 import { setSmsSenderForTests, type SmsMessage } from '../../../server/notifications/sms'
-import { bookingOrgRepos } from '../../../server/repositories'
+import { bookingOrgRepos, bookingRepos } from '../../../server/repositories'
 import { type AgencyContext, resolveAgencyContext } from '../../../server/security/agencyContext'
 import type { AuthContext } from '../../../server/security/authContext'
 import type { OrganizationScope } from '../../../server/security/scope'
@@ -45,7 +45,7 @@ const details = (fullName: string, gender: 'MALE' | 'FEMALE', passportNo: string
 /** A confirmed GROUP: two men (Quad 101) and a woman (Double 201), June 1–4; the men's details are in. */
 async function setup() {
   const { scope } = await makeOrg(db)
-  const { hotel, rooms } = await makeStayHotel(db, scope)
+  const { hotel, hotelScope, rooms } = await makeStayHotel(db, scope)
   const agency = await agencyCtx(scope, (await makeAgency(db, scope)).id)
   const held = await holdAgencyStay(agency, holdRequestSchema.parse({
     hotelId: hotel.id, bookingType: 'GROUP', checkIn: '2027-06-01', checkOut: '2027-06-04', maleCount: 2, femaleCount: 1, totalCount: 3,
@@ -56,7 +56,7 @@ async function setup() {
   await saveAgencyGuest(agency, held.id, man1!.id, details('Md. Karim', 'MALE', 'A1234567'))
   await saveAgencyGuest(agency, held.id, man2!.id, details('Abdul Rahim', 'MALE', 'B7654321'))
   const desk = staff(scope, (await makeUser(db, scope)).id, ['booking.view', 'booking.checkIn'])
-  return { scope, hotel, rooms, agency, bookingId: held.id, man1: man1!.id, man2: man2!.id, woman: woman!.id, desk }
+  return { scope, hotel, hotelScope, rooms, agency, bookingId: held.id, man1: man1!.id, man2: man2!.id, woman: woman!.id, desk }
 }
 
 describe('check-in at the desk (v7 §12, §17)', () => {
@@ -85,7 +85,8 @@ describe('check-in at the desk (v7 §12, §17)', () => {
 
     expect((await db.select().from(booking).where(eq(booking.id, env.bookingId)))[0]!.status).toBe('COMPLETED')
     const kinds = (await db.select().from(bookingChange).where(eq(bookingChange.bookingId, env.bookingId))).map(c => c.kind)
-    expect(kinds.filter(k => ['CHECKED_IN', 'CHECKED_OUT', 'NO_SHOW'].includes(k)).sort()).toEqual(['CHECKED_IN', 'CHECKED_IN', 'CHECKED_OUT', 'CHECKED_OUT', 'NO_SHOW'])
+    // Leaving on the first day of a three-night stay is an early departure (the remaining nights are freed).
+    expect(kinds.filter(k => ['CHECKED_IN', 'CHECKED_OUT', 'EARLY_CHECKOUT', 'NO_SHOW'].includes(k)).sort()).toEqual(['CHECKED_IN', 'CHECKED_IN', 'EARLY_CHECKOUT', 'EARLY_CHECKOUT', 'NO_SHOW'])
   })
 
   it('staff without booking.checkIn cannot move pilgrims; another organization\'s desk does not find the booking', async () => {
@@ -95,6 +96,52 @@ describe('check-in at the desk (v7 §12, §17)', () => {
     const { scope: other } = await makeOrg(db)
     const foreignDesk = staff(other, (await makeUser(db, other)).id, ['booking.checkIn'])
     await expect(checkInGuest(foreignDesk, env.bookingId, env.man1)).rejects.toMatchObject({ code: 'BOOKING_NOT_FOUND', httpStatus: 404 })
+  })
+})
+
+describe('leaving early and not coming (v7 §12)', () => {
+  const night2 = { from: '2027-06-02', to: '2027-06-03' }
+
+  it('a pilgrim leaving before the last night frees the remaining nights; a room nobody sleeps in any more is let go', async () => {
+    const env = await setup()
+    const inventory = bookingRepos(db, env.hotelScope).inventory
+    await checkInGuest(env.desk, env.bookingId, env.man1)
+    await checkInGuest(env.desk, env.bookingId, env.man2)
+    const nextDay = staff(env.scope, env.desk.identity.userId, ['booking.checkIn'], new Date('2027-06-02T09:00:00Z'))
+
+    expect(await checkOutGuest(nextDay, env.bookingId, env.man1)).toMatchObject({ status: 'CHECKED_OUT', bookingStatus: 'IN_HOUSE' })
+    expect(await inventory.seatsUsed([env.rooms['101']!], night2)).toMatchObject([{ night: '2027-06-02', seatsUsed: 1 }, { night: '2027-06-03', seatsUsed: 1 }])
+    expect((await db.select().from(bookingChange).where(eq(bookingChange.kind, 'EARLY_CHECKOUT')))).toMatchObject([{ afterData: { nightsFreedFrom: '2027-06-02' } }])
+
+    await checkOutGuest(nextDay, env.bookingId, env.man2)
+    expect(await inventory.seatsUsed([env.rooms['101']!], night2)).toEqual([])
+    expect(await inventory.liveClaims([env.rooms['101']!], '2027-06-02', '2027-06-03')).toEqual([])
+    expect(await inventory.liveClaims([env.rooms['101']!], '2027-06-01', '2027-06-01')).toHaveLength(1) // the first night stays theirs
+  })
+
+  it('leaving on the day of arriving keeps that night: the room, and who slept in it, stay on record', async () => {
+    const env = await setup()
+    const inventory = bookingRepos(db, env.hotelScope).inventory
+    for (const man of [env.man1, env.man2]) {
+      await checkInGuest(env.desk, env.bookingId, man)
+      await checkOutGuest(env.desk, env.bookingId, man)
+    }
+    expect(await inventory.seatsUsed([env.rooms['101']!], { from: '2027-06-01', to: '2027-06-03' })).toEqual([{ roomId: env.rooms['101'], night: '2027-06-01', seatsUsed: 2 }])
+    expect(await inventory.liveClaims([env.rooms['101']!], '2027-06-01', '2027-06-01')).toHaveLength(1)
+    expect((await listAgencyGuests(env.agency, env.bookingId))[0]).toMatchObject({ roomNumber: '101', status: 'CHECKED_OUT' })
+  })
+
+  it('a no-show keeps the seat by default; with noShowReleasesSeats the room is let go from that day', async () => {
+    const env = await setup()
+    const inventory = bookingRepos(db, env.hotelScope).inventory
+    await markGuestNoShow(env.desk, env.bookingId, env.woman)
+    expect(await inventory.seatsUsed([env.rooms['201']!], night2)).toHaveLength(2)
+
+    const other = await setup()
+    await db.update(bookingSetting).set({ noShowReleasesSeats: true }).where(eq(bookingSetting.organizationId, other.scope.organizationId))
+    await markGuestNoShow(other.desk, other.bookingId, other.woman)
+    expect(await bookingRepos(db, other.hotelScope).inventory.seatsUsed([other.rooms['201']!], { from: '2027-06-01', to: '2027-06-03' })).toEqual([])
+    expect(await bookingRepos(db, other.hotelScope).inventory.liveClaims([other.rooms['201']!], '2027-06-01', '2027-06-03')).toEqual([])
   })
 })
 

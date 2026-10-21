@@ -1,7 +1,7 @@
-import type { DomainEventOf, DomainEventType } from '@hajj/contracts/events/domainEvents'
+import type { DomainEvent, DomainEventOf, DomainEventType } from '@hajj/contracts/events/domainEvents'
 import { setEventSink } from '../events/bus'
 import { allOrganizationScopes } from '../security/organizations'
-import { notifyBookingConfirmed } from '../services/booking'
+import { notifyBookingCancelled, notifyBookingConfirmed } from '../services/booking'
 import { type EventHandle, handleEventOnce, pruneEventReceipts } from '../services/eventHandling'
 import { defineJob, type JobDefinition } from './definition'
 import { enqueue, JobRuntimeUnavailableError } from './runtime'
@@ -28,6 +28,7 @@ function eventHandler<T extends DomainEventType>(handler: EventHandler<T>) {
 /** Every handler of every domain event (Phase 2a ticket 7). */
 export const EVENT_HANDLERS = [
   eventHandler({ event: 'booking.confirmed', name: 'notify-booker', handle: notifyBookingConfirmed }),
+  eventHandler({ event: 'booking.cancelled', name: 'notify-booker', handle: notifyBookingCancelled }),
 ]
 
 /** Daily: receipts older than any retry of their job are pruned (a re-delivery that late cannot happen). */
@@ -52,7 +53,8 @@ export function wireDomainEvents(): void {
   setEventSink(async (tx, event) => {
     for (const handler of EVENT_HANDLERS.filter(h => h.event === event.type)) {
       try {
-        await enqueue(handler.job, event, { tx })
+        // The filter above matched the handler's event type; the table's union type cannot say so.
+        await enqueue(handler.job as JobDefinition<DomainEvent>, event, { tx })
       }
       catch (error) {
         if (!(error instanceof JobRuntimeUnavailableError)) throw error

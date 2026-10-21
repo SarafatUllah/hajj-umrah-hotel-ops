@@ -61,6 +61,12 @@ export class HotelTaskRepository {
     await this.#q.update(hotelTask, { notes: null }, inArray(hotelTask.bookingId, [...bookingIds]), isNotNull(hotelTask.notes))
   }
 
+  /** v7 §12: the open tasks of a cancelled booking are not needed any more. Returns how many. */
+  async cancelOpenForBooking(bookingId: string, at: Date): Promise<number> {
+    const rows = await this.#q.update(hotelTask, { status: 'CANCELLED', updatedAt: at }, eq(hotelTask.bookingId, bookingId), eq(hotelTask.status, 'OPEN')).returning({ id: hotelTask.id })
+    return rows.length
+  }
+
   /** OPEN → DONE for a task of this hotel; null when it is not open (done or cancelled meanwhile) or not this hotel's. */
   async markDone(id: string, hotelId: string, done: { by: string, at: Date }): Promise<HotelTaskRow | null> {
     const [row] = await this.#q.update(hotelTask, { status: 'DONE', doneAt: done.at, doneBy: done.by, updatedAt: done.at }, eq(hotelTask.id, id), eq(hotelTask.hotelId, hotelId), eq(hotelTask.status, 'OPEN')).returning()
