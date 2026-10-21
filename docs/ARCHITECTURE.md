@@ -82,10 +82,10 @@ There is **no session table**: sessions are sealed cookies (§8). There is **no 
 |---|---|---|
 | `organization` | platform | A tenant. `slug` unique; `is_demo` flags the demo organization. |
 | `app_user` | organization | A login. Email unique per organization; `all_hotels` flag; `is_active`. Argon2id password hash. |
-| `role`, `role_permission`, `user_role` | organization | Roles per organization (seeded from `shared/constants/roles.ts`), their permission keys, and user↔role links (`user_role.organization_id` + composite FKs, migration `0001`). |
-| `permission` | platform | The global permission-key catalogue (`shared/constants/permissions.ts`). |
+| `role`, `role_permission`, `user_role` | organization | Roles per organization (seeded from `packages/contracts/constants/roles.ts`), their permission keys, and user↔role links (`user_role.organization_id` + composite FKs, migration `0001`). |
+| `permission` | platform | The global permission-key catalogue (`packages/contracts/constants/permissions.ts`). |
 | `hotel` | organization | A hotel: code (unique per organization), name, city/country, IANA timezone, check-in/out times, currency, ownership type, license reference, status `ACTIVE`/`INACTIVE`. |
-| `hotel_setting` | hotel | Key/value settings validated against a registry (`shared/business-rules/hotelSettings.ts`); Phase 1 has `inventory.maintenanceBlocksSales` (default `true`). |
+| `hotel_setting` | hotel | Key/value settings validated against a registry (`packages/contracts/business-rules/hotelSettings.ts`); Phase 1 has `inventory.maintenanceBlocksSales` (default `true`). |
 | `user_hotel_access` | hotel | Explicit hotel access for users without `all_hotels`. |
 | `floor` | hotel | Level (unique per hotel, −5…200), label, active flag. |
 | `room_type` | organization | Organization-wide catalogue: code, default physical beds and default sellable capacity (copied — snapshot — into a room's base version when a room is created). |
@@ -131,7 +131,7 @@ Enforcement, layered:
 **As shipped in Phase 1** (layers 1–2 above, made structural; RLS is still not used — Phase 9):
 
 - **Branded scopes.** `OrganizationScope` and `HotelScope` (`server/security/scope.ts`) are branded types that only `server/security`, the seeds and tests may mint (`trusted*`, enforced by ESLint `no-restricted-imports`). Tenant repositories (`server/repositories/tenant`) take an `OrganizationScope`, hotel repositories (`server/repositories/hotel`) a `HotelScope`; every query they build carries the `organization_id` (and `hotel_id`) predicate (`server/repositories/base/scopedQuery.ts`). Platform repositories (`server/repositories/platform`: organizations, permission catalogue) are the only unscoped ones.
-- **Layering.** Only repositories import Drizzle or `db/schema`/`db/client`; services, routes, domain, utils and `shared` may not (ESLint rule + `tests/unit/architecture/layering.test.ts`). Every tenant/hotel repository method is listed in an isolation registry exercised by `tests/integration/security/tenantIsolation.test.ts`.
+- **Layering.** Only repositories import Drizzle or `packages/db/schema`/`packages/db/client`; services, routes, domain, utils and `shared` may not (ESLint rule + `apps/api/tests/unit/architecture/layering.test.ts`). Every tenant/hotel repository method is listed in an isolation registry exercised by `apps/api/tests/integration/security/tenantIsolation.test.ts`.
 - **Database backstop.** Composite foreign keys including `organization_id` (and `hotel_id`) on every child table, plus `UNIQUE (organization_id, id)` targets, make a cross-tenant or cross-hotel reference impossible even for code that bypasses the services (§6.1).
 - **Demo isolation.** The demo organization is an ordinary tenant flagged `is_demo`; its reset deletes exactly that organization (one cascading delete by id) and recreates it (§14).
 
@@ -150,7 +150,7 @@ Enforcement, layered:
 - **Per-request authorization context.** Every authenticated request calls `resolveAuthContext` (`server/security/authContext.ts`) once (memoized per request): the active user row (scoped to the session's organization), the permission keys of the user's roles in its **own** organization, and its explicit hotel ids — three queries, fresh from the database, so a role change, a deactivated user or revoked hotel access takes effect on the next request. A user that no longer resolves clears the session and answers 401 `SESSION_INVALID`.
 - **Roles and permissions** are database rows (§6.1). Hotel access = `app_user.all_hotels` **or** a `user_hotel_access` row. `organization.resetDemo` is demo-only: it is granted to the demo organization's Super Admin by the demo seed and is never part of the generic Super Admin role.
 - **One authorization path for hotels.** `authorizeHotel(ctx, permission, hotelId)` (`server/security/authorize.ts`) is called by every hotel-scoped service and is the only place a `HotelScope` is minted for a request; organization-level operations use `requireOrgPermission` / `requireAllHotels`. Creating hotels and writing room types require `allHotels` as well as the permission.
-- **Outcome semantics** (verified over real HTTP in `tests/http/**`):
+- **Outcome semantics** (verified over real HTTP in `apps/api/tests/http/**`):
 
 | Situation | Response |
 |---|---|
@@ -262,13 +262,13 @@ Algorithm:
 
 ### 14.1 As shipped in Phase 1
 
-- **Dataset** (`db/seed/demo-org.ts`, `db/seed/demo/**`, catalogues in `server/demo/catalog.ts` and `server/demo/personas.ts`): 5 hotels (3 Makkah, 2 Madinah), 360 rooms on 36 floors, 4 organization-level room types, versioned base capacity with renovations, sellable reductions, retirements, a temporarily closed and reactivated room and an inactive floor, 24 capacity periods (six named seasons per hotel family — Ramadan 2026/2027, Hajj 2026/2027/2028 and an Umrah peak Dec 2026 — applied to the hotels each belongs to) with 830 room overrides, 123 operational blocks of every kind at the default anchor (including cancelled and ended-early ones), and 9 personas with 11 explicit hotel-access rows (all-hotels personas hold the flag instead). The story: MKK-GRAND room 401 is a Quad (4/4) that becomes 6/6 during Hajj 2027 (2027-05-01…2027-07-31); MKK-AJYAD's base average is 3.88; different roles see different hotels.
-- **Deterministic ids.** Every durable demo id is a UUID v5 of a stable key under a fixed private namespace (`db/seed/demo/ids.ts`: organization, roles, users, room types, hotels, floors, rooms, base versions, periods, overrides, blocks). The same key yields the same id on every seed in every environment.
-- **Seeded randomness.** Every random choice uses a per-hotel, per-purpose `mulberry32` stream seeded from a string (`db/seed/demo/random.ts`), so the generated data is identical on every machine.
+- **Dataset** (`apps/api/db/seed/demo-org.ts`, `apps/api/db/seed/demo/**`, catalogues in `server/demo/catalog.ts` and `server/demo/personas.ts`): 5 hotels (3 Makkah, 2 Madinah), 360 rooms on 36 floors, 4 organization-level room types, versioned base capacity with renovations, sellable reductions, retirements, a temporarily closed and reactivated room and an inactive floor, 24 capacity periods (six named seasons per hotel family — Ramadan 2026/2027, Hajj 2026/2027/2028 and an Umrah peak Dec 2026 — applied to the hotels each belongs to) with 830 room overrides, 123 operational blocks of every kind at the default anchor (including cancelled and ended-early ones), and 9 personas with 11 explicit hotel-access rows (all-hotels personas hold the flag instead). The story: MKK-GRAND room 401 is a Quad (4/4) that becomes 6/6 during Hajj 2027 (2027-05-01…2027-07-31); MKK-AJYAD's base average is 3.88; different roles see different hotels.
+- **Deterministic ids.** Every durable demo id is a UUID v5 of a stable key under a fixed private namespace (`apps/api/db/seed/demo/ids.ts`: organization, roles, users, room types, hotels, floors, rooms, base versions, periods, overrides, blocks). The same key yields the same id on every seed in every environment.
+- **Seeded randomness.** Every random choice uses a per-hotel, per-purpose `mulberry32` stream seeded from a string (`apps/api/db/seed/demo/random.ts`), so the generated data is identical on every machine.
 - **Anchor date.** Time-relative rows (running maintenance, ended-early and historical blocks) hang off `DEMO_ANCHOR_DATE` (default `2026-09-01`, a real date within 2000-01-01…2100-12-31); seasonal periods are fixed calendar dates. A reset may pass another `anchorDate` to bring the demo forward.
 - **Seed = reset.** `seedDemoOrganization` runs in one transaction under a transaction-level advisory lock (`lockDemoSeed`), deletes an existing `is_demo` organization with one cascading statement by its id (a non-demo organization holding the slug is refused), and recreates everything under the **same ids**, so sessions, bookmarks and client caches stay valid. All nine personas share one Argon2id hash computed once per run. `pnpm db:seed` and `POST /api/admin/demo/reset` both use it; the reset additionally records a `DEMO_RESET` audit row in the same transaction. A failure anywhere rolls everything back; concurrent resets are serialized by the advisory lock.
 - **Who may reset.** The route requires `organization.resetDemo` (403 `FORBIDDEN` otherwise — no other organization's Super Admin holds it) and the service additionally requires the caller to belong to the demo organization (also 403). Body: optional `{ "anchorDate": "YYYY-MM-DD" }`, strict.
-- **Second-organization isolation.** Tests seed a second, fully populated organization and prove its fingerprint (`tests/support/fingerprint.ts`) is byte-identical after resets; the Phase 1 acceptance scenario (`tests/integration/acceptance/phase1.test.ts`) repeats this end to end.
+- **Second-organization isolation.** Tests seed a second, fully populated organization and prove its fingerprint (`apps/api/tests/support/fingerprint.ts`) is byte-identical after resets; the Phase 1 acceptance scenario (`apps/api/tests/integration/acceptance/phase1.test.ts`) repeats this end to end.
 - **Production guard.** The seed and the reset refuse to run with `APP_ENV=production` unless `ALLOW_DEMO_SEED=true` is set deliberately (`DemoSeedForbiddenError`; the reset route answers 403 `DEMO_SEED_NOT_ALLOWED`).
 - **Public demo sign-in metadata.** `GET /api/public/demo-sign-in` is unauthenticated metadata for a demo login screen (slug, the demo password and the persona list with display names, role names, hotels and `phase1Available`). It is **not** authentication: it mints no session and exposes no id or hash. It answers only when `DEMO_SIGN_IN_ENABLED=true` **and** `APP_ENV` is `development` or `demo` **and** an `is_demo` organization with slug `demo` exists; otherwise it returns exactly the unknown-route 404. Configuration rules: `APP_ENV=production` with `DEMO_SIGN_IN_ENABLED=true` is an invalid configuration that **stops startup** (`server/plugins/demoEnv.ts`); `APP_ENV=staging` with the flag `true` is a **valid** configuration that starts normally, but the runtime gate keeps the endpoint closed (404); `production` with the flag `false`/unset serves 404.
 
@@ -299,7 +299,7 @@ Direction (unchanged): a `StorageDriver` abstraction, metadata in PostgreSQL, by
 - **Managed PostgreSQL** (Neon or Supabase recommended — see §18) rather than self-hosted, for automated backups/PITR without ops burden.
 - **Object storage**: Cloudflare R2 (S3-compatible, no egress fees).
 - **Reverse proxy/TLS/CDN**: handled by the hosting platform (Railway/Render/Fly all provide this) rather than custom nginx config.
-- Config fully via environment variables — four environments (`APP_ENV`: `development`, `demo`, `staging`, `production`) differ only by env vars and which `organization` rows exist, never by code branches. Phase 1 reads `APP_ENV`, `DATABASE_URL`, `DATABASE_POOL_MAX`, `NUXT_SESSION_PASSWORD`, `NUXT_SESSION_COOKIE_SECURE`, `STORAGE_DRIVER`, `STORAGE_LOCAL_DIR`, `ALLOW_DEMO_SEED`, `DEMO_ANCHOR_DATE` and `DEMO_SIGN_IN_ENABLED` (validated by `server/utils/env.ts`; documented in `.env.example`). Email settings arrive with the notification phase.
+- Config fully via environment variables — four environments (`APP_ENV`: `development`, `demo`, `staging`, `production`) differ only by env vars and which `organization` rows exist, never by code branches. Phase 1 reads `APP_ENV`, `DATABASE_URL`, `DATABASE_POOL_MAX`, `NUXT_SESSION_PASSWORD`, `NUXT_SESSION_COOKIE_SECURE`, `STORAGE_DRIVER`, `STORAGE_LOCAL_DIR`, `ALLOW_DEMO_SEED`, `DEMO_ANCHOR_DATE` and `DEMO_SIGN_IN_ENABLED` (validated by `server/utils/env.ts`; documented in `apps/api/.env.example`). Email settings arrive with the notification phase.
 - **Migrations run before the new app version takes traffic** (`pnpm db:migrate`); see `docs/MIGRATIONS.md` and `docs/DEPLOY_CHECKLIST.md`. Phase 1 has no object storage yet: with the local storage driver the document directory must be a persistent volume (§15.1).
 
 ## 18. Low-Cost Deployment Options
@@ -333,7 +333,7 @@ Recommended starting stack (re-evaluate only if usage outgrows it):
 - Session cookies: httpOnly, secure, sealed/encrypted, short-lived with rolling renewal; CSRF protection via same-site cookies + origin check on state-changing routes.
 - Passwords: argon2id, minimum complexity policy, rate-limited login attempts (per-IP and per-account) to prevent brute force.
 - Rate limiting on sensitive routes (login, password reset, file upload, export generation) via a lightweight in-process limiter backed by Postgres (consistent with the "one stateful dependency" goal) rather than adding Redis solely for this.
-- Input validation with Zod schemas shared between client and server (`shared/schemas`) — server validation is authoritative regardless of client checks.
+- Input validation with Zod schemas shared between client and server (`packages/contracts/schemas`) — server validation is authoritative regardless of client checks.
 - File upload validated by MIME + magic-byte sniffing + size limits; stored under generated keys (§15).
 - Sensitive employee fields (Iqama number, passport number, salary) gated by dedicated permissions, redacted from API responses when the caller lacks them — not just hidden in the UI.
 - Full audit logging (§35) with before/after values for all financial, capacity, permission, and compliance changes.
@@ -351,10 +351,10 @@ Recommended starting stack (re-evaluate only if usage outgrows it):
 
 | Layer | Command | What it covers |
 |---|---|---|
-| Unit | `pnpm test:unit` (`tests/unit/**`) | Pure domain (dates, capacity, averages, calendar, rules), schemas, architecture/layering fitness tests. No database. |
-| Type-level | `pnpm typecheck:types` (`tests/types/**`) | Compile-time proofs, e.g. a tenant query cannot choose its own organization. |
-| Integration | `pnpm test:integration` (`tests/integration/**`) | Real PostgreSQL 16 (`*_test` database only — enforced): repositories, constraints, migrations harness, services, authorization/isolation registry, demo seed/reset, performance bounds (calendar/averages scale), and the **Phase 1 acceptance scenario** (`tests/integration/acceptance/phase1.test.ts`). Runs migrations first; `pnpm test:integration:fresh` rebuilds the test schema from zero. |
-| HTTP (black-box) | `pnpm test:http` (`tests/http/**`) | Builds the production Nitro artifact, starts it as a child process on a free port, and exercises every Phase 1 route over real HTTP (cookies, session lifetime, 401/403/404/409/422 shapes, uploads, demo sign-in gating). `HTTP_TEST_SKIP_BUILD=1` reuses an existing `.output`. |
+| Unit | `pnpm test:unit` (`apps/api/tests/unit/**`) | Pure domain (dates, capacity, averages, calendar, rules), schemas, architecture/layering fitness tests. No database. |
+| Type-level | `pnpm typecheck:types` (`apps/api/tests/types/**`) | Compile-time proofs, e.g. a tenant query cannot choose its own organization. |
+| Integration | `pnpm test:integration` (`apps/api/tests/integration/**`) | Real PostgreSQL 16 (`*_test` database only — enforced): repositories, constraints, migrations harness, services, authorization/isolation registry, demo seed/reset, performance bounds (calendar/averages scale), and the **Phase 1 acceptance scenario** (`apps/api/tests/integration/acceptance/phase1.test.ts`). Runs migrations first; `pnpm test:integration:fresh` rebuilds the test schema from zero. |
+| HTTP (black-box) | `pnpm test:http` (`apps/api/tests/http/**`) | Builds the production Nitro artifact, starts it as a child process on a free port, and exercises every Phase 1 route over real HTTP (cookies, session lifetime, 401/403/404/409/422 shapes, uploads, demo sign-in gating). `HTTP_TEST_SKIP_BUILD=1` reuses an existing `.output`. |
 | All gates | `pnpm verify` | lint, typecheck, type-level tests, `db:check`, `db:drift`, unit, integration, HTTP — the same gates CI runs (`.github/workflows/ci.yml`). |
 
 Browser E2E is not part of the backend Phase 1 delivery; it arrives with the Phase 1 UI work (see above).
@@ -376,45 +376,41 @@ Matches spec §54, restated with the concrete deliverables this review adds:
 
 Each phase, when executed, will get its own scoped plan (DB migration diff, API surface, UI screens, tests, demo-seed extension, acceptance criteria) — not implemented in one shot.
 
-## 24. Proposed Directory Structure
+## 24. Directory Structure (pnpm workspace + Turborepo, since Phase 2-0)
+
+Paths elsewhere in this document that start with `server/`, `app/` or `tests/` are relative to
+`apps/api`. `packages/contracts` was `shared/` and `packages/db` was `db/` before the split.
 
 ```text
-app/
-  components/
-  pages/
-  layouts/
-  composables/
-  stores/
-server/
-  api/                # thin route handlers
-  services/           # orchestration, auth checks, transactions
-  domain/             # pure business rules (capacity, allocation, pricing, analytics)
-  repositories/        # Drizzle queries, one per aggregate
-  middleware/          # session resolution, tenant/hotel scoping
-  jobs/                 # pg-boss job definitions (reminders, hold-expiry, recurring expenses, exports)
-  utils/
-shared/
-  types/
-  schemas/             # Zod schemas, shared client+server
-  constants/            # permission catalog, status enums
-  business-rules/      # constants that are policy, not code (thresholds, default offsets)
-db/
-  schema/               # Drizzle table definitions, per module
-  migrations/           # drizzle-kit generated + hand-authored constraint SQL
-  seed/                 # composable, idempotent demo/test seed modules
-tests/
-  unit/
-  integration/          # incl. acceptance/phase1.test.ts
-  http/                 # black-box HTTP suite against the built server
-  types/                # compile-only type tests
-  e2e/                  # browser tests (arrive with the UI work; empty in backend Phase 1)
+apps/
+  api/                    # @hajj/api — the Nuxt 4 / Nitro modular monolith (API + jobs)
+    server/
+      api/                # thin route handlers (file-based routing)
+      services/           # orchestration, authorization, transactions, audit
+                          #   new modules: services/<module>/ with a public index.ts
+      domain/             # pure business rules (capacity, allocation, pricing, …)
+      repositories/       # the only Drizzle users, scoped by branded scopes
+      jobs/               # pg-boss job definitions
+      security/ utils/ errors/ plugins/ storage/
+    db/seed/              # demo/test seed (writes through repositories)
+    db/scripts/           # resetTestDb.ts
+    tests/                # unit, integration, http, types (+ e2e with the UI)
+  ops-console/            # staff SPA (Phase 1 UI + Phase 2 operations)        — arrives in Phase 2
+  agency-portal/          # agency SPA                                          — arrives in Phase 2
+  public-site/            # public SSR site                                    — arrives in Phase 2
+packages/
+  contracts/              # @hajj/contracts — Zod schemas, constants, business-rule registries, pure utils
+  db/                     # @hajj/db — Drizzle schema (one file per module), migrations, client, migrate, drift
+  ui/                     # shared Vue components on Nuxt UI v4                — arrives with the frontends
 docs/
-  ARCHITECTURE.md       # this file
-  MIGRATIONS.md         # migration policy
-  DEPLOY_CHECKLIST.md   # deployment prerequisites
-  UI-UX-MASTER-DIRECTION.md
-  superpowers/plans/    # per-phase implementation plans
+  ARCHITECTURE.md  MIGRATIONS.md  DEPLOY_CHECKLIST.md  UI-UX-MASTER-DIRECTION.md
+  design/                 # Hajj_Booking_Platform_Architecture_v7.pdf (Phase 2 design)
+  decisions/              # architecture decision records
+  phase-2-open-questions.md  phase-2a-tickets.md
+  superpowers/plans/      # per-phase implementation plans
 ```
+
+Data ownership: `docs/decisions/0001-module-data-ownership.md`.
 
 ## 25. Major Database Entities & Relationships
 
@@ -496,7 +492,7 @@ None recorded at the Phase 1 gate. (The final acceptance gate did find and corre
 
 ### 28.5 Test-infrastructure note
 
-`tests/integration/db/tenancyHardening.migration.test.ts` builds scratch databases and intermittently exceeds Vitest's default 5 s per-test timeout on a loaded machine. It is a timing issue in the test, not a behavior failure; CI must report it rather than retry it silently.
+`apps/api/tests/integration/db/tenancyHardening.migration.test.ts` builds scratch databases and intermittently exceeds Vitest's default 5 s per-test timeout on a loaded machine. It is a timing issue in the test, not a behavior failure; CI must report it rather than retry it silently.
 
 ---
 

@@ -6,7 +6,7 @@ reverting an old one.
 
 ## The current chain (end of Phase 1)
 
-Migrations live in `db/migrations/` (SQL files plus Drizzle's
+Migrations live in `packages/db/migrations/` (SQL files plus Drizzle's
 `meta/_journal.json` and snapshots) and are applied in journal order:
 
 | File | Phase / task | Contents |
@@ -37,14 +37,14 @@ commit**, and only to:
 
 ## Making a schema change
 
-1. Change the Drizzle schema in `db/schema/**`.
+1. Change the Drizzle schema in `packages/db/schema/**`.
 2. Generate exactly one migration for the task:
 
    ```sh
    pnpm db:generate --name <task-slug>
    ```
 
-3. **Read the generated SQL** in `db/migrations/` before committing: check
+3. **Read the generated SQL** in `packages/db/migrations/` before committing: check
    for unintended drops/renames, table rewrites on large tables, missing
    backfills for `NOT NULL` columns, and add any raw SQL the schema DSL
    cannot express (rule (c) above).
@@ -52,22 +52,27 @@ commit**, and only to:
 5. Prove the whole chain on an empty database: `pnpm test:integration:fresh`.
 6. A migration that touches existing rows (a backfill or a column narrowing)
    also needs a data-preserving test written against the migration harness
-   (`tests/integration/support/migrationHarness.ts`, see
-   `tests/integration/db/tenancyHardening.migration.test.ts`).
+   (`apps/api/tests/integration/support/migrationHarness.ts`, see
+   `apps/api/tests/integration/db/tenancyHardening.migration.test.ts`).
 
 ## Drift and schema checks
 
 - `pnpm db:check` runs `drizzle-kit check` — validates the migration
   history itself (no gaps, no conflicting revisions).
-- `pnpm db:drift` runs [`db/scripts/checkDrift.ts`](../db/scripts/checkDrift.ts) —
-  fails if `db/schema/**` has diverged from `db/migrations/**`, i.e. if
+- `pnpm db:drift` runs [`packages/db/scripts/checkDrift.ts`](../packages/db/scripts/checkDrift.ts) —
+  fails if `packages/db/schema/**` has diverged from `packages/db/migrations/**`, i.e. if
   `pnpm db:generate` would produce a new migration right now. It removes
   whatever it generated and restores the journal, so it never leaves files
   behind. Run it after any schema change and before committing.
 
 Neither connects to a database (they diff files, not a running instance),
-but `drizzle.config.ts` requires `DATABASE_URL` to be set, so CI passes a
+but `packages/db/drizzle.config.ts` requires `DATABASE_URL` to be set, so CI passes a
 placeholder value.
+
+The database CLIs run inside `packages/db` and load their environment through
+`packages/db/env.ts`: variables already in the process win, then `packages/db/.env`, then
+`apps/api/.env` (the file local development already has). Every root `pnpm db:*` command
+therefore works unchanged after the monorepo split.
 
 ## Fresh-database verification
 
@@ -97,12 +102,12 @@ Consequences for operators:
   target database). The statements in the migrations are then no-ops.
 - Never edit an old migration to remove or change these statements; handle
   privilege problems by pre-creating the extension.
-- The local Docker setup (`db/docker/init.sql`) pre-creates it in both the
+- The local Docker setup (`packages/db/docker/init.sql`) pre-creates it in both the
   dev and test databases.
 
 ## Applying migrations in an environment
 
-`pnpm db:migrate` (`db/migrate.ts`) applies every pending migration to the
+`pnpm db:migrate` (`packages/db/migrate.ts`) applies every pending migration to the
 database named by `DATABASE_URL`. In a deployment, migrations run **before**
 the new application version receives traffic, and a failed migration stops
 the deploy (see `docs/DEPLOY_CHECKLIST.md`). Migrations are forward-only:

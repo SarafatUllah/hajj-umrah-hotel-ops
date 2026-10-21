@@ -21,6 +21,19 @@ Documentation:
 - `docs/superpowers/plans/` — the phase implementation plans (historical
   planning documents).
 
+## Repository layout
+
+A pnpm workspace driven by Turborepo; every command below runs from the repository root.
+
+| Path | Package | What it is |
+|---|---|---|
+| `apps/api` | `@hajj/api` | The Nuxt 4 / Nitro API (modular monolith): `server/`, the demo seed, all test suites. |
+| `packages/contracts` | `@hajj/contracts` | Zod schemas, constants, business-rule registries and pure utilities shared by the API and the frontends. |
+| `packages/db` | `@hajj/db` | Drizzle schema, migrations, the database client factory, migrate and drift CLIs. |
+
+The Phase 2 design is `docs/design/Hajj_Booking_Platform_Architecture_v7.pdf`; its open client questions are tracked in
+`docs/phase-2-open-questions.md` and the build plan in `docs/superpowers/plans/2026-10-21-phase-2-booking-platform.md`.
+
 ## Prerequisites
 
 - Node **22.19.0** (`.node-version`; e.g. `fnm use` or `nvm use`).
@@ -35,11 +48,11 @@ Documentation:
 2. `docker compose up -d` — starts PostgreSQL 16 on **localhost:5433**
    (user `hajj_umrah`, password `hajj_umrah_dev_password`), creates the
    `hajj_umrah_dev` and `hajj_umrah_test` databases and the `btree_gist`
-   extension in both (`db/docker/init.sql`, first start of the volume only).
+   extension in both (`packages/db/docker/init.sql`, first start of the volume only).
    Wait until `docker compose ps` reports the service `healthy`.
-3. `cp .env.example .env` and set `NUXT_SESSION_PASSWORD` to a random secret
+3. `cp apps/api/.env.example apps/api/.env` and set `NUXT_SESSION_PASSWORD` to a random secret
    of **at least 32 characters** (e.g. `openssl rand -base64 48`). Every
-   variable is documented in `.env.example`.
+   variable is documented in `apps/api/.env.example`.
 4. `pnpm db:migrate` — applies all migrations to the database in
    `DATABASE_URL` (`hajj_umrah_dev`).
 5. `pnpm db:seed` — creates (or resets to its baseline) the demo
@@ -52,7 +65,7 @@ Sign in with `POST /api/auth/login` and a JSON body
 the response sets the session cookie. `GET /api/auth/me` returns the
 signed-in user, organization, roles, permissions and hotel access.
 
-The test suites use `.env.test` (committed, test-only values) and the
+The test suites use `apps/api/.env.test` (committed, test-only values) and the
 `hajj_umrah_test` database; integration tests refuse to run against a
 database whose name does not end in `_test`.
 
@@ -64,16 +77,16 @@ database whose name does not end in `_test`.
 | `pnpm build` | Production build (`.output/`). |
 | `pnpm db:migrate` | Apply pending migrations to `DATABASE_URL`. |
 | `pnpm db:seed` | Create/reset the demo organization (refused under `APP_ENV=production` unless `ALLOW_DEMO_SEED=true`). |
-| `pnpm db:generate --name <name>` | Generate one migration from a `db/schema/**` change (then read the SQL — `docs/MIGRATIONS.md`). |
+| `pnpm db:generate --name <name>` | Generate one migration from a `packages/db/schema/**` change (then read the SQL — `docs/MIGRATIONS.md`). |
 | `pnpm db:check` | Validate the migration history (`drizzle-kit check`). |
 | `pnpm db:drift` | Fail if the schema and the committed migrations differ. |
 | `pnpm lint` | ESLint (includes the layering/scope import rules). |
 | `pnpm typecheck` | `nuxt typecheck`. |
-| `pnpm typecheck:types` | Compile-only type tests (`tests/types`). |
-| `pnpm test:unit` | Unit tests (`tests/unit/**`), no database. `pnpm test` is the same suite. |
-| `pnpm test:integration` | Migrates `hajj_umrah_test`, then runs `tests/integration/**` (incl. the Phase 1 acceptance scenario) against real PostgreSQL. Needs `docker compose up -d`. |
+| `pnpm typecheck:types` | Compile-only type tests (`apps/api/tests/types`). |
+| `pnpm test:unit` | Unit tests (`apps/api/tests/unit/**`), no database. `pnpm test` is the same suite. |
+| `pnpm test:integration` | Migrates `hajj_umrah_test`, then runs `apps/api/tests/integration/**` (incl. the Phase 1 acceptance scenario) against real PostgreSQL. Needs `docker compose up -d`. |
 | `pnpm test:integration:fresh` | Rebuilds the test database schema from zero (`pnpm db:test:reset`), then runs `pnpm test:integration`. |
-| `pnpm test:http` | Black-box HTTP suite (`tests/http/**`): migrates the test database, builds the production artifact (`nuxt build`), starts `node .output/server/index.mjs` on a free port, waits for `/api/health` and sends real HTTP requests. `HTTP_TEST_SKIP_BUILD=1` reuses an existing build. Uploaded test files go to a temporary directory. |
+| `pnpm test:http` | Black-box HTTP suite (`apps/api/tests/http/**`): migrates the test database, builds the production artifact (`nuxt build`), starts `node .output/server/index.mjs` on a free port, waits for `/api/health` and sends real HTTP requests. `HTTP_TEST_SKIP_BUILD=1` reuses an existing build. Uploaded test files go to a temporary directory. |
 | `pnpm verify` | Every gate CI runs, in order: lint, typecheck, type-level tests, `db:check`, `db:drift`, unit, integration, HTTP. Needs the database container. |
 
 Before pushing: `pnpm verify`; after any migration change also
@@ -148,7 +161,7 @@ the demo organization to its baseline.
 
 ## Environment and deployment
 
-`.env.example` documents every variable the application reads (database, session, storage, demo). Before any
+`apps/api/.env.example` documents every variable the application reads (database, session, storage, demo). Before any
 deployment work through `docs/DEPLOY_CHECKLIST.md`; in short: secure cookies and a strong session password, the demo
 seed and demo sign-in off, `btree_gist` available, migrations applied before the new version takes traffic, and a
 persistent, backed-up document storage directory.

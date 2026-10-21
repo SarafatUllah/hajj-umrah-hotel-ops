@@ -4,7 +4,7 @@ Status: **APPROVED (2026-09-25).** Decisions D1–D15 are resolved (§44) and th
 
 **Constraints this document treats as fixed:** `docs/ARCHITECTURE.md`; the Phase 0 codebase as it exists on `main`; the Phase 1 plan `docs/superpowers/plans/2026-09-25-phase-1-hotel-inventory-foundation.md` with its approved rulings (Q1–Q6) and decisions (D1–D16). Where the UI needed something the plan did not provide, §42 names the change and the task that owns it; those changes (S1–S14) are approved and now part of the plan.
 
-**What the codebase has today (inspected):** `app/` holds a placeholder `index.vue` and empty `components/`, `layouts/`, `composables/`, `stores/` folders. No UI library, CSS framework, i18n module or state library is installed. Session auth is `nuxt-auth-utils`. `shared/` already holds the permission and role catalogs and is where the Phase 1 plan puts Zod schemas, inventory constants, `dates.ts` and `normalizeRoomNumber`. The client can import all of these, which is how the UI validates input the same way the server does without copying rules.
+**What the codebase has today (inspected):** `app/` holds a placeholder `index.vue` and empty `components/`, `layouts/`, `composables/`, `stores/` folders. No UI library, CSS framework, i18n module or state library is installed. Session auth is `nuxt-auth-utils`. `packages/contracts/` already holds the permission and role catalogs and is where the Phase 1 plan puts Zod schemas, inventory constants, `dates.ts` and `normalizeRoomNumber`. The client can import all of these, which is how the UI validates input the same way the server does without copying rules.
 
 **How to read this document:** Part I (§1–§20) is the foundation: principles, navigation, hotel context, and the design system. Part II (§21–§33) specifies the dashboard and every Phase 1 screen. Part III (§34–§41) covers cross-cutting architecture and fit with later phases. Part IV (§42–§45) holds the API/DTO reconciliation, the persona check, the decisions that need approval, and the acceptance criteria.
 
@@ -525,7 +525,7 @@ One table system (`DataTable`, built on the UI library's TanStack-based table) w
 Every field defines: **label** (always visible, above the input), **required state**, **helper text** (only when it prevents a mistake), **validation message**, **disabled/read-only state**, **loading state** (for async options), and the form's **save state**.
 
 - **Required vs optional.** The shorter set gets marked. Hotel forms mark required fields with an asterisk explained once at the top. Forms where almost everything is required mark the optional fields "(optional)" instead.
-- **Validation timing.** Format checks run on blur. After a field has shown an error, it re-validates on every change so the error clears as soon as it is fixed. Cross-field rules (end ≥ start) run when both fields have values. The client uses the **same shared Zod schemas** the server uses (`shared/schemas/*`), with a localized error map, so client and server rules cannot drift.
+- **Validation timing.** Format checks run on blur. After a field has shown an error, it re-validates on every change so the error clears as soon as it is fixed. Cross-field rules (end ≥ start) run when both fields have values. The client uses the **same shared Zod schemas** the server uses (`packages/contracts/schemas/*`), with a localized error map, so client and server rules cannot drift.
 - **Server errors.** A `422` maps `issues[].path` to fields. Anything unmapped goes to a summary banner at the top. A `409` (conflict) shows a banner with the translated message for its `data.code` and, when `details` lists conflicting rooms or levels, highlights them. Raw server text is never shown in Arabic; each code has a translation (§45).
 - **Submit button** stays enabled. On submit with errors, focus moves to an error summary that links to each field. While saving, the button shows a spinner and "Saving…", and the form is not editable.
 - **Grouping.** Fields are grouped into titled sections of three to six fields. No section holds unrelated fields.
@@ -1627,7 +1627,7 @@ Method: every screen in Part II was traced to the endpoints and response shapes 
 **S9 — Explicit cap for `roomIds` in the override selector** · Task 15
 - *Current:* `uniqueIds(max)` with the maximum not stated for this selector.
 - *UI needs:* the builder sends explicit `roomIds` for "select all matching" (§30.3), which can exceed 200 in a large hotel.
-- *Smallest change:* state the cap as **1,000** (well above realistic hotels; the calendar rejects > 5,000 candidates) and add it to `shared/constants/inventory.ts`.
+- *Smallest change:* state the cap as **1,000** (well above realistic hotels; the calendar rejects > 5,000 candidates) and add it to `packages/contracts/constants/inventory.ts`.
 - *Tests:* 1,000 accepted, 1,001 → 422.
 
 **S10 — Block list item** · Task 16

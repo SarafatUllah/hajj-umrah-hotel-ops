@@ -10,6 +10,7 @@ export default createConfigForNuxt({ features: { standalone: true } }).append({
     'no-restricted-imports': ['error', { patterns: [
       { group: ['drizzle-orm', 'drizzle-orm/*'], message: 'Contracts are pure: only repositories may build queries.' },
       { group: ['@hajj/db', '@hajj/db/*'], message: 'Contracts never depend on the database package.' },
+      { group: ['**/apps/**', '**/server/**'], message: 'Contracts never import application code (security scopes, services, repositories).' },
     ] }],
   },
 })

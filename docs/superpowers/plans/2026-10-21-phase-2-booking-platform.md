@@ -19,11 +19,11 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | # | Step | Status |
 |---|------|--------|
 | 0 | Baseline `pnpm verify` on `dev` (unit 486, integration 902, http 128) | done |
-| 1 | Phase 2-0: pnpm workspaces + Turborepo | |
-| 2 | Phase 2-0: app → `apps/api` | |
-| 3 | Phase 2-0: `shared/` → `packages/contracts` (`@hajj/contracts`) | |
-| 4 | Phase 2-0: `db/` (schema, migrations, client, migrate, drift) → `packages/db` (`@hajj/db`); seed + test reset stay in `apps/api` | |
-| 5 | Docs: v7 PDF, open client questions, Phase 2a tickets, schema-per-module decision | |
+| 1 | Phase 2-0: pnpm workspaces + Turborepo | done (bef70c1) |
+| 2 | Phase 2-0: app → `apps/api` | done (acb9638) |
+| 3 | Phase 2-0: `shared/` → `packages/contracts` (`@hajj/contracts`) | done (155deb8) |
+| 4 | Phase 2-0: `db/` (schema, migrations, client, migrate, drift) → `packages/db` (`@hajj/db`); seed + test reset stay in `apps/api` | done (b47c6f5) |
+| 5 | Docs: v7 PDF, open client questions, Phase 2a tickets, schema-per-module decision | done |
 | 6 | pg-boss transaction spike (Drizzle/postgres.js `tx.unsafe` adapter) + jobs foundation | |
 | 7 | 2a: security prerequisites (rate limit, CSRF origin check, principal kinds, staff 2FA, PII crypto) | |
 | 8 | 2a: booking-platform schema (agency, customer, pricing, pilgrim, booking*, guest_stay, view, constraints) | |
@@ -46,3 +46,18 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
 ## Decision log
 
 (Appended as steps land.)
+
+- **D-P2-1 (2-0) Logical layer paths.** The layering checker keeps its rules in logical paths
+  (`server/`, `shared/`, `db/`) and mounts each workspace package at its logical prefix
+  (`WORKSPACE_LAYOUT`), so the rules and their meta-tests did not change with the folder layout.
+- **D-P2-2 (2-0) Packages ship TypeScript sources.** `@hajj/contracts` and `@hajj/db` export `.ts`
+  files directly (no build step); Nitro inlines them, Vitest/tsx/drizzle-kit resolve them natively.
+- **D-P2-3 (2-0) Seed stays in the app.** The seed writes through `apps/api` repositories, so it
+  stays in `apps/api/db/seed`; `@hajj/db` never depends on the app.
+- **D-P2-4 (2-0) DB CLI environment.** `packages/db/env.ts` loads process env, then
+  `packages/db/.env`, then `apps/api/.env` (development convenience).
+- **D-P2-5 (2-0) Data ownership.** One `public` schema; ownership enforced in code
+  (`docs/decisions/0001-module-data-ownership.md`).
+- **D-P2-6 Push access.** `git push origin dev` is denied for the current GitHub account
+  (pull-only on `SarafatUllah/hajj-umrah-hotel-ops`); every step is committed on local `dev` and the
+  push is retried after each step.

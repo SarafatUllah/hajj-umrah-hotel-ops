@@ -1,6 +1,6 @@
 # Deploy checklist (Phase 1)
 
-Work through every item before a staging or production deployment. Variables are documented in `.env.example`
+Work through every item before a staging or production deployment. Variables are documented in `apps/api/.env.example`
 and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and `docs/MIGRATIONS.md`.
 
 ## Configuration
