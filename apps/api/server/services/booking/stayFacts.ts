@@ -1,5 +1,6 @@
 import type { ChildSide } from '@hajj/contracts/constants/booking'
 import type { PriceUnit } from '@hajj/contracts/constants/pricing'
+import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { StaySearchInput } from '@hajj/contracts/schemas/booking'
 import { eachDate, type IsoDate } from '@hajj/contracts/utils/dates'
 import type { MixRule, PlannerInput, PlannerRoom, StayHeadcount } from '../../domain/booking/allocation/planner'
@@ -7,7 +8,7 @@ import { describeStayRooms, type Stay, type StayRoom, stayNights } from '../../d
 import { defaultUnitFor, type ExtraBedPrice, type QuoteTerms, type RateRule, unitPriceFor } from '../../domain/booking/pricing'
 import { ValidationError } from '../../errors/domainError'
 import { bookingRepos, hotelRepos } from '../../repositories'
-import type { BookingSettingRow } from '../../repositories/booking'
+import type { BookingRow, BookingSettingRow } from '../../repositories/booking'
 import type { HotelScope } from '../../security/scope'
 import { calendarOptionsFor } from '../calendarOptions'
 import { toRateRule } from './pricingRows'
@@ -19,6 +20,15 @@ type Db = Parameters<typeof bookingRepos>[0]
 export type Booker =
   | { kind: 'AGENCY', agencyId: string, agencyUserId: string | null, staffUserId: string | null }
   | { kind: 'INDIVIDUAL', customerId: string }
+
+/** Who makes a change to a booking (logged on `booking_change`). */
+export interface Actor { kind: ActorKind, id: string | null }
+
+/** An existing booking's booker, as the allocation reads it (a change made by `actor`). */
+export function bookerOf(row: BookingRow, actor: Actor): Booker {
+  if (row.bookerType === 'INDIVIDUAL') return { kind: 'INDIVIDUAL', customerId: row.customerId! }
+  return { kind: 'AGENCY', agencyId: row.agencyId!, agencyUserId: actor.kind === 'agency' ? actor.id : null, staffUserId: actor.kind === 'staff' ? actor.id : null }
+}
 
 /** The `booking_room.owner_key` of an agency's claims. */
 export const agencyOwnerKey = (agencyId: string): string => `a:${agencyId}`
@@ -65,21 +75,24 @@ export function claimsOwnerKey(row: { id: string, bookerType: string, bookingTyp
 
 /**
  * The hotel's rooms for a stay (on active floors, in inventory) with their inventory, live claims, seat counts and
- * extra-bed space — what planning and every change that takes seats checks against. `roomIds` restricts it.
+ * extra-bed space — what planning and every change that takes seats checks against. `roomIds` restricts it;
+ * `exceptBookingId`'s claims and seats are left out (a date change plans as if it had given them up).
  */
-export async function loadStayRooms(args: { db: Db, hotelScope: HotelScope, stay: Stay, roomIds?: readonly string[] }) {
+export async function loadStayRooms(args: { db: Db, hotelScope: HotelScope, stay: Stay, roomIds?: readonly string[], exceptBookingId?: string }) {
   const nights = stayNights(args.stay)
   const repos = bookingRepos(args.db, args.hotelScope)
   const hotelScoped = hotelRepos(args.db, args.hotelScope)
   const roomIds = args.roomIds ?? null
-  const [roomInputs, floors, claims, seats, policies, options] = await Promise.all([
+  const except = args.exceptBookingId ?? null
+  const [roomInputs, floors, allClaims, seats, policies, options] = await Promise.all([
     hotelScoped.inventoryRead.loadRoomInputs(nights, { roomIds: args.roomIds, includeBlocks: true }),
     hotelScoped.floors.list(),
     repos.inventory.liveClaims(roomIds, nights.from, nights.to),
-    repos.inventory.seatsUsed(roomIds, nights),
+    repos.inventory.seatsUsed(roomIds, nights, except),
     repos.extraBedPolicies.list(),
     calendarOptionsFor(hotelScoped),
   ])
+  const claims = except ? allClaims.filter(c => c.bookingId !== except) : allClaims
   const levels = new Map(floors.map(f => [f.id, f.level]))
   const rooms = describeStayRooms({
     rooms: roomInputs.filter(r => levels.has(r.floorId)).map(r => ({ id: r.roomId, roomNumber: r.roomNumber, roomTypeId: r.roomTypeId, floorLevel: levels.get(r.floorId)!, calendar: r })),
@@ -109,11 +122,13 @@ export async function loadStayFacts(args: {
   roomIds?: readonly string[]
   /** The owner whose rooms are "own" (default: the agency's, for an agency); pilgrims added to a booking pass its own. */
   ownerKey?: string | null
+  /** A booking planned again on new dates: its own claims and seats are not counted (they are given up). */
+  exceptBookingId?: string
 }): Promise<StayFacts> {
   const stay = { checkIn: args.input.checkIn, checkOut: args.input.checkOut }
   const repos = bookingRepos(args.db, args.hotelScope)
   const [{ rooms, claims, policies }, mixRows, rateRows] = await Promise.all([
-    loadStayRooms({ db: args.db, hotelScope: args.hotelScope, stay, roomIds: args.roomIds }),
+    loadStayRooms({ db: args.db, hotelScope: args.hotelScope, stay, roomIds: args.roomIds, exceptBookingId: args.exceptBookingId }),
     repos.allocationRules.list(),
     repos.rates.list(),
   ])

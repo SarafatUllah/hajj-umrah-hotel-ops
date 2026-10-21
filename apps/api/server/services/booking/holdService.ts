@@ -1,23 +1,22 @@
-import type { BookingType } from '@hajj/contracts/constants/booking'
-import type { PriceSource, PriceUnit, QuoteStatus } from '@hajj/contracts/constants/pricing'
+import type { PriceSource } from '@hajj/contracts/constants/pricing'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { HoldRequestInput, StaySearchInput } from '@hajj/contracts/schemas/booking'
-import { todayInTimezone } from '@hajj/contracts/utils/dates'
+import { type IsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { planStay, type StayHeadcount } from '../../domain/booking/allocation/planner'
 import { checkStayPlan, type ChosenRoom } from '../../domain/booking/allocation/stayPlanCheck'
 import { stayNights } from '../../domain/booking/allocation/stayRooms'
 import { guestSlots } from '../../domain/booking/guestSlots'
-import { isUnpriced, type QuoteTerms } from '../../domain/booking/pricing'
-import { effectiveQuoteStatus, quoteFitsStay } from '../../domain/booking/quotes'
+import { isUnpriced, type PricedStay } from '../../domain/booking/pricing'
 import { documentNo } from '../../domain/booking/references'
 import { rethrowDbError } from '../../errors/dbErrors'
-import { ConflictError, NotFoundError, ValidationError } from '../../errors/domainError'
+import { ConflictError, ValidationError } from '../../errors/domainError'
 import { bookingOrgRepos, bookingRepos } from '../../repositories'
+import type { BookingSettingRow } from '../../repositories/booking'
 import { bookableHotel } from '../../security/authorize'
-import type { OrganizationScope } from '../../security/scope'
+import type { HotelScope, OrganizationScope } from '../../security/scope'
 import { loadBookingSettings } from './bookingSettingsService'
 import { agencyOwnerKey, type Booker, headcountOf, loadStayFacts } from './stayFacts'
-import { assertApprovedAgency, assertQuota, checkInput, optionError, priceRooms, quotaHeadroomFor, type StaySearchResult, toOption } from './stayChecks'
+import { assertApprovedAgency, assertQuota, checkInput, optionError, priceRooms, quotaHeadroomFor, type StaySearchResult, toOption, usableQuote, type UsableQuote } from './stayChecks'
 import { sweepOrganizations } from './sweep'
 
 type Db = Parameters<typeof bookingRepos>[0]
@@ -35,37 +34,62 @@ export interface HeldBooking {
 }
 
 /**
- * The agency's offered quote to book at (v7 §8): its own, still OFFERED (not past validity), for exactly this
- * hotel, dates, type and head count. A quote serves one live booking (`booking_quote_once`).
- */
-async function usableQuote(db: Db, scope: OrganizationScope, booker: Booker, input: StaySearchInput, headcount: StayHeadcount, now: Date): Promise<{ id: string, terms: QuoteTerms } | null> {
-  if (!input.quoteId) return null
-  if (booker.kind !== 'AGENCY') throw new ValidationError('QUOTE_NOT_USABLE', 'Quotes are for agencies')
-  const row = await bookingOrgRepos(db, scope).quotes.findById(input.quoteId)
-  if (!row || row.agencyId !== booker.agencyId) throw new NotFoundError('QUOTE_NOT_FOUND')
-  if (effectiveQuoteStatus({ status: row.status as QuoteStatus, validUntil: row.validUntil }, now) !== 'OFFERED') throw new ConflictError('QUOTE_NOT_OPEN', 'This quote is no longer open')
-  if (!quoteFitsStay({ ...row, bookingType: row.bookingType as BookingType }, { ...headcount, hotelId: input.hotelId, checkIn: input.checkIn, checkOut: input.checkOut })) {
-    throw new ValidationError('QUOTE_MISMATCH', 'The booking must match the quote\'s hotel, dates, type and head count')
-  }
-  return { id: row.id, terms: { amountHalalas: row.amountHalalas!, unit: row.unit as PriceUnit, vatIncluded: row.vatIncluded! } }
-}
-
-/**
  * v7 §9: the two or three best complete options for a stay, priced (nothing is locked or saved). An agency's
- * request beyond its quota fails at once with the number still possible (422 `QUOTA_EXCEEDED`).
+ * request beyond its quota fails at once with the number still possible (422 `QUOTA_EXCEEDED`). `exceptBookingId`:
+ * a booking planned again on new dates — its own claims, seats and persons count as given up (v7 §12 date change).
  */
-export async function searchStay(db: Db, scope: OrganizationScope, booker: Booker, input: StaySearchInput, now: Date): Promise<StaySearchResult> {
+export async function searchStay(db: Db, scope: OrganizationScope, booker: Booker, input: StaySearchInput, now: Date, options: { exceptBookingId?: string } = {}): Promise<StaySearchResult> {
   const { scope: hotelScope } = await bookableHotel(db, scope, input.hotelId)
   await assertApprovedAgency(db, scope, booker)
   const settings = await loadBookingSettings(db, scope)
   const headcount = headcountOf(input, settings)
   const quote = await usableQuote(db, scope, booker, input, headcount, now)
+  const except = options.exceptBookingId
   const headroom = booker.kind === 'AGENCY'
-    ? await quotaHeadroomFor(db, hotelScope, booker.agencyId, input, await bookingRepos(db, hotelScope).inventory.agencyPersonsByNight(booker.agencyId, stayNights(input)))
+    ? await quotaHeadroomFor(db, hotelScope, booker.agencyId, input, await bookingRepos(db, hotelScope).inventory.agencyPersonsByNight(booker.agencyId, stayNights(input), except ?? null))
     : null
   assertQuota(headroom, input.totalCount)
-  const facts = await loadStayFacts({ db, hotelScope, booker, input, headcount, settings, quote: quote?.terms ?? null })
+  const facts = await loadStayFacts({ db, hotelScope, booker, input, headcount, settings, quote: quote?.terms ?? null, exceptBookingId: except })
   return { options: planStay(facts.planner).flatMap(plan => toOption(plan, facts, input)), quotaHeadroom: headroom }
+}
+
+/** What a hold or a date change checks again under its locks: the stay with the chosen rooms. */
+export interface StayRecheck {
+  db: Db
+  scope: OrganizationScope
+  hotelScope: HotelScope
+  booker: Booker
+  input: StaySearchInput & { rooms: readonly ChosenRoom[] }
+  headcount: StayHeadcount
+  settings: Pick<BookingSettingRow, 'individualMaxRooms'>
+  /** The rooms locked (in id order) by the caller. */
+  lockedRoomIds: readonly string[]
+  /** The agency's persons per night, read under its quota lock (null: an individual booker). */
+  held: ReadonlyMap<IsoDate, number> | null
+  now: Date
+  /** A booking planned again on new dates: its own claims, seats and persons count as given up. */
+  exceptBookingId?: string
+}
+
+/**
+ * v7 §10 step 4, after the locks: everything is checked again on fresh reads — the quote as it is now, the quota,
+ * every chosen room for every night (inventory, blocks, seats, owner, gender, the agency's own rooms first), the
+ * option's rules, the price. A room taken meanwhile is 409 `OPTION_UNAVAILABLE`; a wrong option 422 `INVALID_OPTION`.
+ */
+export async function recheckStay(c: StayRecheck): Promise<{ quote: UsableQuote | null, priced: PricedStay }> {
+  const quote = await usableQuote(c.db, c.scope, c.booker, c.input, c.headcount, c.now)
+  if (c.booker.kind === 'AGENCY') assertQuota(await quotaHeadroomFor(c.db, c.hotelScope, c.booker.agencyId, c.input, c.held!), c.input.totalCount)
+  const nights = stayNights(c.input)
+  const ownerKey = c.booker.kind === 'AGENCY' && c.input.bookingType === 'GROUP' ? agencyOwnerKey(c.booker.agencyId) : null
+  const ownRoomIds = ownerKey
+    ? (await bookingRepos(c.db, c.hotelScope).inventory.liveClaims(null, nights.from, nights.to)).filter(claim => claim.ownerKey === ownerKey && claim.bookingId !== c.exceptBookingId).map(claim => claim.roomId)
+    : []
+  const facts = await loadStayFacts({ db: c.db, hotelScope: c.hotelScope, booker: c.booker, input: c.input, headcount: c.headcount, settings: c.settings, quote: quote?.terms ?? null, roomIds: [...new Set([...c.lockedRoomIds, ...ownRoomIds])], exceptBookingId: c.exceptBookingId })
+  const problems = checkStayPlan(checkInput(facts, c.input.rooms), c.input.rooms)
+  if (problems.length > 0) throw optionError(problems)
+  const priced = priceRooms(facts, c.input, c.input.rooms)
+  if (isUnpriced(priced)) throw new ValidationError('STAY_UNPRICED', 'Some nights of this stay have no price', { missing: priced.missing })
+  return { quote, priced }
 }
 
 function actorOf(booker: Booker): { kind: ActorKind, id: string | null } {
@@ -105,18 +129,7 @@ export async function placeHold(db: Db, scope: OrganizationScope, booker: Booker
     const locked = await repos.inventory.lockRooms(roomIds)
     if (locked.length !== roomIds.length) throw optionError(roomIds.filter(id => !locked.includes(id)).map(roomId => ({ code: 'ROOM_UNKNOWN', roomId })))
     await repos.bookings.expireLapsedHolds(locked, now)
-
-    // Read after the locks: the quote as it is now, the quota, and the agency's own rooms for "own room first".
-    const quote = await usableQuote(tx, scope, booker, input, headcount, now)
-    if (booker.kind === 'AGENCY') assertQuota(await quotaHeadroomFor(tx, hotelScope, booker.agencyId, input, held!), input.totalCount)
-    const ownRoomIds = booker.kind === 'AGENCY' && input.bookingType === 'GROUP'
-      ? (await repos.inventory.liveClaims(null, nights.from, nights.to)).filter(c => c.ownerKey === agencyOwnerKey(booker.agencyId)).map(c => c.roomId)
-      : []
-    const facts = await loadStayFacts({ db: tx, hotelScope, booker, input, headcount, settings, quote: quote?.terms ?? null, roomIds: [...new Set([...locked, ...ownRoomIds])] })
-    const problems = checkStayPlan(checkInput(facts, input.rooms), input.rooms)
-    if (problems.length > 0) throw optionError(problems)
-    const priced = priceRooms(facts, input, input.rooms)
-    if (isUnpriced(priced)) throw new ValidationError('STAY_UNPRICED', 'Some nights of this stay have no price', { missing: priced.missing })
+    const { quote, priced } = await recheckStay({ db: tx, scope, hotelScope, booker, input, headcount, settings, lockedRoomIds: locked, held, now })
 
     const pending = booker.kind === 'AGENCY' ? { status: 'HELD', ms: settings.holdMinutes * 60_000 } : { status: 'REQUESTED', ms: settings.requestHours * 3_600_000 }
     const row = await repos.bookings.insertHold({

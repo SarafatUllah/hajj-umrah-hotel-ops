@@ -57,13 +57,16 @@ export class BookingInventoryRepository {
     return rows.map(r => ({ ...r, occupancy: r.occupancy as Occupancy }))
   }
 
-  /** Seated pilgrims per room and night over `range` (the `room_night_occupancy` function; `roomIds` null = every room); room-nights without seats are absent. */
-  async seatsUsed(roomIds: readonly string[] | null, range: NightRange): Promise<RoomNightSeats[]> {
+  /**
+   * Seated pilgrims per room and night over `range` (the `room_night_occupancy` function; `roomIds` null = every room);
+   * room-nights without seats are absent. `exceptBookingId`: that booking's seats are not counted (a date change).
+   */
+  async seatsUsed(roomIds: readonly string[] | null, range: NightRange, exceptBookingId: string | null = null): Promise<RoomNightSeats[]> {
     if (roomIds?.length === 0) return []
     const ids = roomIds ? sql`array[${sql.join([...new Set(roomIds)].map(id => sql`${id}::uuid`), sql`, `)}]` : sql`null::uuid[]`
     const rows = await this.db.execute<{ room_id: string, night: string, seats_used: number }>(sql`
       select room_id, night::text as night, seats_used
-      from room_night_occupancy(${this.scope.organizationId}::uuid, ${this.scope.hotelId}::uuid, ${range.from}::date, ${range.to}::date, ${ids})
+      from room_night_occupancy(${this.scope.organizationId}::uuid, ${this.scope.hotelId}::uuid, ${range.from}::date, ${range.to}::date, ${ids}, ${exceptBookingId}::uuid)
       order by room_id, night`)
     return rows.map(r => ({ roomId: r.room_id, night: r.night, seatsUsed: r.seats_used }))
   }
@@ -71,9 +74,10 @@ export class BookingInventoryRepository {
   /**
    * Persons the agency holds in this hotel per night over `range` (v7 §10 quota): seated pilgrims of its live
    * bookings — HELD and REQUESTED included, extra beds included, infants and removed slots never — counted from
-   * the same stays and liveness rule as `room_night_occupancy`. Nights without anyone are absent.
+   * the same stays and liveness rule as `room_night_occupancy`. Nights without anyone are absent. `exceptBookingId`:
+   * that booking's pilgrims are not counted (a date change gives up its nights).
    */
-  async agencyPersonsByNight(agencyId: string, range: NightRange): Promise<Map<IsoDate, number>> {
+  async agencyPersonsByNight(agencyId: string, range: NightRange, exceptBookingId: string | null = null): Promise<Map<IsoDate, number>> {
     const rows = await this.db.execute<{ night: string, persons: number }>(sql`
       select (gs.check_in + d.i)::text as night, count(*)::integer as persons
       from public.booking b
@@ -85,6 +89,7 @@ export class BookingInventoryRepository {
         and b.hotel_id = ${this.scope.hotelId}::uuid
         and b.status in ('HELD', 'REQUESTED', 'CONFIRMED', 'IN_HOUSE')
         and b.check_in <= ${range.to}::date and b.check_out > ${range.from}::date
+        and (${exceptBookingId}::uuid is null or b.id <> ${exceptBookingId}::uuid)
         and not (b.status in ('HELD', 'REQUESTED') and coalesce(b.hold_expires_at <= now(), false))
         and g.age_group <> 'INFANT'
         and g.status <> 'REMOVED'
@@ -110,10 +115,11 @@ export class BookingInventoryRepository {
   /**
    * v7 §10 step 1: takes the agency's quota lock in this hotel (a transaction-scoped advisory lock on the
    * organization, hotel and agency) BEFORE the room locks, so two holds of one agency never both pass the quota,
-   * then reads the persons it holds per night (`agencyPersonsByNight`) under that lock. Inside a transaction only.
+   * then reads the persons it holds per night (`agencyPersonsByNight`, leaving `exceptBookingId` out) under that lock.
+   * Inside a transaction only.
    */
-  async lockAgencyQuota(agencyId: string, range: NightRange): Promise<Map<IsoDate, number>> {
+  async lockAgencyQuota(agencyId: string, range: NightRange, exceptBookingId: string | null = null): Promise<Map<IsoDate, number>> {
     await this.db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`quota:${this.scope.organizationId}:${this.scope.hotelId}:${agencyId}`}, 0))`)
-    return this.agencyPersonsByNight(agencyId, range)
+    return this.agencyPersonsByNight(agencyId, range, exceptBookingId)
   }
 }

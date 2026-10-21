@@ -1,14 +1,15 @@
-import type { Occupancy } from '@hajj/contracts/constants/booking'
-import type { PriceSource } from '@hajj/contracts/constants/pricing'
+import type { BookingType, Occupancy } from '@hajj/contracts/constants/booking'
+import type { PriceSource, PriceUnit, QuoteStatus } from '@hajj/contracts/constants/pricing'
 import type { StaySearchInput } from '@hajj/contracts/schemas/booking'
 import { eachDate } from '@hajj/contracts/utils/dates'
-import type { PlannerInput, StayPlan } from '../../domain/booking/allocation/planner'
+import type { PlannerInput, StayHeadcount, StayPlan } from '../../domain/booking/allocation/planner'
 import { quotaHeadroom } from '../../domain/booking/allocation/quota'
 import type { ChosenRoom, PlanProblem, PlanProblemCode } from '../../domain/booking/allocation/stayPlanCheck'
 import { stayNights } from '../../domain/booking/allocation/stayRooms'
-import { isUnpriced, priceStay } from '../../domain/booking/pricing'
-import { ConflictError, ValidationError } from '../../errors/domainError'
-import { bookingRepos } from '../../repositories'
+import { isUnpriced, priceStay, type QuoteTerms } from '../../domain/booking/pricing'
+import { effectiveQuoteStatus, quoteFitsStay } from '../../domain/booking/quotes'
+import { ConflictError, NotFoundError, ValidationError } from '../../errors/domainError'
+import { bookingOrgRepos, bookingRepos } from '../../repositories'
 import type { HotelScope, OrganizationScope } from '../../security/scope'
 import { findAgencyBrief } from '../accounts'
 import type { Booker, StayFacts } from './stayFacts'
@@ -43,6 +44,25 @@ export function assertQuota(headroom: number | null, persons: number): void {
 export async function quotaHeadroomFor(db: Db, hotelScope: HotelScope, agencyId: string, input: StaySearchInput, held: ReadonlyMap<string, number>): Promise<number | null> {
   const rows = await bookingRepos(db, hotelScope).agencyQuotas.list()
   return quotaHeadroom({ agencyId, nights: eachDate(stayNights(input)), rows, heldByNight: held })
+}
+
+/** A quote a stay can be booked at, with its terms. */
+export interface UsableQuote { id: string, terms: QuoteTerms }
+
+/**
+ * The agency's offered quote to book at (v7 §8): its own, still OFFERED (not past validity), for exactly this
+ * hotel, dates, type and head count. A quote serves one live booking (`booking_quote_once`).
+ */
+export async function usableQuote(db: Db, scope: OrganizationScope, booker: Booker, input: StaySearchInput, headcount: StayHeadcount, now: Date): Promise<UsableQuote | null> {
+  if (!input.quoteId) return null
+  if (booker.kind !== 'AGENCY') throw new ValidationError('QUOTE_NOT_USABLE', 'Quotes are for agencies')
+  const row = await bookingOrgRepos(db, scope).quotes.findById(input.quoteId)
+  if (!row || row.agencyId !== booker.agencyId) throw new NotFoundError('QUOTE_NOT_FOUND')
+  if (effectiveQuoteStatus({ status: row.status as QuoteStatus, validUntil: row.validUntil }, now) !== 'OFFERED') throw new ConflictError('QUOTE_NOT_OPEN', 'This quote is no longer open')
+  if (!quoteFitsStay({ ...row, bookingType: row.bookingType as BookingType }, { ...headcount, hotelId: input.hotelId, checkIn: input.checkIn, checkOut: input.checkOut })) {
+    throw new ValidationError('QUOTE_MISMATCH', 'The booking must match the quote\'s hotel, dates, type and head count')
+  }
+  return { id: row.id, terms: { amountHalalas: row.amountHalalas!, unit: row.unit as PriceUnit, vatIncluded: row.vatIncluded! } }
 }
 
 /** Defence in depth: the agency routes already require an approved agency; staff act for approved agencies only. */

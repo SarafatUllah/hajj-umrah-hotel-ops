@@ -25,3 +25,4 @@ export { readAgencyGuests, readBookingSlots, type AgencyGuestView, type BookingS
 export { eraseExpiredGuestData } from './guestRetention'
 export { addAgencyGuests, addGuests, removeGuest, searchAgencyGuestAdditions, searchGuestAdditions } from './guestChangeService'
 export { moveGuests } from './roomMoveService'
+export { changeDates, searchDateChange } from './dateChangeService'

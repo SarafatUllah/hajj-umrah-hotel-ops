@@ -135,3 +135,14 @@ export const moveGuestsSchema = z.object({
   from: isoDate.optional(),
 }).strict()
 export type MoveGuestsInput = z.infer<typeof moveGuestsSchema>
+
+/** v7 §12 date change: the whole booking on new dates — at the rates, or at the agency's quote for those dates. */
+const dateChangeFields = { checkIn: isoDate, checkOut: isoDate, quoteId: uuid.optional() }
+
+/** `POST /api/bookings/:id/dates/search`: the options for the booking's pilgrims on the new dates. */
+export const dateChangeSearchSchema = z.object(dateChangeFields).strict().superRefine(addStayDateIssues)
+export type DateChangeSearchInput = z.infer<typeof dateChangeSearchSchema>
+
+/** `POST /api/bookings/:id/dates`: move the booking to the new dates, in the rooms of the chosen option. */
+export const changeDatesSchema = z.object({ ...dateChangeFields, rooms: z.array(chosenRoomSchema).min(1).max(MAX_BOOKING_ROOMS) }).strict().superRefine(addStayDateIssues)
+export type ChangeDatesInput = z.infer<typeof changeDatesSchema>

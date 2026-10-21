@@ -1700,6 +1700,27 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     // The claim's status guard (it reads the booking within org B: none) or the booking foreign key refuses it.
     rejection: error => foreignKeyViolation(error) || pgCode(error) === '23514',
   }),
+  // Step 14d date change: org B never moves, empties or prices org A's booking (its update finds nothing: null).
+  'BookingRecordRepository.rebook': isolationCase({
+    arrange: async (db, orgA) => {
+      const ids = await arrangeConfirmedBooking(db, orgA)
+      const [row] = await db.select().from(booking).where(eq(booking.id, ids.bookingId))
+      const [stay] = await db.select().from(guestStay).where(eq(guestStay.bookingId, ids.bookingId))
+      return { ...ids, booking: row!, guestId: stay!.bookingGuestId }
+    },
+    act: (db, scope, ids) => new BookingRecordRepository(db, scope).rebook({
+      booking: ids.booking,
+      checkIn: ids.booking.checkIn,
+      checkOut: ids.booking.checkOut,
+      quoteId: null,
+      priceSource: 'PUBLIC',
+      rooms: [{ roomId: ids.roomId, occupancy: 'MALE', extraBeds: 0, ownedByAgency: true }],
+      seats: [{ guestId: ids.guestId, roomId: ids.roomId, isExtraBed: false }],
+      priceLines: [],
+      at: new Date(),
+    }),
+    expect: 'null',
+  }),
   'GuestRepository.firstNight': isolationCase({
     arrange: async (db, orgA) => {
       const ids = await arrangeConfirmedBooking(db, orgA)

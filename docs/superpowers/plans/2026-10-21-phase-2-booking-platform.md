@@ -35,7 +35,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | done |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | done |
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
-| 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move done |
+| 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | |
 | 17 | Final review (code, security, database, architecture) and docs | |
@@ -462,6 +462,33 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   room not locked: try again); every chosen pilgrim must still have a night to move (409 `GUEST_STATUS`). The price
   does not change (the hotel's move); extra beds stay with their claim (a move fills regular seats). Pilgrims who
   left, were removed or never came cannot be moved.
+- **D-P2-49 (booking) Date change (v7 §12, step 14d).** "The whole booking on new dates — in effect a new
+  allocation; if the new dates have no rooms the booking stays as it was (all or nothing); the price per night anew."
+  Staff with `booking.edit` (v7 §12: changes other than adding pilgrims are the manager's): `POST /api/bookings/:id/
+  dates/search` `{ checkIn, checkOut, quoteId? }` gives the options, `POST /api/bookings/:id/dates` `{ …, rooms }`
+  applies one. Only a booking not begun (HELD, REQUESTED or CONFIRMED and no slot CHECKED_IN, CHECKED_OUT or NO_SHOW:
+  409 `STAY_BEGUN`), to other dates (422 `SAME_DATES`) from the hotel's today on (422 `DATES_IN_PAST`). Both plan as if
+  the booking had already given up its own rooms, seats and quota: the seat count `room_night_occupancy` takes an
+  optional booking it leaves out (migration 0018: drop and create, same rule otherwise), as do the agency's persons
+  per night and the planner's live claims (`exceptBookingId` through `loadStayRooms`/`loadStayFacts`/`searchStay`).
+  The change runs in v7 §10's lock order (quota lock, the chosen rooms by id, the booking) and re-checks the option
+  exactly as a hold does — the hold's locked re-check is now one function, `recheckStay`, shared by both — then
+  `rebook` replaces the booking's claims (released ones too), stays and price lines in the same transaction (the
+  deferred containment triggers check the result at COMMIT): every live slot keeps its id and details and sleeps on
+  its side in the new rooms by the same seating rules as a new booking (`reseatSlots` shares `guestSlots`' rules;
+  the extra-bed flag follows the new seat). Giving up the old rooms takes no room lock (it frees seats, never takes
+  any). The price is the rates' (agency default for an agency) or, with `quoteId`, the agency's OFFERED quote for
+  exactly the new dates (v7 §8: "a date change needs a new quote"; it becomes ACCEPTED when the booking is confirmed,
+  at once if it already is); the old quote is detached (an unconfirmed booking's stays OFFERED, usable again). A
+  confirmed booking's open extra-bed tasks are cancelled and planned again; the details reminder may come again
+  (`details_reminded_at` cleared); `DATES_CHANGED` records the old and new dates, rooms, quote and total. Known
+  limit: age groups stay as judged for the old check-in (a child crossing an age limit between the two dates keeps
+  its group). Review outcomes: dates were immutable before this step, so adding pilgrims (which plans on the stay and
+  quote it read before its locks) now checks them again under the booking's lock (409 `BOOKING_CHANGED`: search
+  again; a lock-wait test moves the dates while it waits); a re-seat that does not fit is 409 `SLOTS_DO_NOT_FIT`, not a
+  500; no customer request lock (a date change opens no request). Deliberately kept simple: a DONE extra-bed set-up of
+  the old dates gets no removal task (housekeeping sees the booking's new tasks), and claims released by a room move
+  before the stay are replaced with the rest (`DATES_CHANGED` keeps the old rooms and dates).
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

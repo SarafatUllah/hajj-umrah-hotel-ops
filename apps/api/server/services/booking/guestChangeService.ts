@@ -1,6 +1,5 @@
 import type { AgeGroup, BookingStatus, BookingType, ChildSide, Gender, Occupancy } from '@hajj/contracts/constants/booking'
 import type { PriceSource, PriceUnit } from '@hajj/contracts/constants/pricing'
-import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { AddGuestsInput, GuestAdditionSearchInput, StaySearchInput } from '@hajj/contracts/schemas/booking'
 import { planStay, type StayHeadcount } from '../../domain/booking/allocation/planner'
 import { checkStayPlan, type PlanProblem } from '../../domain/booking/allocation/stayPlanCheck'
@@ -20,11 +19,10 @@ import type { HotelScope, OrganizationScope } from '../../security/scope'
 import { loadForAgency, loadForStaff } from './bookingAccess'
 import { type BookingDetailDto, bookingDetail } from './bookingService'
 import { loadBookingSettings } from './bookingSettingsService'
-import { type Booker, claimsOwnerKey, loadStayFacts, type StayFacts } from './stayFacts'
+import { type Actor, bookerOf, claimsOwnerKey, loadStayFacts, type StayFacts } from './stayFacts'
 import { assertQuota, checkInput, optionError, priceRooms, quotaHeadroomFor, type StaySearchResult, toOption } from './stayChecks'
 
 type Db = Parameters<typeof bookingRepos>[0]
-interface Actor { kind: ActorKind, id: string | null }
 
 /** Pilgrims join bookings that have not started (a companion arriving mid-stay is a booking of their own). */
 const ADDABLE: readonly BookingStatus[] = ['HELD', 'REQUESTED', 'CONFIRMED']
@@ -87,13 +85,6 @@ export async function removeGuest(ctx: AuthContext, bookingId: string, guestId: 
 }
 
 // ---- Add pilgrims ----
-
-/** The booking's booker, as the allocation reads it. */
-function bookerOf(row: BookingRow, actor: Actor): Booker {
-  if (row.bookerType === 'INDIVIDUAL') return { kind: 'INDIVIDUAL', customerId: row.customerId! }
-  return { kind: 'AGENCY', agencyId: row.agencyId!, agencyUserId: actor.kind === 'agency' ? actor.id : null, staffUserId: actor.kind === 'staff' ? actor.id : null }
-}
-
 
 /** The joining pilgrims as a stay of the booking's own dates and type (its children sleep on its children's side). */
 function additionStay(row: BookingRow, counts: GuestAdditionSearchInput): { input: StaySearchInput, headcount: StayHeadcount } {
@@ -225,6 +216,10 @@ async function addPilgrims(db: Db, scope: OrganizationScope, row: BookingRow, ac
     await repos.bookings.expireLapsedHolds(locked, now)
     const booking = await records.findById(row.id, { forUpdate: true })
     if (!booking) throw new NotFoundError('BOOKING_NOT_FOUND')
+    // The stay and quote were read before the locks: a date change committed meanwhile moved what this plans on.
+    if (booking.checkIn !== row.checkIn || booking.checkOut !== row.checkOut || booking.quoteId !== row.quoteId) {
+      throw new ConflictError('BOOKING_CHANGED', 'The booking\'s dates changed meanwhile; search again')
+    }
     assertCanAdd(booking, counts, now)
     if (booker.kind === 'AGENCY') assertQuota(await quotaHeadroomFor(tx, hotelScope, booker.agencyId, input, held!), counts.totalCount)
 

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { agencyUser, booking, bookingChange, bookingGuest, bookingPriceLine, bookingRoom } from '@hajj/db/schema'
 import type { Database } from '@hajj/db/client'
@@ -12,9 +12,10 @@ import { addAgencyGuests, addGuests, confirmAgencyBooking, holdAgencyStay, listA
 import { makeAgency, makeBooking, makeBookingRoom, makeCustomer, makeGuest, makeStay } from '../../support/bookingFixtures'
 import { makeOrg, makeUser } from '../../support/fixtures'
 import { makeStayHotel } from '../../support/stayFixtures'
-import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
+import { closeTestDb, getTestClient, getTestDb, truncateAllTables } from '../support/testDb'
 
 const db = getTestDb() as Database
+const client = getTestClient()
 const NOW = new Date('2027-05-01T10:00:00Z')
 const STAY = { from: '2027-06-01', to: '2027-06-03' }
 
@@ -183,5 +184,32 @@ describe('adding pilgrims (v7 §12)', () => {
     await expect(searchAgencyGuestAdditions(other, env.bookingId, guestAdditionSearchSchema.parse({ maleCount: 1, totalCount: 1 }))).rejects.toMatchObject({ code: 'BOOKING_NOT_FOUND' })
     await db.update(booking).set({ status: 'IN_HOUSE' }).where(eq(booking.id, env.bookingId))
     await expect(searchAgencyGuestAdditions(env.agency, env.bookingId, guestAdditionSearchSchema.parse({ maleCount: 1, totalCount: 1 }))).rejects.toMatchObject({ code: 'BOOKING_NOT_CHANGEABLE', httpStatus: 409 })
+  })
+
+  it('dates changed while it waited for the booking\'s lock: refused (search again), nothing added', async () => {
+    const env = await setup()
+    const counts = guestAdditionSearchSchema.parse({ maleCount: 1, totalCount: 1 })
+    const { options } = await searchAgencyGuestAdditions(env.agency, env.bookingId, counts)
+    let release!: () => void
+    const released = new Promise<void>((resolve) => { release = resolve })
+    let locked!: () => void
+    const lockTaken = new Promise<void>((resolve) => { locked = resolve })
+    // Another transaction holds the booking (as a date change does) and moves its check-out before letting go.
+    const holder = client.begin(async (sql) => {
+      await sql`select id from booking where id = ${env.bookingId} for update`
+      locked()
+      await released
+      await sql`update booking set check_out = '2027-06-05' where id = ${env.bookingId}`
+    })
+    await lockTaken
+    const adding = addAgencyGuests(env.agency, env.bookingId, addGuestsSchema.parse({ ...counts, rooms: asChosen(options[0]!.rooms) })).catch((error: unknown) => error)
+    await vi.waitFor(async () => {
+      const [row] = await client<Array<{ n: number }>>`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`
+      if (!row || row.n < 1) throw new Error('the addition never waited on the booking\'s lock')
+    }, { timeout: 5_000, interval: 20 })
+    release()
+    await holder
+    expect(await adding).toMatchObject({ code: 'BOOKING_CHANGED', httpStatus: 409 })
+    expect(await bookingRow(env.bookingId)).toMatchObject({ maleCount: 2, totalCount: 3, checkOut: '2027-06-05' })
   })
 })

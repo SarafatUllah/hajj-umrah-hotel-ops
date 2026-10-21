@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, getTableColumns, gte, inArray, isNotNull, is
 import type { DbOrTx } from '@hajj/db/client'
 import { booking, bookingChange, bookingGuest, bookingPriceLine, bookingRoom, floor, guestStay, room } from '@hajj/db/schema'
 import { type AgeGroup, type BookingChangeKind, type BookingStatus, type Gender, type Occupancy, PENDING_BOOKING_STATUSES, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
+import type { PriceSource } from '@hajj/contracts/constants/pricing'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { IsoDate } from '@hajj/contracts/utils/dates'
 import type { HotelScope, OrganizationScope } from '../../security/scope'
@@ -78,6 +79,20 @@ export interface GuestAddition {
   booking: BookingRow
   rooms: NewHold['rooms']
   guests: NewHold['guests']
+}
+
+/** A booking moving whole to new dates (v7 §12 date change): its new rooms, where each live slot sleeps, its new price. */
+export interface Rebooking {
+  booking: BookingRow
+  checkIn: IsoDate
+  checkOut: IsoDate
+  quoteId: string | null
+  priceSource: PriceSource
+  rooms: NewHold['rooms']
+  /** Every live slot (removed ones sleep nowhere) and the room it sleeps in on the new dates. */
+  seats: ReadonlyArray<{ guestId: string, roomId: string, isExtraBed: boolean }>
+  priceLines: readonly NewPriceLine[]
+  at: Date
 }
 
 /** The later of the application's clock and the database's: the moment a hold is judged lapsed (or still valid) at. */
@@ -449,6 +464,46 @@ export class BookingRecordRepository {
       extraBeds: 0,
     }).returning({ id: bookingRoom.id })
     return claim!.id
+  }
+
+  /**
+   * v7 §12 date change (the caller holds the booking's lock and checked the new rooms): the booking moves whole — its
+   * dates, quote and price source; its stays, claims (released ones too) and price lines are replaced by the new
+   * ones; each slot keeps its details, its extra-bed flag follows its new seat; the details reminder may come again.
+   * Containment is checked at COMMIT. null = no such booking (none of this organization's).
+   */
+  async rebook(change: Rebooking): Promise<BookingRow | null> {
+    const [row] = await this.#q.update(
+      booking,
+      { checkIn: change.checkIn, checkOut: change.checkOut, quoteId: change.quoteId, priceSource: change.priceSource, detailsRemindedAt: null, updatedAt: change.at },
+      eq(booking.id, change.booking.id),
+    ).returning()
+    if (!row) return null
+    await this.#q.delete(guestStay, eq(guestStay.bookingId, row.id))
+    await this.#q.delete(bookingRoom, eq(bookingRoom.bookingId, row.id))
+    await this.#q.delete(bookingPriceLine, eq(bookingPriceLine.bookingId, row.id))
+    const claims = change.rooms.length === 0 ? [] : await this.#q.insertMany(bookingRoom, change.rooms.map(r => ({
+      hotelId: row.hotelId,
+      bookingId: row.id,
+      roomId: r.roomId,
+      ownerAgencyId: r.ownedByAgency ? row.agencyId : null,
+      ownerBookingId: r.ownedByAgency ? null : row.id,
+      occupancy: r.occupancy,
+      checkIn: row.checkIn,
+      checkOut: row.checkOut,
+      status: row.status,
+      extraBeds: r.extraBeds,
+    }))).returning({ id: bookingRoom.id, roomId: bookingRoom.roomId })
+    const claimOfRoom = new Map(claims.map(c => [c.roomId, c.id]))
+    for (const isExtraBed of [true, false]) {
+      const ids = change.seats.filter(s => s.isExtraBed === isExtraBed).map(s => s.guestId)
+      if (ids.length > 0) await this.#q.update(bookingGuest, { isExtraBed }, eq(bookingGuest.bookingId, row.id), inArray(bookingGuest.id, ids), eq(bookingGuest.isExtraBed, !isExtraBed))
+    }
+    if (change.seats.length > 0) {
+      await this.#q.insertMany(guestStay, change.seats.map(s => ({ bookingId: row.id, bookingGuestId: s.guestId, bookingRoomId: claimOfRoom.get(s.roomId)!, checkIn: row.checkIn, checkOut: row.checkOut })))
+    }
+    if (change.priceLines.length > 0) await this.#q.insertMany(bookingPriceLine, change.priceLines.map(line => ({ ...line, bookingId: row.id })))
+    return row
   }
 
   /** v7 §12: the booking's head count after pilgrims joined or left (the caller holds the row lock). */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { guestSlots } from '../../../../server/domain/booking/guestSlots'
+import { guestSlots, reseatSlots, type SeatedSlot } from '../../../../server/domain/booking/guestSlots'
 import { quoteFitsStay } from '../../../../server/domain/booking/quotes'
 import { documentNo } from '../../../../server/domain/booking/references'
 
@@ -56,5 +56,36 @@ describe('quoteFitsStay (v7 §8)', () => {
     const family = { ...quote, bookingType: 'FAMILY' as const, maleCount: 0, femaleCount: 0, totalCount: 4 }
     expect(quoteFitsStay(family, { ...stay, bookingType: 'FAMILY', maleCount: 0, femaleCount: 0, childCount: 0, totalCount: 4, childSide: null })).toBe(true)
     expect(quoteFitsStay(family, { ...stay, bookingType: 'FAMILY', maleCount: 0, femaleCount: 0, childCount: 0, totalCount: 5, childSide: null })).toBe(false)
+  })
+})
+
+describe('reseatSlots (v7 §12 date change)', () => {
+  const slot = (id: string, slotNo: number, side: SeatedSlot['side'], ageGroup: SeatedSlot['ageGroup'] = 'ADULT'): SeatedSlot => ({ id, slotNo, side, ageGroup })
+  const group = { bookingType: 'GROUP' as const, childSide: 'MOTHER' as const }
+
+  it('seats each side in the new rooms as a new booking would: adults first then by slot, the last of a room on its extra bed, infants with the children', () => {
+    // Slot 2 is a child on the women's side, slot 6 a man added later; slot numbers need not follow the sides.
+    const slots = [slot('w1', 1, 'FEMALE'), slot('c', 2, 'FEMALE', 'CHILD'), slot('m1', 3, 'MALE'), slot('m2', 4, 'MALE'), slot('i', 5, 'FEMALE', 'INFANT'), slot('m3', 6, 'MALE')]
+    const seats = reseatSlots(slots, [{ roomId: 'f', occupancy: 'FEMALE', seats: 2, extraBeds: 0 }, { roomId: 'm', occupancy: 'MALE', seats: 3, extraBeds: 1 }], group)
+    expect(seats).toEqual([
+      { guestId: 'w1', roomId: 'f', isExtraBed: false },
+      { guestId: 'c', roomId: 'f', isExtraBed: false },
+      { guestId: 'm1', roomId: 'm', isExtraBed: false },
+      { guestId: 'm2', roomId: 'm', isExtraBed: false },
+      { guestId: 'm3', roomId: 'm', isExtraBed: true },
+      { guestId: 'i', roomId: 'f', isExtraBed: false },
+    ])
+  })
+
+  it('a FAMILY fills its rooms in order; infants join the first room', () => {
+    const seats = reseatSlots([slot('a', 1, 'FAMILY'), slot('b', 2, 'FAMILY'), slot('c', 3, 'FAMILY', 'CHILD'), slot('i', 4, 'FAMILY', 'INFANT')], [{ roomId: 'x', occupancy: 'FAMILY', seats: 2, extraBeds: 0 }, { roomId: 'y', occupancy: 'FAMILY', seats: 1, extraBeds: 0 }], { bookingType: 'FAMILY', childSide: null })
+    expect(seats?.map(s => [s.guestId, s.roomId])).toEqual([['a', 'x'], ['b', 'x'], ['c', 'y'], ['i', 'x']])
+  })
+
+  it('null when the rooms do not seat exactly the pilgrims each side has, or a seated slot sleeps nowhere', () => {
+    const men = [slot('m1', 1, 'MALE'), slot('m2', 2, 'MALE')]
+    expect(reseatSlots(men, [{ roomId: 'm', occupancy: 'MALE', seats: 3, extraBeds: 0 }], group)).toBeNull()
+    expect(reseatSlots(men, [{ roomId: 'm', occupancy: 'MALE', seats: 2, extraBeds: 0 }, { roomId: 'f', occupancy: 'FEMALE', seats: 1, extraBeds: 0 }], group)).toBeNull()
+    expect(reseatSlots([...men, slot('x', 3, null)], [{ roomId: 'm', occupancy: 'MALE', seats: 3, extraBeds: 0 }], group)).toBeNull()
   })
 })

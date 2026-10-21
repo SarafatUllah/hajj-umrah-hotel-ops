@@ -14,7 +14,8 @@ import { priceQuote } from './pricing'
  * Phase 2a booking core (v7 §7, §16). Stays are `[check_in, check_out)`: the nights from check-in up to the
  * night before check-out. Range constraints build `daterange(check_in, check_out, '[)')`. Appended by hand to
  * migration 0009 (Drizzle has no builder for them): the exclusion constraints, the status-sync and
- * containment triggers, and the seat-counting function `room_night_occupancy(org, hotel, from, to, rooms)`.
+ * containment triggers, and the seat-counting function `room_night_occupancy(org, hotel, from, to, rooms)` (0018 adds
+ * an optional booking it leaves out, for a date change).
  */
 
 /**
