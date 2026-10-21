@@ -47,6 +47,12 @@ const setActive = useMutation({
   },
   onError: notify.failed,
 })
+// A new password for a user who lost theirs (their sessions end).
+const settingPassword = ref<AgencyUserDto | null>(null)
+function passwordSet(user: AgencyUserDto): void {
+  settingPassword.value = null
+  notify.done(t('agencies.password.done', { name: user.fullName }))
+}
 </script>
 
 <template>
@@ -101,6 +107,17 @@ const setActive = useMutation({
               color="neutral"
               variant="ghost"
               class="ms-auto"
+              icon="i-lucide-key-round"
+              :aria-label="t('agencies.password.actionNamed', { name: user.fullName })"
+              @click="settingPassword = user"
+            >
+              {{ t('agencies.password.open') }}
+            </UButton>
+            <UButton
+              v-if="canManage"
+              size="sm"
+              color="neutral"
+              variant="ghost"
               :loading="setActive.isPending.value && setActive.variables.value?.user.id === user.id"
               :disabled="setActive.isPending.value"
               :aria-label="t(user.isActive ? 'agencies.turnOffNamed' : 'agencies.turnOnNamed', { name: user.fullName })"
@@ -113,6 +130,7 @@ const setActive = useMutation({
       </section>
       <AgencyDecisionDialog :agency="agency.data.value" :decision="deciding" @close="deciding = null" @done="decided" />
       <AgencyUserDrawer v-model:open="addingUser" :agency-id="agency.data.value.id" @added="userAdded" />
+      <AgencyPasswordDialog :agency-id="agency.data.value.id" :user="settingPassword" @close="settingPassword = null" @done="passwordSet" />
     </template>
   </div>
 </template>

@@ -82,5 +82,16 @@
     "validUntil": "Valid until",
     "book": "Book at this price",
     "pilgrims": "Pilgrims"
+  },
+  "account": {
+    "title": "Your account",
+    "open": "Account",
+    "agency": "Agency",
+    "password": "Password",
+    "passwordHelp": "After the change, every other place you are signed in is signed out.",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "changePassword": "Change the password",
+    "passwordChanged": "Password changed. Other sessions were signed out."
   }
 }

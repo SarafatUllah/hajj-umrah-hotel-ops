@@ -1,5 +1,5 @@
 import type { AgencyStatus } from '@hajj/contracts/constants/accounts'
-import type { AgencyStatusChangeInput, CreateAgencyInput, CreateAgencyUserInput, ListAgenciesQuery, UpdateAgencyUserInput } from '@hajj/contracts/schemas/agency'
+import type { AgencyStatusChangeInput, AgencyUserPasswordInput, CreateAgencyInput, CreateAgencyUserInput, ListAgenciesQuery, UpdateAgencyUserInput } from '@hajj/contracts/schemas/agency'
 import { normalizeEmail } from '@hajj/contracts/utils/email'
 import { rethrowDbError } from '../../errors/dbErrors'
 import { ConflictError, NotFoundError } from '../../errors/domainError'
@@ -85,6 +85,23 @@ export async function addAgencyUser(ctx: AuthContext, agencyId: string, input: C
 }
 
 /** Activates or deactivates an agency user; deactivation ends every session of that user. Audited. */
+/**
+ * A new password for an agency user who lost theirs (D-P2-25b; `agency.manage` with every hotel): staff give it to
+ * the user themselves, off the system. Every session of the user ends. Audited without the password.
+ */
+export async function resetAgencyUserPassword(ctx: AuthContext, agencyId: string, userId: string, input: AgencyUserPasswordInput): Promise<AgencyUserDto> {
+  requireAgencyManager(ctx)
+  const passwordHash = await hashPassword(input.password)
+  return ctx.db.transaction(async (tx) => {
+    const repos = accountsRepos(tx, ctx.scope)
+    const user = await repos.agencyUsers.findById(userId)
+    if (!user || user.agencyId !== agencyId) throw new NotFoundError('AGENCY_USER_NOT_FOUND')
+    const updated = (await repos.agencyUsers.setPassword(userId, agencyId, passwordHash, ctx.now()))!
+    await recordAudit(tenantRepos(tx, ctx.scope).audit, ctx.identity.userId, { entityType: 'agency_user', entityId: userId, action: 'AGENCY_USER_PASSWORD_RESET' })
+    return toAgencyUserDto(updated)
+  })
+}
+
 export async function updateAgencyUser(ctx: AuthContext, agencyId: string, userId: string, input: UpdateAgencyUserInput): Promise<AgencyUserDto> {
   requireAgencyManager(ctx)
   return ctx.db.transaction(async (tx) => {

@@ -48,6 +48,17 @@ export type CreateAgencyUserInput = z.infer<typeof createAgencyUserSchema>
 export const updateAgencyUserSchema = z.object({ isActive: z.boolean() }).strict()
 export type UpdateAgencyUserInput = z.infer<typeof updateAgencyUserSchema>
 
+/** `POST /api/agencies/:agencyId/users/:userId/password` (staff): a new password for a user who lost theirs. */
+export const agencyUserPasswordSchema = z.object({ password: newPassword }).strict()
+export type AgencyUserPasswordInput = z.infer<typeof agencyUserPasswordSchema>
+
+/** `POST /api/agency/auth/password` (agency portal): the user's own new password, proven by the current one. */
+export const agencyPasswordChangeSchema = z.object({
+  currentPassword: z.string().min(1).max(256),
+  newPassword,
+}).strict().refine(body => body.newPassword !== body.currentPassword, { path: ['newPassword'], message: 'Choose a different password' })
+export type AgencyPasswordChangeInput = z.infer<typeof agencyPasswordChangeSchema>
+
 /** `GET /api/agencies` (staff). */
 export const listAgenciesQuerySchema = z.object({
   status: z.enum(AGENCY_STATUSES).optional(),

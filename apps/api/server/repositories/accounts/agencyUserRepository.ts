@@ -48,6 +48,12 @@ export class AgencyUserRepository {
     return row ?? null
   }
 
+  /** A new password: every session of the user ends (the session version moves on). */
+  async setPassword(id: string, agencyId: string, passwordHash: string, at: Date): Promise<AgencyUserRow | null> {
+    const [row] = await this.q.update(agencyUser, { passwordHash, sessionVersion: sql`${agencyUser.sessionVersion} + 1`, updatedAt: at }, eq(agencyUser.id, id), eq(agencyUser.agencyId, agencyId)).returning()
+    return row ?? null
+  }
+
   async recordLogin(id: string, at: Date): Promise<void> {
     await this.q.update(agencyUser, { lastLoginAt: at }, eq(agencyUser.id, id))
   }

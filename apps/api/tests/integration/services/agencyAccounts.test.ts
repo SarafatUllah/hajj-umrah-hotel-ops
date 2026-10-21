@@ -6,7 +6,7 @@ import { TooManyRequestsError } from '../../../server/errors/domainError'
 import { resolveAgencyContext } from '../../../server/security/agencyContext'
 import type { AuthContext } from '../../../server/security/authContext'
 import type { OrganizationScope } from '../../../server/security/scope'
-import { addAgencyUser, changeAgencyStatus, createAgency, getAgency, getAgencyMe, listAgencies, loginAgencyUser, registerAgency, updateAgencyUser } from '../../../server/services/accounts'
+import { addAgencyUser, changeAgencyPassword, changeAgencyStatus, createAgency, getAgency, getAgencyMe, listAgencies, loginAgencyUser, registerAgency, resetAgencyUserPassword, updateAgencyUser } from '../../../server/services/accounts'
 import { login } from '../../../server/services/auth.service'
 import { hashPassword } from '../../../server/utils/password'
 import { makeOrg, makeUser } from '../../support/fixtures'
@@ -141,6 +141,25 @@ describe('staff administration of agencies', () => {
     expect(row!.sessionVersion).toBe(2)
     await expect(updateAgencyUser(env.admin, b.id, second.id, { isActive: true })).rejects.toMatchObject({ code: 'AGENCY_USER_NOT_FOUND' })
   })
+
+  it('a new password for a user who lost theirs (agency.manage): their sessions end, the new one signs in, audited without it', async () => {
+    const env = await setup()
+    const reg = registration(env.slug)
+    const created = await createAgency(env.admin, { agency: reg.agency, user: reg.user })
+    const userId = created.users[0]!.id
+    const NEW_PASSWORD = 'a-new-long-password'
+
+    await expect(resetAgencyUserPassword(env.viewer, created.id, userId, { password: NEW_PASSWORD })).rejects.toMatchObject({ httpStatus: 403 })
+    await expect(resetAgencyUserPassword(env.admin, (await createAgency(env.admin, { agency: registration(env.slug).agency, user: registration(env.slug).user })).id, userId, { password: NEW_PASSWORD })).rejects.toMatchObject({ code: 'AGENCY_USER_NOT_FOUND' })
+    expect(await resetAgencyUserPassword(env.admin, created.id, userId, { password: NEW_PASSWORD })).toMatchObject({ id: userId })
+
+    expect((await db.select().from(agencyUser).where(eq(agencyUser.id, userId)))[0]!.sessionVersion).toBe(2)
+    expect(await loginAgencyUser({ organizationSlug: env.slug, email: reg.user.email, password: PASSWORD }, request())).toBeNull()
+    expect(await loginAgencyUser({ organizationSlug: env.slug, email: reg.user.email, password: NEW_PASSWORD }, request())).toMatchObject({ id: userId, sessionVersion: 2 })
+    const audits = await db.select().from(auditLog).where(eq(auditLog.action, 'AGENCY_USER_PASSWORD_RESET'))
+    expect(audits).toEqual([expect.objectContaining({ entityId: userId, actorUserId: env.admin.identity.userId })])
+    expect(JSON.stringify(await db.select().from(auditLog))).not.toContain(NEW_PASSWORD)
+  })
 })
 
 describe('agency sign-in and session resolution', () => {
@@ -160,6 +179,28 @@ describe('agency sign-in and session resolution', () => {
     expect(await loginAgencyUser({ organizationSlug: 'no-such-org', email, password: PASSWORD }, request())).toBeNull()
     await updateAgencyUser(env.admin, created.id, created.users[0]!.id, { isActive: false })
     expect(await loginAgencyUser({ organizationSlug: env.slug, email, password: PASSWORD }, request())).toBeNull()
+  })
+
+  it('a user changes their own password with the current one: every session ends (the caller renews its own), audited without either', async () => {
+    const { env, created, email } = await approvedAgency()
+    const userId = created.users[0]!.id
+    const ctx = (await resolveAgencyContext(db as Database, { agencyUserId: userId, organizationId: env.scope.organizationId, agencyId: created.id, sessionVersion: 1 }))!
+    const NEW_PASSWORD = 'my-own-new-password'
+
+    await expect(changeAgencyPassword(ctx, { currentPassword: 'not-my-password', newPassword: NEW_PASSWORD })).rejects.toMatchObject({ code: 'CURRENT_PASSWORD_WRONG', httpStatus: 422 })
+    expect(await changeAgencyPassword(ctx, { currentPassword: PASSWORD, newPassword: NEW_PASSWORD })).toMatchObject({ id: userId, agencyId: created.id, email, sessionVersion: 2 })
+    expect(await resolveAgencyContext(db as Database, { agencyUserId: userId, organizationId: env.scope.organizationId, agencyId: created.id, sessionVersion: 1 })).toBeNull()
+    expect(await loginAgencyUser({ organizationSlug: env.slug, email, password: NEW_PASSWORD }, request())).toMatchObject({ id: userId })
+    const audits = await db.select().from(auditLog).where(eq(auditLog.action, 'AGENCY_USER_PASSWORD_CHANGED'))
+    expect(audits).toEqual([expect.objectContaining({ entityId: userId, actorUserId: null })])
+    expect(JSON.stringify(await db.select().from(auditLog))).not.toMatch(new RegExp(`${PASSWORD}|${NEW_PASSWORD}`))
+  })
+
+  it('wrong current passwords are limited per user (429)', async () => {
+    const { env, created } = await approvedAgency()
+    const ctx = (await resolveAgencyContext(db as Database, { agencyUserId: created.users[0]!.id, organizationId: env.scope.organizationId, agencyId: created.id, sessionVersion: 1 }))!
+    for (let i = 0; i < 5; i++) await expect(changeAgencyPassword(ctx, { currentPassword: 'wrong-guess', newPassword: 'whatever-new-one' })).rejects.toMatchObject({ code: 'CURRENT_PASSWORD_WRONG' })
+    await expect(changeAgencyPassword(ctx, { currentPassword: PASSWORD, newPassword: 'whatever-new-one' })).rejects.toBeInstanceOf(TooManyRequestsError)
   })
 
   it('agency and staff sign-ins never share failure counters, even with the same e-mail', async () => {

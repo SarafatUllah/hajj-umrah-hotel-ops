@@ -48,6 +48,9 @@ export const AUDIT_ACTIONS = [
   'AGENCY_STATUS_CHANGED',
   'AGENCY_USER_CREATED',
   'AGENCY_USER_UPDATED',
+  // A user's password: changed by the user (no staff actor), or set anew by staff for a user who lost theirs.
+  'AGENCY_USER_PASSWORD_CHANGED',
+  'AGENCY_USER_PASSWORD_RESET',
   // Booking rules (entityType rate / agency_quota / allocation_rule / extra_bed_policy) and settings.
   'BOOKING_RULE_CREATED',
   'BOOKING_RULE_UPDATED',

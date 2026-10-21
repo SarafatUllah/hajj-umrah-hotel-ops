@@ -305,6 +305,8 @@
       "TWO_FACTOR_RESET": "أُعيد ضبط المصادقة الثنائية",
       "AGENCY_REGISTERED": "سُجّلت وكالة",
       "AGENCY_REGISTRATION_REPEATED": "رُفض تسجيل بترخيص هذه الوكالة أو بريدها",
+      "AGENCY_USER_PASSWORD_CHANGED": "غيّر مستخدم الوكالة كلمة مروره",
+      "AGENCY_USER_PASSWORD_RESET": "عُيّنت كلمة مرور جديدة لمستخدم الوكالة",
       "AGENCY_CREATED": "أُضيفت وكالة",
       "AGENCY_STATUS_CHANGED": "تغيّرت حالة وكالة",
       "AGENCY_USER_CREATED": "أُضيف مستخدم وكالة",
@@ -932,6 +934,14 @@
     "lastSignIn": "آخر دخول {time}",
     "neverSignedIn": "لم يسجل الدخول قط",
     "signInOff": "الدخول متوقف",
+    "password": {
+      "open": "كلمة مرور جديدة",
+      "actionNamed": "عيّن كلمة مرور جديدة لـ{name}",
+      "title": "كلمة مرور جديدة لـ{name}",
+      "text": "لمستخدم فقد كلمة مروره: سلّمها له بنفسك، لا بالبريد. يُسجَّل خروجه من كل مكان فورًا.",
+      "action": "عيّن كلمة المرور",
+      "done": "عُيّنت كلمة مرور جديدة لـ{name}."
+    },
     "turnOff": "أوقف الدخول",
     "turnOn": "شغّل الدخول",
     "turnOffNamed": "أوقف دخول {name}",

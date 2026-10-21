@@ -30,6 +30,8 @@ export const RATE_LIMITS = {
    * password guessing stays bounded.
    */
   loginPerIdentity: { name: 'login-identity', limit: 30, windowSeconds: 15 * 60 },
+  /** Current-password checks of one agency user changing their password (a stolen session cannot guess it freely). */
+  passwordChangePerAgencyUser: { name: 'password-change-agency-user', limit: 5, windowSeconds: 15 * 60 },
   /** Second-factor codes for one user (login and disabling 2FA); a correct code clears it. Needs the password first. */
   twoFactorAttemptsPerUser: { name: '2fa-user', limit: 5, windowSeconds: 15 * 60 },
   /** Agency self-registrations from one client address (the public agency portal form). */
@@ -50,6 +52,8 @@ export const RATE_LIMITS = {
    * (`otpRequestPerPhone`) times each code's `OTP_MAX_ATTEMPTS`.
    */
   otpVerifyPerPhone: { name: 'otp-verify-phone', limit: 10, windowSeconds: 60 * 60 },
+  /** And for one phone from every address together, higher (the owner still gets in): bounds guessing spread over many addresses. */
+  otpVerifyPerPhoneTotal: { name: 'otp-verify-phone-total', limit: 30, windowSeconds: 60 * 60 },
   /** Quote requests per agency (each takes a reference number and lands in the sellers' queue). */
   quoteRequestPerAgency: { name: 'quote-agency', limit: 30, windowSeconds: 60 * 60 },
   /** Stay searches per agency (each runs the allocator: CPU on the request path, ticket 3). */

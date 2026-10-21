@@ -1945,6 +1945,11 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     },
     expect: 'empty',
   }),
+  'AgencyUserRepository.setPassword': isolationCase({
+    arrange: arrangeAgencyUser,
+    act: (db, scope, ids) => new AgencyUserRepository(db, scope).setPassword(ids.userId, ids.agencyId, 'planted-hash', new Date()),
+    expect: 'null',
+  }),
   'AgencyUserRepository.recordLogin': isolationCase({
     arrange: arrangeAgencyUser,
     act: async (db, scope, ids) => {

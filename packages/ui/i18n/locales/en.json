@@ -401,7 +401,8 @@
       "USER_EMAIL_TAKEN": "A user with this email already exists.",
       "USER_NOT_FOUND": "This user doesn't exist, or you can't see them.",
       "VALIDATION_FAILED": "Some fields need attention.",
-      "VALUE_OUT_OF_RANGE": "A number is too large. Nothing was saved."
+      "VALUE_OUT_OF_RANGE": "A number is too large. Nothing was saved.",
+      "CURRENT_PASSWORD_WRONG": "The current password is not right."
     }
   },
   "scans": {

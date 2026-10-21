@@ -1,8 +1,8 @@
-import type { AgencyLoginInput, AgencyRegistrationInput } from '@hajj/contracts/schemas/agency'
+import type { AgencyLoginInput, AgencyPasswordChangeInput, AgencyRegistrationInput } from '@hajj/contracts/schemas/agency'
 import type { AgencyMe } from '@hajj/contracts/types/agency'
 import { normalizeEmail } from '@hajj/contracts/utils/email'
 import { translateDbError } from '../../errors/dbErrors'
-import { ValidationError } from '../../errors/domainError'
+import { UnauthenticatedError, ValidationError } from '../../errors/domainError'
 import { accountsRepos, tenantRepos } from '../../repositories'
 import type { AgencyContext } from '../../security/agencyContext'
 import { beginLoginAttempt, clearLoginAttempt, type LoginRequest } from '../../security/loginThrottle'
@@ -87,6 +87,25 @@ export async function loginAgencyUser(input: AgencyLoginInput, request: LoginReq
 }
 
 /** The portal's view of the signed-in user and their agency (allowed whatever the agency's status). */
+/**
+ * An agency user changes their own password (D-P2-25b), whatever the agency's status: the current one proves it is
+ * them (wrong: 422 `CURRENT_PASSWORD_WRONG`, at most 5 tries per user in 15 minutes), then every session of theirs
+ * ends — the route renews the caller's own with the new session version. Audited without either password.
+ */
+export async function changeAgencyPassword(ctx: AgencyContext, input: AgencyPasswordChangeInput): Promise<AgencySessionUser> {
+  const userId = ctx.identity.agencyUserId
+  await consumeRateLimit(ctx.db, RATE_LIMITS.passwordChangePerAgencyUser, userId, ctx.now())
+  const user = await accountsRepos(ctx.db, ctx.scope).agencyUsers.findById(userId)
+  if (!user || !await verifyPassword(input.currentPassword, user.passwordHash)) throw new ValidationError('CURRENT_PASSWORD_WRONG', 'The current password is not right')
+  const passwordHash = await hashPassword(input.newPassword)
+  return ctx.db.transaction(async (tx) => {
+    const updated = await accountsRepos(tx, ctx.scope).agencyUsers.setPassword(user.id, user.agencyId, passwordHash, ctx.now())
+    if (!updated) throw new UnauthenticatedError('SESSION_INVALID', 'Your session has ended. Sign in again.')
+    await recordAudit(tenantRepos(tx, ctx.scope).audit, null, { entityType: 'agency_user', entityId: user.id, action: 'AGENCY_USER_PASSWORD_CHANGED' })
+    return { id: updated.id, organizationId: updated.organizationId, agencyId: updated.agencyId, email: updated.email, fullName: updated.fullName, sessionVersion: updated.sessionVersion }
+  })
+}
+
 export function getAgencyMe(ctx: AgencyContext): AgencyMe {
   return {
     user: { id: ctx.identity.agencyUserId, agencyId: ctx.identity.agencyId, email: ctx.identity.email, fullName: ctx.identity.fullName },

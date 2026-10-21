@@ -305,6 +305,8 @@
       "TWO_FACTOR_RESET": "Two-factor reset",
       "AGENCY_REGISTERED": "Agency registered",
       "AGENCY_REGISTRATION_REPEATED": "Registration with this agency's licence or e-mail refused",
+      "AGENCY_USER_PASSWORD_CHANGED": "Agency user changed their password",
+      "AGENCY_USER_PASSWORD_RESET": "Agency user given a new password",
       "AGENCY_CREATED": "Agency added",
       "AGENCY_STATUS_CHANGED": "Agency status changed",
       "AGENCY_USER_CREATED": "Agency user added",
@@ -932,6 +934,14 @@
     "lastSignIn": "Last signed in {time}",
     "neverSignedIn": "Never signed in",
     "signInOff": "Sign-in off",
+    "password": {
+      "open": "New password",
+      "actionNamed": "Set a new password for {name}",
+      "title": "A new password for {name}",
+      "text": "For a user who lost theirs: give it to them yourself, not by e-mail. They are signed out everywhere at once.",
+      "action": "Set the password",
+      "done": "New password set for {name}."
+    },
     "turnOff": "Turn sign-in off",
     "turnOn": "Turn sign-in on",
     "turnOffNamed": "Turn off the sign-in of {name}",

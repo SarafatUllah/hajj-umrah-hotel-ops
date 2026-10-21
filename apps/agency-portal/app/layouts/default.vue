@@ -37,6 +37,7 @@ async function signOutNow() {
         <div class="flex items-center gap-1">
           <LocaleSwitch />
           <UColorModeButton />
+          <UButton v-if="me" to="/account" color="neutral" variant="ghost" icon="i-lucide-user-round">{{ t('account.open') }}</UButton>
           <UButton v-if="me" color="neutral" variant="outline" icon="i-lucide-log-out" @click="signOutNow">{{ t('common.signOut') }}</UButton>
         </div>
       </div>
