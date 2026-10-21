@@ -78,13 +78,14 @@ describe('booking rules (rates, quotas, room-mix rules, extra-bed policies)', ()
     await expect(createBookingRule(env.manager, env.hotel.id, 'extra-bed-policies', policy)).rejects.toMatchObject({ code: 'ALREADY_EXISTS', httpStatus: 409 })
   })
 
-  it('quotas: the default row (agencyId null) and an agency\'s own row coexist; another organization\'s agency or room type is 422', async () => {
+  it('quotas: the default row (agencyId null) and an agency\'s own row coexist, each naming its agency; another organization\'s agency or room type is 422', async () => {
     const env = await setup()
     const agency = await makeAgency(db, env.scope)
     const season = { startDate: '2027-06-01', endDate: '2027-06-30' }
-    await createBookingRule(env.manager, env.hotel.id, 'agency-quotas', { agencyId: null, ...season, maxPersons: 30 })
-    await createBookingRule(env.manager, env.hotel.id, 'agency-quotas', { agencyId: agency.id, ...season, maxPersons: 40 })
-    expect(await listBookingRules(env.viewer, env.hotel.id, 'agency-quotas')).toHaveLength(2)
+    expect(await createBookingRule(env.manager, env.hotel.id, 'agency-quotas', { agencyId: null, ...season, maxPersons: 30 })).toMatchObject({ agencyId: null, agencyName: null })
+    expect(await createBookingRule(env.manager, env.hotel.id, 'agency-quotas', { agencyId: agency.id, ...season, maxPersons: 40 })).toMatchObject({ agencyId: agency.id, agencyName: agency.name })
+    const quotas = await listBookingRules(env.viewer, env.hotel.id, 'agency-quotas')
+    expect(quotas.map(q => q.agencyName).sort()).toEqual([agency.name, null].sort())
 
     const other = await setup()
     const foreignAgency = await makeAgency(db, other.scope)
@@ -97,7 +98,7 @@ describe('booking rules (rates, quotas, room-mix rules, extra-bed policies)', ()
     const agency = await makeAgency(db, env.scope)
     const quota = await createBookingRule(env.manager, env.hotel.id, 'agency-quotas', { agencyId: null, startDate: '2027-06-01', endDate: '2027-06-30', maxPersons: 30 })
     expect(await updateBookingRule(env.manager, env.hotel.id, 'agency-quotas', quota.id, { maxPersons: 35 })).toMatchObject({ agencyId: null, maxPersons: 35 })
-    expect(await updateBookingRule(env.manager, env.hotel.id, 'agency-quotas', quota.id, { agencyId: agency.id })).toMatchObject({ agencyId: agency.id })
+    expect(await updateBookingRule(env.manager, env.hotel.id, 'agency-quotas', quota.id, { agencyId: agency.id })).toMatchObject({ agencyId: agency.id, agencyName: agency.name })
 
     const rule = await createBookingRule(env.manager, env.hotel.id, 'allocation-rules', { groupMin: 1, groupMax: 10, minSeats: 5, maxRooms: 1 })
     await createBookingRule(env.manager, env.hotel.id, 'allocation-rules', { groupMin: 21, groupMax: 30, minSeats: 5, maxRooms: 3 })

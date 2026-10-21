@@ -44,6 +44,7 @@ export const NAVIGATION: NavGroup[] = [
     { key: 'agencies', icon: 'i-lucide-briefcase', scope: 'organization', path: '/agencies', permission: 'agency.view' },
   ] },
   { key: 'admin', items: [
+    { key: 'bookingSettings', icon: 'i-lucide-sliders-horizontal', scope: 'organization', path: '/admin/booking-settings', permission: 'booking.view' },
     { key: 'demo', icon: 'i-lucide-flask-conical', scope: 'organization', path: '/admin/demo', permission: 'organization.resetDemo', demoOnly: true },
   ] },
 ]

@@ -9,9 +9,9 @@ describe('the navigation (§2.2, §6.2)', () => {
     const hr = visibleNavigation(NAVIGATION, accessWith('hotel.view'), false)
     expect(hr.flatMap(g => g.items.map(i => i.key))).toEqual(['hotels'])
     const accountant = visibleNavigation(NAVIGATION, accessWith('hotel.view', 'booking.view'), false)
-    expect(accountant.flatMap(g => g.items.map(i => i.key))).toEqual(['hotels', 'bookings', 'tasks', 'quotes'])
+    expect(accountant.flatMap(g => g.items.map(i => i.key))).toEqual(['hotels', 'bookings', 'tasks', 'quotes', 'bookingSettings'])
     const reception = visibleNavigation(NAVIGATION, accessWith('hotel.view', 'room.view', 'booking.view', 'booking.checkIn', 'occupancy.view'), true)
-    expect(reception.flatMap(g => g.items.map(i => i.key))).toEqual(['overview', 'hotels', 'calendar', 'rooms', 'seasons', 'blocks', 'roomTypes', 'bookings', 'frontDesk', 'occupancy', 'tasks', 'quotes'])
+    expect(reception.flatMap(g => g.items.map(i => i.key))).toEqual(['overview', 'hotels', 'calendar', 'rooms', 'seasons', 'blocks', 'roomTypes', 'bookings', 'frontDesk', 'occupancy', 'tasks', 'quotes', 'bookingSettings'])
 
     const admin = visibleNavigation(NAVIGATION, accessWith('hotel.view', 'room.view', 'organization.resetDemo'), true)
     expect(admin.map(g => g.key)).toContain('admin')

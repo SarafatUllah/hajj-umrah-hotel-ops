@@ -1,4 +1,6 @@
+import type { ChildSide } from '@hajj/contracts/constants/booking'
 import type { BookingSettingsPatch } from '@hajj/contracts/schemas/bookingRules'
+import type { BookingSettingsDto } from '@hajj/contracts/types/bookingRules'
 import { ValidationError } from '../../errors/domainError'
 import { bookingOrgRepos, tenantRepos } from '../../repositories'
 import type { BookingSettingRow } from '../../repositories/booking'
@@ -7,12 +9,11 @@ import { requireAllHotels, requireOrgPermission } from '../../security/authorize
 import type { OrganizationScope } from '../../security/scope'
 import { recordAudit } from '../audit'
 
-export type BookingSettingsDto = Omit<BookingSettingRow, 'organizationId' | 'updatedAt' | 'updatedBy'> & { updatedAt: string }
-
 /** The database handle a repository accepts (a service may not import db/client itself). */
 type Db = Parameters<typeof bookingOrgRepos>[0]
 
-const toDto = ({ organizationId: _org, updatedBy: _by, updatedAt, ...rest }: BookingSettingRow): BookingSettingsDto => ({ ...rest, updatedAt: updatedAt.toISOString() })
+// The side column holds only `CHILD_SIDES` (its check constraint).
+const toDto = ({ organizationId: _org, updatedBy: _by, updatedAt, childDefaultSide, ...rest }: BookingSettingRow): BookingSettingsDto => ({ ...rest, childDefaultSide: childDefaultSide as ChildSide, updatedAt: updatedAt.toISOString() })
 
 /** The organization's booking settings, defaults included (the row is created on first use). For booking services. */
 export async function loadBookingSettings(db: Db, scope: OrganizationScope): Promise<BookingSettingRow> {

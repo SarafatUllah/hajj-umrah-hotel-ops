@@ -2,9 +2,9 @@
 /**
  * Every hotel page's frame (§6): the hotel named with its marker on the page, or the inaccessible-hotel state for a
  * code this user cannot see; the inactive banner; on a profile page its tabs (§23 — each its own page, so it can be
- * bookmarked and the back button works; Activity only with `audit.view`).
+ * bookmarked and the back button works; Booking rules only with `booking.view`, Activity only with `audit.view`).
  */
-type ProfileTab = 'overview' | 'floors' | 'settings' | 'documents' | 'activity'
+type ProfileTab = 'overview' | 'floors' | 'settings' | 'bookingRules' | 'documents' | 'activity'
 const props = defineProps<{ tab?: ProfileTab, title?: string }>()
 const { t } = useI18n()
 const access = useAccess()
@@ -16,6 +16,7 @@ const tabs = computed(() => {
     { key: 'overview', to: base, show: true },
     { key: 'floors', to: `${base}/floors`, show: access.value.canInHotel('room.view', hotel.value.id) },
     { key: 'settings', to: `${base}/settings`, show: true },
+    { key: 'bookingRules', to: `${base}/booking-rules`, show: access.value.canInHotel('booking.view', hotel.value.id) },
     { key: 'documents', to: `${base}/documents`, show: true },
     { key: 'activity', to: `${base}/activity`, show: access.value.canInHotel('audit.view', hotel.value.id) },
   ]

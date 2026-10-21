@@ -4,7 +4,8 @@ import { PRICE_UNITS } from '@hajj/contracts/constants/pricing'
 import { quoteDeclineSchema, quoteOfferSchema } from '@hajj/contracts/schemas/quote'
 import type { HotelSummary } from '@hajj/contracts/types/hotel'
 import type { OfferedQuote, QuoteDto } from '@hajj/contracts/types/quote'
-import { heldWhile } from '../../utils/forms'
+import { toRiyals } from '@hajj/contracts/utils/money'
+import { heldWhile, typedHalalas } from '../../utils/forms'
 
 /**
  * One WhatsApp quote (v7 §8): who asked, for which hotel, stay and head count, and where it stands. With
@@ -26,7 +27,7 @@ const offerForm = ref({ riyals: undefined as number | undefined, unit: 'PER_PERS
 const declineForm = ref({ reason: '' })
 // An empty amount stays empty (required), never an offer of nothing.
 const offerBody = (state: typeof offerForm.value) => ({
-  amountHalalas: typeof state.riyals === 'number' && Number.isFinite(state.riyals) ? toHalalas(state.riyals) : undefined,
+  amountHalalas: typedHalalas(state.riyals),
   unit: state.unit,
   vatIncluded: state.vatIncluded,
   validHours: state.validHours || undefined,

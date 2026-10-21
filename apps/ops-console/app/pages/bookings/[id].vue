@@ -102,8 +102,7 @@ const remove = useMutation({
 })
 const confirming = ref<Confirming | null>(null)
 /** The dialog's words: kept while it closes (its last question), so it does not empty itself mid-animation. */
-const lastAsked = ref<Confirming | null>(null)
-watch(confirming, (asked) => { if (asked) lastAsked.value = asked })
+const lastAsked = useLastShown(() => confirming.value)
 const confirmText = computed(() => {
   const asked = lastAsked.value
   if (!asked || !booking.data.value) return null

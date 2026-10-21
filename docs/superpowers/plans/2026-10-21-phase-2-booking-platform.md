@@ -37,7 +37,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
-| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done; 16g quotes, agencies done |
+| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done; 16g quotes, agencies done; 16h booking settings, booking rules done |
 | 17 | Final review (code, security, database, architecture) and docs | |
 
 ## Local environment note
@@ -773,6 +773,35 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   and email for someone else's sign-in (`AgencyUserFields` `own`, the portal's registration only); riyals and
   halalas convert in the layer's formatting (`toHalalas`, `toRiyals`). Known limit: the agency filter and picker
   list the first 100 agencies (as for bookings, D-P2-57).
+- **D-P2-60 (frontends) The ops console: booking settings and a hotel's booking rules (step 16h, v7 §15).** Booking
+  settings (`/admin/booking-settings`, `booking.view`): the organization's holds, requests and quotes (minutes,
+  hours), what one customer may ask, the children's and infants' ages and the side a child stays with, the details
+  reminder, passport validity, how long passport photos and pilgrims' details are kept, the external passport
+  reader (a transfer abroad, off until agreed), the no-show rule and the WhatsApp number and message — changed with
+  `booking.settings` over every hotel (D-P2-31), else shown read-only; only what changed is sent, an infant never
+  older than a child is said before saving, a refetch never overwrites what is being typed; each hotel's rules are
+  linked. A hotel's booking rules (a profile tab, `booking.view`): its rates (`rate.view`; by room type, public or
+  the agencies' default, per person or per room a night, by season, VAT), agency quotas (an agency's own or the
+  default for every agency, pilgrims a night by season), room-mix rules (a group size range, each gender apart: at
+  most so many rooms of so many seats) and extra beds (per room type: a room's and a booking's most, the price,
+  seasonally changed rooms) — added, edited and deleted with `rate.manage` or `booking.settings` on an active hotel;
+  a rule overlapping another of its kind (409 `RANGE_OVERLAP`) or a second extra-bed policy (409 `ALREADY_EXISTS`)
+  is said for that kind. Contracts: the rules' and settings' response types (`types/bookingRules.ts`), which the API
+  now returns (a compile-time check holds each to its table's columns); riyals and halalas convert in
+  `utils/money.ts` (the console's forms read a cleared number as nothing typed: `typedNumber`, `typedHalalas`). A
+  range of dates names each year it spans (`formatDateRange`, every night range). One composable per kind of rule
+  (`useBookingRules`: list, drawer, delete confirmation) and one frame for their panels and drawers; dialogs keep
+  their words while closing (`useLastShown`). Verified in a browser against the built API and the demo: the settings
+  saved (a changed hold and WhatsApp number), refused for an infant older than a child and a malformed number, and
+  read-only for a one-hotel manager; a hotel's rules — a default quota and an agency's own, an overlapping default
+  refused, a room-mix rule added and deleted, a rate edited — in English and Arabic, editable by the hotel's manager
+  and read-only (no rates) for its reception.
+  Review outcomes: an edited record's changes are measured against the version the form was built from, so a reload
+  meanwhile (another admin's change) is never sent back (`useEditForm`; the hotel's details too); a cleared number is
+  none and its field says "required"; a quota names its agency in the API (`AgencyQuotaDto.agencyName`, one query a
+  list), so a reader without `agency.view` still sees whose quota it is, and quotas are edited only with it (the
+  picker lists agencies); a confirmation cannot be closed while its action runs; extra beds offer "add" only once the
+  policies are known; a rule deleted elsewhere leaves the list when its save fails.
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on

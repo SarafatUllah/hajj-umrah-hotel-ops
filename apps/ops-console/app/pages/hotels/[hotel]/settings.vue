@@ -23,21 +23,14 @@ const refreshHotel = () => hotelRefresh(hotelId.value)
 
 // 1. Details.
 const detail = useApiQuery(() => ['hotel', hotelId.value], () => api<HotelDetail>(`/hotels/${hotelId.value}`), { enabled: ready })
-const form = ref<HotelForm | null>(null)
-const changes = (state: HotelForm) => (detail.data.value ? updateRequestOf(state, detail.data.value) : {})
 // A refetch (back to the tab) refreshes the form only while nothing is being edited: unsaved changes stay.
-let shown: HotelDetail | undefined
-watch(() => detail.data.value, (loaded) => {
-  const editing = form.value && shown && Object.keys(updateRequestOf(form.value, shown)).length > 0
-  if (loaded && !editing) form.value = hotelFormOf(loaded)
-  shown = loaded
-}, { immediate: true })
-const validateDetails = validateWith(updateHotelSchema, key => t(key), changes)
+const { form, changes, changesFrom, load } = useEditForm(() => detail.data.value, hotelFormOf, updateRequestOf)
+const validateDetails = validateWith(updateHotelSchema, key => t(key), (state: HotelForm) => changesFrom(state))
 const saveDetails = useMutation({
-  mutationFn: () => api<HotelDetail>(`/hotels/${hotelId.value}`, { method: 'PATCH', body: changes(form.value!) }),
-  onSuccess: async () => {
+  mutationFn: () => api<HotelDetail>(`/hotels/${hotelId.value}`, { method: 'PATCH', body: changes.value }),
+  onSuccess: async (updated) => {
+    load(updated)
     notify.done(t('settings.detailsSaved'))
-    shown = undefined
     await refreshHotel()
   },
 })

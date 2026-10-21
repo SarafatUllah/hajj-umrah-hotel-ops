@@ -49,8 +49,7 @@ const fromList = computed(() => quotes.data.value?.items.find(q => q.id === open
 const single = useApiQuery(() => ['quote', openId.value ?? ''], () => api<QuoteDto>(`/quotes/${openId.value}`), { enabled: computed(() => !!openId.value && !quotes.isPending.value && !fromList.value) })
 const opened = computed(() => fromList.value ?? single.data.value ?? null)
 /** The quote in the drawer: the last one opened stays while it closes, so it does not empty itself mid-animation. */
-const shown = ref<QuoteDto | null>(null)
-watch(opened, (quote) => { if (quote) shown.value = quote }, { immediate: true })
+const shown = useLastShown(() => opened.value)
 // A link to a quote that cannot be shown (gone, or of a hotel this user does not see) says why and leaves the URL.
 watch(() => single.error.value, (error) => {
   if (!error) return

@@ -1,4 +1,5 @@
 import { toEpochDay } from '@hajj/contracts/utils/dates'
+import { HALALAS_PER_RIYAL } from '@hajj/contracts/utils/money'
 
 /**
  * Formatting (§13, D5): Gregorian dates and Western digits in both languages — Arabic as `ar-SA` with the Latin
@@ -10,7 +11,6 @@ export function localeTag(locale: string): string {
 }
 
 const MS_PER_DAY = 86_400_000
-const HALALAS_PER_RIYAL = 100
 
 /** A hotel date as an instant at UTC midnight, only for formatting (date arithmetic stays on epoch days). */
 const utcDate = (isoDate: string): Date => new Date(toEpochDay(isoDate) * MS_PER_DAY)
@@ -45,16 +45,15 @@ export function nightsBetween(checkIn: string, checkOut: string): number {
   return toEpochDay(checkOut) - toEpochDay(checkIn)
 }
 
-/** A stay as dates: "1–4 Jun 2027" (the check-out day is the end: the guests leave that morning). */
-export function formatStay(checkIn: string, checkOut: string, locale: string): string {
-  return dateFormatter(locale, 'medium').formatRange(utcDate(checkIn), utcDate(checkOut))
+/** Two dates as a range: "1–4 Jun 2027", "1 May – 31 Jul 2027", "21 Oct 2026 – 13 Apr 2028" (each year it spans named). */
+export function formatDateRange(from: string, to: string, locale: string): string {
+  return dateFormatter(locale, 'medium').formatRange(utcDate(from), utcDate(to))
 }
 
-/** An amount typed in riyals as whole halalas, the unit the API counts money in (two decimals matter). */
-export const toHalalas = (riyals: number): number => Math.round(riyals * HALALAS_PER_RIYAL)
-
-/** Halalas as riyals, for a form's amount field. */
-export const toRiyals = (halalas: number): number => halalas / HALALAS_PER_RIYAL
+/** A stay as dates: "1–4 Jun 2027" (the check-out day is the end: the guests leave that morning). */
+export function formatStay(checkIn: string, checkOut: string, locale: string): string {
+  return formatDateRange(checkIn, checkOut, locale)
+}
 
 /** Money in halalas as Saudi riyals with the currency code and two decimals: "SAR 12,500.00". */
 export function formatMoney(halalas: number, locale: string): string {
