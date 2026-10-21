@@ -24,6 +24,17 @@ Migrations live in `packages/db/migrations/` (SQL files plus Drizzle's
 | `0010_customer_otp.sql` | Phase 2a, customers | `otp_challenge` (hashed SMS sign-in codes) |
 | `0011_document_sequence.sql` | Phase 2a, quotes | `document_sequence` (per-organization, per-year reference counters: `Q-2027-0001`, later `B-…`) |
 | `0012_booking_agency_live_index.sql` | Phase 2b, holds | `booking_agency_live_idx`: an agency's live bookings per hotel (the quota count under the hold's quota lock) |
+| `0013_passport_ai_consent.sql` | Phase 2 | `booking_setting.passport_ai_allowed` (default `false`): the organization's opt-in to the external passport reader |
+| `0014_details_reminder.sql` | Phase 2 | `booking.details_reminded_at`: set when the details reminder is sent |
+| `0015_event_receipt.sql` | Phase 2 | `event_receipt`: one row per (organization, event, handler), the guard that lets a domain-event handler run at most once per event |
+| `0016_guest_data_retention.sql` | Phase 2 | `booking_setting.guest_data_retention_months` (1–120, default 24); `booking_guest_detail.erased_at` |
+| `0017_no_show_policy.sql` | Phase 2 | `booking_setting.no_show_releases_seats` (default `false`) |
+| `0018_room_occupancy_except_booking.sql` | Phase 2 | `room_night_occupancy(...)` gains `p_except_booking_id` (the function is dropped and recreated; five-argument calls keep their meaning) |
+| `0019_customer_account_closure.sql` | Phase 2 | `customer.phone` becomes nullable; `customer.closed_at` (a closed account keeps its row without phone, name or e-mail) and its check constraint |
+| `0020_review_indexes.sql` | Phase 2 (review) | indexes on `booking`, `hotel_task` and `passport_scan` (three old indexes dropped); **data:** existing passport image filenames become `passport.<ext>` |
+| `0021_ended_booking_scans.sql` | Phase 2 (review) | **data:** scans of cancelled or expired bookings lose their reading and become due for deletion at once |
+
+`0020` and `0021` rewrite existing rows; `docs/DEPLOY_CHECKLIST.md` says what to check before release.
 
 ## Committed migrations are immutable
 

@@ -1,4 +1,4 @@
-# Deploy checklist (Phase 1)
+# Deploy checklist
 
 Work through every item before a staging or production deployment. Variables are documented in `apps/api/.env.example`
 and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and `docs/MIGRATIONS.md`.
@@ -24,7 +24,7 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
       and the health check below answers 200 (the first database use validates `DATABASE_URL` and
       `NUXT_SESSION_PASSWORD`; an invalid value shows up there as 503).
 
-- [ ] `PII_ENCRYPTION_KEYS` (key ring `id:base64key[,…]`, each 32 random bytes) and `PII_LOOKUP_KEY` (≥ 32 random
+- [ ] `PII_ENCRYPTION_KEYS` (key ring `id:base64key[,…]`, each 32 random bytes: `openssl rand -base64 32`) and `PII_LOOKUP_KEY` (≥ 32 random
       bytes) come from the secret manager, are unique per environment and are **backed up separately from the
       database**: encrypted personal data and TOTP secrets cannot be read without them. Rotation = prepend a new key
       and keep the old one until every value has been re-encrypted. Never change `PII_LOOKUP_KEY` (blind indexes
@@ -41,8 +41,8 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
       when they are not served from the API host; unset = same host only.
 - [ ] Each frontend runs with `NUXT_API_PROXY_TARGET` = the API's internal origin (its allowed `/api/**` prefixes are
       forwarded there, so the session cookie stays first-party) and `NUXT_API_PROXY_TRUST_PROXY=true` only behind one
-      proxy that sets `X-Forwarded-For`; the public site with `NUXT_PUBLIC_ORGANIZATION_SLUG` = the organization it
-      sells for. The frontends set `X-Forwarded-For` to the visitor's address themselves, so the API runs with
+      proxy that sets `X-Forwarded-For`; the public site and the agency portal with `NUXT_PUBLIC_ORGANIZATION_SLUG` = the organization they
+      sell for (the default is the demo organization: set it). The frontends set `X-Forwarded-For` to the visitor's address themselves, so the API runs with
       `TRUST_PROXY=true` and is reachable only through them (otherwise every visitor shares one address for the
       per-address limits).
 
@@ -52,6 +52,9 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
       followed). Set `SMS_ALLOWED_CALLING_CODES` to the countries actually served, size `SMS_HOURLY_LIMIT` /
       `SMS_DAILY_LIMIT` to the SMS budget (watch for the `[sms] … reached its … SMS budget` warning), and enable the
       bot check (`CAPTCHA_DRIVER=turnstile` + `CAPTCHA_SECRET`) before the public site opens.
+- [ ] The public site needs `NUXT_PUBLIC_TURNSTILE_SITE_KEY` (its Turnstile site key). Whenever SMS is enabled outside
+      `APP_ENV=development` (`SMS_DRIVER=webhook`), the API needs `CAPTCHA_DRIVER=turnstile` and `CAPTCHA_SECRET`; startup
+      refuses otherwise (`server/utils/env.ts`).
 - [ ] The public site, agency portal and ops console reach the API on the same site (same domain behind one proxy, or
       sibling subdomains of one registrable domain): sessions are `SameSite=Lax` cookies.
 
@@ -68,22 +71,31 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
       built-in roles the permissions and 2FA flags of this release (additive and idempotent — it never removes a
       grant). Without it, permissions added by a release (e.g. Phase 2's `agency.manage`) are missing everywhere.
       It also resets the built-in roles' `requires_two_factor` flags to their definitions.
+- [ ] Migrations `0020_review_indexes` and `0021_ended_booking_scans` rewrite existing rows: passport image filenames
+      become `passport.<ext>`, and the scans of bookings already cancelled or expired lose their reading and become due for deletion at once. They
+      run with the normal migrations.
+- [ ] No stored price exceeds 20,000 SAR per unit (`MAX_UNIT_HALALAS` = 2,000,000 halalas in
+      `packages/contracts/schemas/bookingRules.ts`: the API refuses higher prices, the database does not). Run
+      `select count(*) from rate where amount_halalas > 2000000;`, and the same on `price_quote` and `extra_bed_policy`;
+      each must return 0 before the release.
 - [ ] Database backups/point-in-time recovery are enabled by the database provider (`ARCHITECTURE.md` §19).
 
 ## Document storage
 
-- [ ] `STORAGE_DRIVER=local` (the only Phase 1 driver; S3-compatible storage is not implemented).
+- [ ] `STORAGE_DRIVER=local` (the only driver; S3-compatible storage is not implemented).
 - [ ] `STORAGE_LOCAL_DIR` is writable by the server process and on **persistent** storage (a mounted volume, not the
       container's ephemeral filesystem), shared by every server process that serves downloads.
-- [ ] Acknowledged: document bytes live only in that directory (metadata in PostgreSQL). Database backups do not
+- [ ] Acknowledged: document bytes and the encrypted passport images live only in that directory (metadata in PostgreSQL). Database backups do not
       contain them; include the directory in the deployment's backup/restore plan, or accept that lost files make
-      their documents fail to download (500 `DOCUMENT_FILE_MISSING`). Phase 1 ships no backup mechanism of its own.
+      their documents fail to download (500 `DOCUMENT_FILE_MISSING`). The application ships no backup mechanism of its own.
 
 ## Background jobs (Phase 2)
 
 - [ ] `JOBS_MODE` is set deliberately: `light` (default) in every API process **plus** at least one worker process
       (`pnpm --filter @hajj/api worker`, which works only the CPU-heavy tier, e.g. passport OCR), or `all` in a
       single-process deployment. `off`/`send` only where another process works the queues.
+- [ ] The worker runs from source through `tsx` (a runtime dependency of `@hajj/api`): its deployment needs the sources and
+      `node_modules`, not only the Nitro output.
 - [ ] pg-boss creates and migrates its own `pgboss` schema on start: the database role must be allowed to create a
       schema in the application database (or the schema is created once by an administrator).
 
@@ -98,7 +110,7 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
 
 ## Passport reading (Phase 2d)
 
-- The worker process (`pnpm --filter @hajj/api worker`, `JOBS_MODE=all` there) runs `booking.passport-read`. The API
+- The worker process (`pnpm --filter @hajj/api worker`, it works the heavy tier only, whatever `JOBS_MODE` says) runs `booking.passport-read`. The API
   processes must be able to enqueue (`JOBS_MODE` light, send or all) or uploads answer 409 `PASSPORT_READING_UNAVAILABLE`.
 - `PASSPORT_OCR=tesseract` in the worker only: install `tesseract.js` (and its English language data, or allow the
   first download) in the worker image. Without it every scan goes to manual entry.

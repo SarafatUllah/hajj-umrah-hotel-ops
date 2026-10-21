@@ -4,22 +4,23 @@ Multi-hotel Hajj/Umrah hotel inventory, booking, finance, HR, compliance,
 operations & analytics platform, built phase by phase as a Nuxt 4 / Nitro
 modular monolith on PostgreSQL 16 with Drizzle ORM.
 
-**Current state: Phase 1 (Inventory Foundation, backend).** Hotels, floors,
-room types, rooms with versioned base capacity, seasonal capacity periods and
-room overrides, operational blocks, capacity averages, the derived room
-calendar and daily summary, hotel-scoped access, per-hotel audit, hotel
-documents and the isolated demo organization. There is no browser UI yet and
-no reservations (Phase 2).
+**Current state: Phase 2 (booking platform) is built.** On the Phase 1 inventory (hotels, rooms, seasonal capacity,
+operational blocks, the room calendar, hotel documents, the isolated demo organization) it adds quotes, holds, bookings
+with their pilgrims and passport photos, check-in and check-out, the occupancy calendar, booking rules (rates, agency
+quotas, room mix, extra beds), customer requests and background jobs (pg-boss, with a worker process). Three principal
+kinds sign in: staff (with TOTP two-factor), agency users (behind an approval gate) and customers (by phone code). Three
+frontends sit on the API: the agency portal, the public site and the ops console.
 
 Documentation:
 
-- `docs/ARCHITECTURE.md` — architecture, the shipped Phase 1 design (§6–§9,
-  §14–§15, §22) and the Phase 1 divergence register (§28).
-- `docs/MIGRATIONS.md` — migration policy and the `btree_gist` prerequisite.
+- `docs/ARCHITECTURE.md` — architecture, the shipped design (§6–§11, §13–§15, §21–§22), the Phase 1 divergence register
+  (§28) and the Phase 2 section (§29).
+- `docs/MIGRATIONS.md` — migration policy, the migration chain and the `btree_gist` prerequisite.
 - `docs/DEPLOY_CHECKLIST.md` — what must hold before a deployment.
-- `docs/UI-UX-MASTER-DIRECTION.md` — the UI/UX direction for the Phase 1 UI.
-- `docs/superpowers/plans/` — the phase implementation plans (historical
-  planning documents).
+- `docs/UI-UX-MASTER-DIRECTION.md` — the UI/UX direction (implemented; see its status note).
+- `docs/phase-2-open-questions.md` — the client questions of the Phase 2 design, with the working assumptions.
+- `docs/superpowers/plans/` — the phase implementation plans, including the Phase 2 build plan and its decision records
+  (historical planning documents).
 
 ## Repository layout
 
@@ -55,13 +56,16 @@ The Phase 2 design is `docs/design/Hajj_Booking_Platform_Architecture_v7.pdf`; i
    extension in both (`packages/db/docker/init.sql`, first start of the volume only).
    Wait until `docker compose ps` reports the service `healthy`.
 3. `cp apps/api/.env.example apps/api/.env` and set `NUXT_SESSION_PASSWORD` to a random secret
-   of **at least 32 characters** (e.g. `openssl rand -base64 48`). Every
-   variable is documented in `apps/api/.env.example`.
+   of **at least 32 characters** (e.g. `openssl rand -base64 48`). Replace the two PII placeholders:
+   `PII_ENCRYPTION_KEYS=k1:<key>` and `PII_LOOKUP_KEY=<key>`, where each `<key>` is the output of
+   `openssl rand -base64 32` (32 random bytes; the lookup key must differ from the encryption key). The server rejects
+   the placeholders. Every variable is documented in `apps/api/.env.example`.
 4. `pnpm db:migrate` — applies all migrations to the database in
    `DATABASE_URL` (`hajj_umrah_dev`).
 5. `pnpm db:seed` — creates (or resets to its baseline) the demo
    organization; see [Demo organization](#demo-organization).
-6. `pnpm dev` — starts the app at http://localhost:3000. Check
+6. `pnpm dev` — starts the API at http://localhost:3000 (the frontends are started separately, see
+   [Frontends](#frontends)). Check
    `GET http://localhost:3000/api/health` → `{"status":"ok","db":"ok"}`.
 
 Sign in with `POST /api/auth/login` and a JSON body
@@ -77,7 +81,9 @@ database whose name does not end in `_test`.
 
 | Command | What it does |
 |---|---|
-| `pnpm dev` | Development server with hot reload. |
+| `pnpm dev` | Development server with hot reload (the API). |
+| `pnpm --filter @hajj/api worker` | Background worker: the heavy job tier (passport reading). Run it beside the API in every deployment; `JOBS_MODE` (default `light`) sets what the API itself works. |
+| `pnpm rbac:sync` | Upserts the permission catalogue and grants the built-in roles this release's permissions and 2FA flags (additive, idempotent). Run after the migrations. |
 | `pnpm build` | Production build (`.output/`). |
 | `pnpm db:migrate` | Apply pending migrations to `DATABASE_URL`. |
 | `pnpm db:seed` | Create/reset the demo organization (refused under `APP_ENV=production` unless `ALLOW_DEMO_SEED=true`). |
@@ -87,7 +93,7 @@ database whose name does not end in `_test`.
 | `pnpm lint` | ESLint (includes the layering/scope import rules). |
 | `pnpm typecheck` | `nuxt typecheck`. |
 | `pnpm typecheck:types` | Compile-only type tests (`apps/api/tests/types`). |
-| `pnpm test:unit` | Unit tests (`apps/api/tests/unit/**`), no database. `pnpm test` is the same suite. |
+| `pnpm test:unit` | Unit tests of every package, run by turbo (the API's `apps/api/tests/unit/**`, the shared layer's own tests), no database. `pnpm test` is the same. |
 | `pnpm test:integration` | Migrates `hajj_umrah_test`, then runs `apps/api/tests/integration/**` (incl. the Phase 1 acceptance scenario) against real PostgreSQL. Needs `docker compose up -d`. |
 | `pnpm test:integration:fresh` | Rebuilds the test database schema from zero (`pnpm db:test:reset`), then runs `pnpm test:integration`. |
 | `pnpm test:http` | Black-box HTTP suite (`apps/api/tests/http/**`): migrates the test database, builds the production artifact (`nuxt build`), starts `node .output/server/index.mjs` on a free port, waits for `/api/health` and sends real HTTP requests. `HTTP_TEST_SKIP_BUILD=1` reuses an existing build. Uploaded test files go to a temporary directory. |
@@ -122,7 +128,7 @@ the same data and a reset recreates the **same ids** (sessions and bookmarks sta
 | `manager.grand` | Nora Al-Qahtani | Hotel Manager | MKK-GRAND | yes |
 | `manager.madinah` | Omar Siddiqui | Hotel Manager | MED-CENT, MED-QUBA | yes |
 | `reservations` | Aisha Rahman | Reservation Manager | MKK-GRAND, MKK-AJYAD, MKK-AZIZ | yes (read-only inventory) |
-| `accountant` | Khalid Al-Harbi | Accountant | all | later phases |
+| `accountant` | Khalid Al-Harbi | Accountant | all | bookings (read), rates (read and write), other booking rules (read) |
 | `hr` | Maryam Yusuf | HR Manager | MKK-GRAND, MKK-AJYAD, MED-CENT | later phases |
 | `reception.grand` | Ahmed Hassan | Reception | MKK-GRAND | yes (read-only inventory) |
 | `reception.ajyad` | Imran Chowdhury | Reception | MKK-AJYAD | yes (read-only inventory) |
@@ -137,8 +143,8 @@ development writes the code to the API's log).
 The full email is the login plus the domain, e.g. `manager.grand@demo.alsafahotels.test`. Hotel codes: MKK-GRAND
 (Al Safa Grand Makkah), MKK-AJYAD (Al Safa Ajyad Towers), MKK-AZIZ (Al Safa Aziziyah Residence), MED-CENT (Al Safa
 Madinah Central), MED-QUBA (Al Safa Quba Suites). "Phase 1" is presentation only: every account can sign in and every
-role keeps exactly its normal permissions (Accountant and HR have no inventory permission, so in Phase 1 they see the
-hotels list only). A persona without access to a hotel gets the same 404 as for a hotel that does not exist.
+role keeps exactly its normal permissions (HR has no inventory or booking permission, so it sees the hotels list only; the Accountant has
+bookings and rates but no inventory). A persona without access to a hotel gets the same 404 as for a hotel that does not exist.
 
 ### Demo environment variables
 
@@ -185,12 +191,15 @@ frontend's origin in `ALLOWED_ORIGINS` and runs with `TRUST_PROXY=true` behind t
 
 Runtime variables of a frontend: `NUXT_API_PROXY_TARGET` (the API's internal origin), `NUXT_API_PROXY_TRUST_PROXY`
 (`true` only when the frontend itself sits behind one proxy that sets `X-Forwarded-For`) and, for the public site and
-the agency portal, `NUXT_PUBLIC_ORGANIZATION_SLUG` (the organization whose hotels they sell; default `demo`). Lint, typecheck and
+the agency portal, `NUXT_PUBLIC_ORGANIZATION_SLUG` (the organization whose hotels they sell; default `demo`, so set it) and, for the public site,
+`NUXT_PUBLIC_TURNSTILE_SITE_KEY` (the Cloudflare Turnstile site key). Lint, typecheck and
 unit tests of every package run with the root `pnpm lint`, `pnpm typecheck` and `pnpm test:unit`.
 
 ## Environment and deployment
 
-`apps/api/.env.example` documents every variable the application reads (database, session, storage, demo). Before any
-deployment work through `docs/DEPLOY_CHECKLIST.md`; in short: secure cookies and a strong session password, the demo
-seed and demo sign-in off, `btree_gist` available, migrations applied before the new version takes traffic, and a
-persistent, backed-up document storage directory.
+`apps/api/.env.example` documents every variable the API reads (database, session, PII keys, request security, SMS and
+captcha, jobs, passport reading, storage, demo). Before any deployment work through `docs/DEPLOY_CHECKLIST.md`; in short:
+secure cookies and a strong session password, PII keys from a secret manager, staff two-factor enforcement
+(`STAFF_2FA_ENFORCEMENT=required-roles`, mandatory in production), the demo seed and demo sign-in off, `btree_gist`
+available, migrations applied before the new version takes traffic, `pnpm rbac:sync` run, a worker beside the API, and a
+persistent, backed-up storage directory (documents and passport images).

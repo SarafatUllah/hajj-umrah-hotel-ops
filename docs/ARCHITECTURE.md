@@ -1,6 +1,6 @@
 # Hajj & Umrah Hotel Operations System — Architecture
 
-Status: **approved in Phase 0; updated at the end of Phase 1 (Inventory Foundation) to match the shipped code.** Sections describing later phases (bookings, finance, HR, notifications, reporting, …) remain the agreed direction, not shipped behavior. What Phase 1 actually ships is described in §6 (table catalogue), §7–§8 (tenancy and authorization), §9 (inventory), §14 (demo), §15 (documents and storage), §20 (health), §22 (testing) and §28 (Phase 1 divergence register, changelog and known limitations). Operational guides: `README.md` (developer workflow, demo personas), `docs/MIGRATIONS.md` (migration policy), `docs/DEPLOY_CHECKLIST.md` (deployment prerequisites).
+Status: **approved in Phase 0; updated for Phase 2 (booking platform) to match the shipped code.** Sections describing later phases (finance, HR, compliance, the reminder engine, reporting, …) remain the agreed direction, not shipped behavior. What is shipped is described in §6 (table catalogue; booking tables in §6.2), §7–§8 (tenancy and authorization), §9 (inventory), §10–§11 (booking concurrency and allocation, as shipped), §13 (background jobs), §14 (demo), §15 (documents and storage), §20 (health), §21 (security), §22 (testing), §24 (layout), §28 (Phase 1 divergence register, changelog and known limitations) and §29 (Phase 2 as shipped). Operational guides: `README.md` (developer workflow, demo personas), `docs/MIGRATIONS.md` (migration policy), `docs/DEPLOY_CHECKLIST.md` (deployment prerequisites).
 
 ---
 
@@ -39,7 +39,7 @@ These are gaps in the spec that must be resolved with explicit, documented decis
 
 ## 3. Recommended Architecture
 
-**Modular monolith**, single Nuxt 4 application (Vue 3 + Nitro), TypeScript throughout, PostgreSQL as the single system of record, deployed as one container. Internally organized into **domain modules** (inventory, booking, finance, hr, compliance, notifications, reporting) each with its own service + repository layer, so any module can later be extracted into its own service without a rewrite — but nothing is split prematurely.
+**Modular monolith**, one Nuxt 4 application (Vue 3 + Nitro) for the API and its background jobs, a separate worker process for CPU-heavy jobs, and three Nuxt frontends (§24), TypeScript throughout, PostgreSQL as the single system of record (pg-boss runs its queues in the same database). Internally organized into **domain modules** (inventory, booking, finance, hr, compliance, notifications, reporting) each with its own service + repository layer, so any module can later be extracted into its own service without a rewrite — but nothing is split prematurely.
 
 ```
 API route (thin) → service (business rules, orchestration) → domain (pure rules, calculations) → repository (DB access via Drizzle)
@@ -108,6 +108,7 @@ The booking design of `docs/design/Hajj_Booking_Platform_Architecture_v7.pdf` re
 - **Pricing and rules:** `rate` (PUBLIC / AGENCY_DEFAULT, per person-night or room-night, per season), `price_quote` (WhatsApp quote; never holds rooms), `agency_quota` (persons per night per season; `agency_id` NULL = default), `allocation_rule` (room-mix caps by group size), `extra_bed_policy`, `booking_setting` (organization-wide settings of v7 §15). Money is integer halalas.
 - **Bookings:** `booking` (booker, type, counts, frozen price source, status, hold expiry, receipt token), `booking_room` (a booking's claim on a room: owner = agency or the booking itself, generated `owner_key`, occupancy), `booking_guest` (one slot per pilgrim, incl. infants), `guest_stay` (which slot sleeps in which claimed room on which nights), `booking_price_line` (frozen per-night price), `booking_change` (append-only, PII-free), `hotel_task` (extra-bed work).
 - **Pilgrim data:** `pilgrim` (staff-only master, unique blind index `passport_lookup`), `booking_guest_detail` (each booker's own encrypted copy), `passport_scan` (encrypted image + extracted fields; references the booker's copy, never the master), `pii_access_log` (append-only).
+- **Platform and events (`0008`, `0010`, `0011`, `0015`):** `rate_limit_bucket` (fixed-window rate limits, §21), `otp_challenge` (hashed customer sign-in codes), `document_sequence` (the `Q-…` and `B-…` references, per organization and year) and `event_receipt` (one row per event and handler: a handler runs at most once per event). Later columns: `booking.details_reminded_at` (0014), `booking_guest_detail.erased_at` (0016), `customer.closed_at` (0019), and the booking-setting columns of 0013, 0016 and 0017. Migration `0018` redefines `room_night_occupancy` with an except-booking argument; `0020` and `0021` are data steps (`docs/MIGRATIONS.md`).
 - **Database-enforced rules:** exclusion constraints `booking_room_one_owner`, `booking_room_one_occupancy`, `booking_room_no_duplicate` (seat-holding claims only), `guest_stay_one_bed_per_night`, no-overlap of rates, quotas and room-mix rules; composite FKs keep a stay, its slot and its room claim in one booking, a claim's owner agency equal to the booking's agency, a booking's quote that agency's quote for that hotel, a passport scan's copy that scan's slot, and agency-user attribution within the agency; triggers copy every booking status to its unreleased claims (and refuse a mismatch) and check at commit that stays lie within their claim and claims within their booking; a pending booking always has an expiry and a confirmed one never. Seats are counted only by the `room_night_occupancy(org, hotel, from, to, rooms)` function (infants and removed slots never count, expired holds drop out at once, a NULL expiry never silently frees seats; the night range is applied before stays are expanded).
 
 Stays are `[check_in, check_out)` date pairs; seasons are inclusive night ranges like `capacity_period`.
@@ -152,11 +153,11 @@ Enforcement, layered:
 - **Hotel scope is orthogonal to role**: `user_hotel_access` (user_id, hotel_id | ALL). A permission check is always `(does role grant permission) AND (does user have access to this hotel)`.
 - **Every server route re-checks both**, via a shared `requirePermission(event, 'booking.create', hotelId)` helper used inside services — never inferred from UI state.
 - Sensitive-field access (e.g., employee Iqama numbers) uses a dedicated finer-grained permission (`employee.viewSensitive`) checked at the field-serialization layer, not just the route layer, so a route granting general `employee.view` doesn't leak sensitive fields by accident.
-- 2FA (TOTP) is schema-ready (optional `user.totp_secret`) but not required for v1 UI; recommended before production go-live for Super Admin/Accountant roles.
+- 2FA (TOTP) shipped in Phase 2a for staff, enforced per role with `STAFF_2FA_ENFORCEMENT=required-roles` (Super Admin and Hotel Manager carry `requiresTwoFactor`; §21, §29).
 
 ### 8.1 As shipped in Phase 1
 
-- **Identity-only sealed session.** `POST /api/auth/login` (organization slug + email + password; one identical 401 `INVALID_CREDENTIALS` for unknown organization, unknown email or wrong password) stores only `{ user: { id, organizationId, email, fullName }, loggedInAt }` in the `nuxt-auth-utils` sealed cookie (`httpOnly`, `sameSite=lax`, `secure` by default — `NUXT_SESSION_COOKIE_SECURE=false` only for local HTTP/tests — `maxAge` 8 hours, sealed with `NUXT_SESSION_PASSWORD`, minimum 32 characters). No permission or hotel-access snapshot is ever stored in the cookie. There is no session table. 2FA, login rate limiting and lockout are not implemented (Phase 9).
+- **Identity-only sealed session.** `POST /api/auth/login` (organization slug + email + password; one identical 401 `INVALID_CREDENTIALS` for unknown organization, unknown email or wrong password) stores only `{ user: { id, organizationId, email, fullName }, loggedInAt }` in the `nuxt-auth-utils` sealed cookie (`httpOnly`, `sameSite=lax`, `secure` by default — `NUXT_SESSION_COOKIE_SECURE=false` only for local HTTP/tests — `maxAge` 8 hours, sealed with `NUXT_SESSION_PASSWORD`, minimum 32 characters). No permission or hotel-access snapshot is ever stored in the cookie. There is no session table. Phase 2a added staff TOTP, login rate limits and the principal kind and session version (§21, §29).
 - **Per-request authorization context.** Every authenticated request calls `resolveAuthContext` (`server/security/authContext.ts`) once (memoized per request): the active user row (scoped to the session's organization), the permission keys of the user's roles in its **own** organization, and its explicit hotel ids — three queries, fresh from the database, so a role change, a deactivated user or revoked hotel access takes effect on the next request. A user that no longer resolves clears the session and answers 401 `SESSION_INVALID`.
 - **Roles and permissions** are database rows (§6.1). Hotel access = `app_user.all_hotels` **or** a `user_hotel_access` row. `organization.resetDemo` is demo-only: it is granted to the demo organization's Super Admin by the demo seed and is never part of the generic Super Admin role.
 - **One authorization path for hotels.** `authorizeHotel(ctx, permission, hotelId)` (`server/security/authorize.ts`) is called by every hotel-scoped service and is the only place a `HotelScope` is minted for a request; organization-level operations use `requireOrgPermission` / `requireAllHotels`. Creating hotels and writing room types require `allHotels` as well as the permission.
@@ -171,7 +172,7 @@ Enforcement, layered:
 | A body references an id outside the authorized scope (e.g. a floor/room type/room of another hotel or organization in a create, override selector or bulk request) | **422** `INVALID_REFERENCE` |
 | Write to an `INACTIVE` hotel | **409** `HOTEL_INACTIVE` (reads stay allowed) |
 
-  Counts that would reveal inventory to callers without `room.view` are `null` (`HotelSummary.floorCount/roomCount`), and room-type `usageCount` is `null` unless the caller has `allHotels`. The only unauthenticated endpoints are `POST /api/auth/login`, `GET /api/health` and the runtime-gated `GET /api/public/demo-sign-in` (§14).
+  Counts that would reveal inventory to callers without `room.view` are `null` (`HotelSummary.floorCount/roomCount`), and room-type `usageCount` is `null` unless the caller has `allHotels`. The unauthenticated endpoints are `POST /api/auth/login` (staff), `GET /api/health`, the runtime-gated `GET /api/public/demo-sign-in` (§14), `GET /api/public/hotels`, `POST /api/agency/register`, `POST /api/agency/auth/login`, `POST /api/customer/auth/otp/request` and `POST /api/customer/auth/otp/verify`; the sign-out routes (`…/auth/logout`) answer without a session. Every other route declares its principal (`auth: 'required'` for staff, `'agency'` or `'agency-any-status'`, `'customer'`) and refuses the other kinds with 401.
 
 ## 9. Inventory Architecture (as shipped in Phase 1)
 
@@ -214,37 +215,22 @@ Every average returns `{ numerator, denominator, value, display, basis }`. A **z
 
 ## 10. Booking Concurrency Strategy
 
-Double-booking is prevented **at the database level**, not just application logic:
+Double-booking is prevented **at the database level** (shipped in Phase 2a, migration `0009`):
 
-- **Postgres exclusion constraint** (requires `btree_gist` extension) on `booking_room_assignment`:
-  `EXCLUDE USING gist (room_id WITH =, daterange(check_in, check_out, '[)') WITH &&) WHERE (status IN ('HELD','CONFIRMED','CHECKED_IN'))`
-  This makes a double-booked overlapping range a constraint violation the database itself refuses — impossible to bypass from any code path, including future ones.
-- **Application flow still recheck-before-commit** (defense in depth + better UX than raw constraint errors):
-  1. User selects rooms → server computes live availability (read).
-  2. User confirms → server opens a transaction, re-queries availability for the exact rooms/range with `SELECT ... FOR UPDATE` on the candidate `room` rows to serialize concurrent attempts on the same rooms.
-  3. Insert assignments inside the same transaction; the exclusion constraint is the final backstop if the row lock strategy is ever bypassed.
-  4. On constraint violation, return a typed "rooms no longer available" error and re-run the allocation suggestion — never a raw DB error to the client.
-- Hold→booking conversion uses the same transaction path; hold expiry release (§12) uses `SELECT ... FOR UPDATE SKIP LOCKED` in its background sweep so it never races a user actively confirming that same hold.
+- The claim table is `booking_room`: a booking's claim on a room, owned by its agency or by the booking itself. Exclusion constraints `booking_room_one_owner`, `booking_room_one_occupancy` and `booking_room_no_duplicate` (seat-holding claims only), `guest_stay_one_bed_per_night`, and no-overlap constraints on `rate`, `agency_quota` and `allocation_rule` (all need `btree_gist`, §26).
+- Composite foreign keys keep a stay, its pilgrim slot and its claim in one booking. Triggers copy each booking's status to its unreleased claims and refuse a mismatch; deferred constraint triggers check at commit that stays lie within their claim and claims within their booking.
+- Seats are counted only by `room_night_occupancy(...)` (§6.2): an expired hold drops out at once, and a NULL expiry never silently frees seats.
+- Application flow: a hold runs in one transaction with one lock order: the agency's advisory quota lock, then the rooms `ORDER BY id FOR UPDATE`, then the `BOOKING` sequence row, taken last. The facts and the option are checked again after the locks. A room taken meanwhile answers 409 `OPTION_UNAVAILABLE`; the constraints are the last line (409). Decision records D-P2-35 and D-P2-37 (plan).
 
-## 11. Smart Room-Allocation Algorithm Design
+## 11. Room Allocation (as shipped in Phase 2)
 
-Implemented as a **pure, framework-free domain service** (`server/domain/allocation/allocateRooms.ts`), fully unit-testable with plain arrays in, plain result out — no DB, no HTTP.
+The Phase 0 `allocateRooms` design is superseded. Allocation is pure domain code in `server/domain/booking/allocation/` with no database access: services load the facts and call it. Summary (decisions in the plan: D-P2-32, D-P2-33, D-P2-36, D-P2-37):
 
-```
-Input:  { hajiCount, availableRooms: {roomId, capacity, floor, roomType}[],
-          lockedRoomIds?, preferSameFloor?: boolean }
-Output: { allocation: roomId[], totalCapacity, wastedCapacity, shortfall,
-          alternatives?: roomId[][] }
-```
-
-Algorithm:
-1. **Estimate (display only):** `ceil(hajiCount / effectiveHotelAverage)` — shown as a hint before real allocation runs, per §10 of the spec.
-2. **Exact solve for small/medium pools** (room count × target sum within a bounded budget, typically true per-hotel/per-stay): subset-sum/bin-covering **dynamic programming** over achievable capacity sums to find the **minimum room count** whose combined capacity ≥ hajiCount, then a second DP pass among equal-minimal-count solutions to **minimize wasted capacity**.
-3. **Heuristic fallback for large pools** (bounds exceeded): first-fit-decreasing by capacity to seed a feasible solution, then bounded local-search swaps (try replacing one room with a smaller one if it still covers the requirement) to reduce waste — capped iteration count so it's always fast.
-4. **Tie-breaking preferences** applied after finding minimal-count/minimal-waste candidates: prefer same-floor grouping, prefer leaving larger contiguous blocks of remaining inventory intact (avoid fragmenting, e.g. don't break up a rare 6-bed room for a 3-Haji ask if 3+3 exists elsewhere) — implemented as a scoring function over otherwise-equal candidate sets, not baked into the DP itself.
-5. **Locked rooms** are simply excluded from `availableRooms` before the algorithm runs.
-6. **Insufficient inventory:** if even using every available room capacity < hajiCount, return the best partial covering plus `shortfall = hajiCount - totalCapacity`; the service layer requires `booking.override` permission to proceed with a partial allocation and records why.
-7. **Both values are always stored**: `system_suggested_allocation` (algorithm output, immutable) and `final_user_allocation` (what was actually booked) on `booking_room_allocation`, with an audit entry (user, timestamp, before, after, reason) whenever they diverge — per spec §10.
+- `roomOptions.ts`: a dynamic programme over seats, extra-bed space and capped rooms (v7 §9.4). It returns distinct room mixes, keeps the best three per state, and prefers bigger rooms among equal options. A property test checks it against brute force over every subset of the actual rooms.
+- `planner.ts` (`planStay`): a GROUP is planned per side (children on the requested side). Each side first fills the agency's own rooms for the same dates and gender, then takes new rooms, with the room-mix rule applied per side. A FAMILY takes whole free rooms only and has no room-mix rule.
+- Concrete rooms: around the median floor of the agency's rooms, then cheaper, then by room number. Extra beds only in new rooms, and only where they are slept in.
+- `stayPlanCheck.ts` (`checkStayPlan`) applies the same rules when a hold is made, so a hand-made option cannot claim more than it needs (409 `OWN_ROOMS_FIRST`; 422 `IDLE_ROOMS`, `EXTRA_BEDS_UNNEEDED`, `EXTRA_BEDS_UNUSED`).
+- Measured on a 420-room hotel: a GROUP search takes 3 / 31 / 101 ms for 50 / 270 / 580 pilgrims (p95 14 / 35 / 110 ms). Bookings are capped at 600 seated pilgrims and 200 rooms. If the production p95 passes 250 ms, `planStay` moves into a worker pool without other changes (D-P2-36).
 
 ## 12. Finance/Accounting Architecture
 
@@ -256,7 +242,9 @@ Algorithm:
 
 ## 13. Notification / Background-Job Architecture
 
-**One central reminder engine**, not ad-hoc notification calls scattered per module, per §29:
+**As shipped (Phase 2):** pg-boss runs the background jobs of §29.3 (the light tier in the API, the heavy tier in the worker). The reminder engine below is not built yet (there is no reminder table): the shipped reminders are the details reminder job and the booking-event handlers.
+
+**Planned: one central reminder engine**, not ad-hoc notification calls scattered per module, per the design's §29:
 
 - **Job queue: `pg-boss`** (Postgres-backed queue/scheduler, runs inside the existing database — no Redis, no separate broker). This matches the low-cost-first deployment goal: one Postgres instance is the only stateful dependency for both data and jobs.
 - **Reminder policies are data, not code**: `reminder_policy(source_type, offsets[], recipient_role)` — e.g., source_type = `HOLD_EXPIRY` with offsets `[-3d, -2d, -1d, 0d]`, or `COMPLIANCE_DOCUMENT` with offsets `[-90,-60,-30,-15,-7,-1]`. Adding a new reminder type is a config row plus a small event-producer, not new notification plumbing.
@@ -305,11 +293,11 @@ Direction (unchanged): a `StorageDriver` abstraction, metadata in PostgreSQL, by
 
 ## 17. Deployment Architecture
 
-- **Single Docker image** running the Nuxt/Nitro server (Node preset) — includes the HTTP server and the pg-boss worker in-process for v1 (simplest possible ops model; can be split into a separate worker container later purely by changing the start command, no code change).
+- **Processes (as shipped in Phase 2):** the API (Nitro; the light job tier by default, `JOBS_MODE=light`), the worker (`pnpm --filter @hajj/api worker`, heavy tier only) and the three frontends. No container file is committed yet.
 - **Managed PostgreSQL** (Neon or Supabase recommended — see §18) rather than self-hosted, for automated backups/PITR without ops burden.
 - **Object storage**: Cloudflare R2 (S3-compatible, no egress fees).
 - **Reverse proxy/TLS/CDN**: handled by the hosting platform (Railway/Render/Fly all provide this) rather than custom nginx config.
-- Config fully via environment variables — four environments (`APP_ENV`: `development`, `demo`, `staging`, `production`) differ only by env vars and which `organization` rows exist, never by code branches. Phase 1 reads `APP_ENV`, `DATABASE_URL`, `DATABASE_POOL_MAX`, `NUXT_SESSION_PASSWORD`, `NUXT_SESSION_COOKIE_SECURE`, `STORAGE_DRIVER`, `STORAGE_LOCAL_DIR`, `ALLOW_DEMO_SEED`, `DEMO_ANCHOR_DATE` and `DEMO_SIGN_IN_ENABLED` (validated by `server/utils/env.ts`; documented in `apps/api/.env.example`). Email settings arrive with the notification phase.
+- Config fully via environment variables — four environments (`APP_ENV`: `development`, `demo`, `staging`, `production`) differ only by env vars and which `organization` rows exist, never by code branches. The API reads the variables of `apps/api/.env.example` (validated by `server/utils/env.ts`): Phase 1's set and the Phase 2 ones (§29.6). Email settings arrive with the notification phase.
 - **Migrations run before the new app version takes traffic** (`pnpm db:migrate`); see `docs/MIGRATIONS.md` and `docs/DEPLOY_CHECKLIST.md`. Phase 1 has no object storage yet: with the local storage driver the document directory must be a persistent volume (§15.1).
 
 ## 18. Low-Cost Deployment Options
@@ -334,7 +322,7 @@ Recommended starting stack (re-evaluate only if usage outgrows it):
 - API errors logged with context (route, org/hotel, actor, input shape — never raw secrets/PII in logs).
 - Background job failures logged by pg-boss's built-in failure tracking, surfaced in an internal `/admin/jobs` view.
 - Email delivery status persisted per notification (§13).
-- `GET /api/health` (shipped, unauthenticated) runs `select 1` and answers 200 `{ status: 'ok', db: 'ok' }`, or 503 `{ status: 'degraded', db: 'down' }`. The first database use also validates the full environment (`getEnv()`), so an invalid `DATABASE_URL`/`NUXT_SESSION_PASSWORD` shows up here as 503. Job-queue liveness is added with pg-boss (Phase 7).
+- `GET /api/health` (shipped, unauthenticated) runs `select 1` and answers 200 `{ status: 'ok', db: 'ok' }`, or 503 `{ status: 'degraded', db: 'down' }`. The first database use also validates the full environment (`getEnv()`), so an invalid `DATABASE_URL`/`NUXT_SESSION_PASSWORD` shows up here as 503. Job-queue liveness is not part of the health check: pg-boss runs since Phase 2 (§29.3), and `/api/health` pings the database only.
 - Architecture leaves a clean seam to add Sentry (or similar) later — a single error-reporting hook point in the Nitro error handler and a client-side Vue error boundary, not wired to a vendor yet.
 
 ## 21. Security Requirements
@@ -348,7 +336,7 @@ Recommended starting stack (re-evaluate only if usage outgrows it):
 - Sensitive employee fields (Iqama number, passport number, salary) gated by dedicated permissions, redacted from API responses when the caller lacks them — not just hidden in the UI.
 - Full audit logging (§35) with before/after values for all financial, capacity, permission, and compliance changes.
 - Secrets only via environment variables / the hosting platform's secret manager — never committed, never hard-coded per-environment URLs.
-- **Phase 1 status:** server-side authorization on every route, the sealed `httpOnly` / `sameSite=lax` / `secure` session cookie, Argon2id, Zod validation, magic-byte upload validation, generated storage keys and before/after audit for every configuration write are shipped (§8.1, §15.1). Login rate limiting/lockout, an explicit CSRF origin check beyond `sameSite=lax`, 2FA and RLS are not yet implemented (Phase 9).
+- **Phase 1 status:** server-side authorization on every route, the sealed `httpOnly` / `sameSite=lax` / `secure` session cookie, Argon2id, Zod validation, magic-byte upload validation, generated storage keys and before/after audit for every configuration write are shipped (§8.1, §15.1). Login rate limits, the CSRF origin check and staff 2FA were added in Phase 2a (below); RLS is not implemented (Phase 9).
 - **Phase 2a status (security prerequisites, design v7 §21):** shipped — Postgres fixed-window rate limits (`rate_limit_bucket`, `server/security/rateLimit.ts`; login per client IP and per organization+email failures, 429 `TOO_MANY_REQUESTS` + `Retry-After`; daily cleanup job), the CSRF origin check (`server/middleware/csrfOrigin.ts`: unsafe `/api/` requests need an `Origin` on the request host or in `ALLOWED_ORIGINS`, and `Sec-Fetch-Site: cross-site` without an `Origin` is refused, 403 `CSRF_ORIGIN_MISMATCH`), principal kinds on the session (`staff`/`agency`/`customer`; each route group refuses the others with 401; agency accounts with staff approval and customer SMS-code sign-in landed in 10a/10b), staff TOTP two-factor authentication (RFC 6238, encrypted secret, replay guard, enforced per role with `STAFF_2FA_ENFORCEMENT=required-roles`, mandatory in production; a session version ends other sessions on every 2FA change; audited administrator reset) and the PII cipher (AES-256-GCM key ring with per-value context binding, HMAC-SHA256 blind indexes; `server/security/piiCrypto.ts`). RLS remains future work.
 
 ## 22. Testing Strategy
@@ -401,18 +389,20 @@ apps/
                           #   new modules: services/<module>/ with a public index.ts
       domain/             # pure business rules (capacity, allocation, pricing, …)
       repositories/       # the only Drizzle users, scoped by branded scopes
-      jobs/               # pg-boss job definitions
+      jobs/               # pg-boss job definitions (light and heavy tiers)
+      events/             # domain events: published in the caller's transaction, handled as jobs
       security/ utils/ errors/ plugins/ storage/
     db/seed/              # demo/test seed (writes through repositories)
     db/scripts/           # resetTestDb.ts
     tests/                # unit, integration, http, types (+ e2e with the UI)
-  ops-console/            # staff SPA (Phase 1 UI + Phase 2 operations)        — arrives in Phase 2
-  agency-portal/          # agency SPA                                          — arrives in Phase 2
-  public-site/            # public SSR site                                    — arrives in Phase 2
+    worker/               # the worker process (heavy job tier): pnpm --filter @hajj/api worker
+  ops-console/            # staff console (Nuxt, rendered in the browser after sign-in)
+  agency-portal/          # agency portal (Nuxt, rendered in the browser after sign-in)
+  public-site/            # public site (Nuxt, server-rendered for search engines)
 packages/
   contracts/              # @hajj/contracts — Zod schemas, constants, business-rule registries, pure utils
   db/                     # @hajj/db — Drizzle schema (one file per module), migrations, client, migrate, drift
-  ui/                     # shared Vue components on Nuxt UI v4                — arrives with the frontends
+  ui/                     # @hajj/ui, the shared Nuxt layer (tokens, en/ar, API proxy, shared components)
 docs/
   ARCHITECTURE.md  MIGRATIONS.md  DEPLOY_CHECKLIST.md  UI-UX-MASTER-DIRECTION.md
   design/                 # Hajj_Booking_Platform_Architecture_v7.pdf (Phase 2 design)
@@ -425,17 +415,19 @@ Data ownership: `docs/decisions/0001-module-data-ownership.md`.
 
 ## 25. Major Database Entities & Relationships
 
+The booking lines are shipped (Phase 2, §6.2); the commercial, HR and reminder lines are planned (§6.3).
+
 ```
 organization 1─* hotel 1─* floor 1─* room *─1 room_type
 hotel 1─* capacity_period 1─* room_capacity_override *─1 room
-hotel 1─* customer, agent, employee, expense, hotel_contract, maintenance_ticket
-booking *─1 hotel, *─1 customer(nullable), *─1 agent(nullable), *─0..1 itinerary
-booking 1─* booking_room_requirement 1─1 booking_room_allocation (suggested + final)
-booking_room_allocation 1─* booking_room_assignment *─1 room
-booking 1─0..1 hold
-booking 1─* booking_rate_snapshot
-booking 1─1 invoice 1─* invoice_line, invoice 1─* invoice_correction
-invoice 1─* payment 1─0..1 receipt
+organization 1─* customer, agency (shipped, booking platform); hotel 1─* employee, expense, hotel_contract, maintenance_ticket (planned)
+booking *─1 hotel, *─0..1 agency, *─0..1 customer (shipped; an itinerary is planned)
+booking 1─* booking_room (a claim: owner agency or the booking) 1─* guest_stay *─1 booking_guest
+booking_room *─1 room
+booking 1─* booking_price_line (frozen per night); booking 1─* booking_change
+booking_guest_detail 1─* passport_scan
+(planned) booking 1─1 invoice 1─* invoice_line, invoice 1─* invoice_correction
+(planned) invoice 1─* payment 1─0..1 receipt
 employee *─1 hotel (via employee_hotel_assignment, many-to-many with allocation %)
 employee 1─* compliance_document *─1 compliance_document_type
 employee 1─* payroll_line *─1 payroll_run
@@ -446,7 +438,7 @@ every table above → organization_id (direct or via hotel_id)
 
 ## 26. Critical Indexes / Constraints
 
-- `EXCLUDE USING gist (room_id WITH =, daterange(check_in, check_out, '[)') WITH &&) WHERE status IN ('HELD','CONFIRMED','CHECKED_IN')` on `booking_room_assignment` — hard double-booking prevention.
+- Booking platform (migration `0009`, shipped): exclusion constraints `booking_room_one_owner`, `booking_room_one_occupancy`, `booking_room_no_duplicate` (seat-holding claims only), `guest_stay_one_bed_per_night`, `rate_no_overlap`, `agency_quota_no_overlap` and `allocation_rule_no_overlap`. The Phase 0 `booking_room_assignment` table was never built; the claim table is `booking_room` (§6.2, §10).
 - Shipped in Phase 1 (all `daterange(..., '[]')`, inclusive): `room_base_config_no_overlap` `EXCLUDE USING gist (room_id WITH =, daterange(valid_from, valid_to) WITH &&)` (no overlapping base versions); `room_override_no_overlap` on `room_capacity_override` (at most one override per room per night); `room_block_no_overlap` `EXCLUDE USING gist (room_id WITH =, kind WITH =, daterange(start_date, end_date) WITH &&) WHERE (cancelled_at IS NULL)` (no two active same-kind blocks per room per night). All three need `btree_gist`.
 - Composite index `(organization_id, hotel_id)` on every tenant table used in list/filter queries (rooms, bookings, expenses, employees…).
 - Index on `(hotel_id, check_in, check_out)` for room-calendar and availability queries; GiST index on the `daterange` expression itself for range-overlap performance.
@@ -499,11 +491,71 @@ None recorded at the Phase 1 gate. (The final acceptance gate did find and corre
 - The demo data is a fixed deterministic dataset (movable only through the anchor date).
 - No reservations, holds or bookings (Phase 2); availability counts only inventory and blocks.
 - No browser UI and no browser E2E tests in the backend Phase 1 delivery.
-- No RLS, login rate limiting/lockout or 2FA (Phase 9).
+- No RLS (Phase 9). Login rate limits and staff 2FA shipped in Phase 2a (§21).
 
 ### 28.5 Test-infrastructure note
 
 `apps/api/tests/integration/db/tenancyHardening.migration.test.ts` builds scratch databases and intermittently exceeds Vitest's default 5 s per-test timeout on a loaded machine. It is a timing issue in the test, not a behavior failure; CI must report it rather than retry it silently.
+
+## 29. Phase 2 — booking platform (as shipped)
+
+The build plan and its decision records are in `docs/superpowers/plans/2026-10-21-phase-2-booking-platform.md` (D-P2-…). This section maps what shipped; the plan holds the reasons.
+
+### 29.1 Principals and sessions
+
+- **Staff** (`kind: 'staff'`): `POST /api/auth/login` takes the organization slug, e-mail and password; once the API answers `TWO_FACTOR_REQUIRED`, the same call also takes a 6-digit `totpCode`. TOTP (RFC 6238, encrypted secret, replay guard) is enforced per role with `STAFF_2FA_ENFORCEMENT=required-roles`; Super Admin and Hotel Manager carry `requiresTwoFactor`. A 2FA change bumps the session version, which ends the other sessions. An administrator's reset is audited (`POST /api/users/:userId/2fa/reset`).
+- **Agency users** (`kind: 'agency'`, `AgencyScope`): `POST /api/agency/register` answers 202 with the same body whether or not the licence is known; the agency stays `PENDING` until staff approve it (`POST /api/agencies/:agencyId/status`). Routes that need an approved agency refuse the others (`auth: 'agency'`); `GET /api/agency/auth/me` and `POST /api/agency/auth/password` also serve an agency that is not approved yet (`agency-any-status`). A staff member resets an agency user's password with `POST /api/agencies/:agencyId/users/:userId/password`.
+- **Customers** (`kind: 'customer'`): a phone number gets a sign-in code by SMS (`POST /api/customer/auth/otp/request`, then `…/otp/verify`). Codes are stored hashed (`otp_challenge`), go only to the calling codes in `SMS_ALLOWED_CALLING_CODES`, count against the organization's SMS budget, and sit behind the bot check (`CAPTCHA_DRIVER`). `/api/customer/*` serves the account; a customer can sign out everywhere and close the account (`POST /api/customer/account/close`).
+- Every session carries its `kind` and `sessionVersion`; each route group refuses the other kinds with 401.
+
+### 29.2 Booking flow
+
+1. **Quote** (optional, WhatsApp): an agency or staff asks for a price (`/api/agency/quotes`, `/api/quotes`); staff offer or decline it (`…/offer`, `…/decline`). A quote never holds rooms. References are `Q-<year>-<n>`.
+2. **Hold or request**: a stay is searched (`…/stays/search`) and booked at the agency's price (agency or staff on its behalf) or the public price (customers). An agency's booking is `HELD` for `holdMinutes`; an individual's is `REQUESTED` for `requestHours`. A lapsed pending booking becomes `EXPIRED` and frees its seats. References are `B-<year>-<n>`. Routes: `POST /api/agency/bookings`, `POST /api/bookings`, `POST /api/customer/bookings`.
+3. **Confirm**: `POST /api/agency/bookings/:bookingId/confirm` or `POST /api/bookings/:bookingId/confirm` makes it `CONFIRMED`; from then on the receipt (with its QR token) and the `booking.confirmed` event exist.
+4. **Pilgrims and passports**: guests are added, edited, moved between rooms and removed (`…/guests…`). Passport photos are uploaded (`…/passport-scans`), read in the worker, and confirmed or discarded by a person. Missing details are reminded close to check-in (§29.3).
+5. **Changes**: a date change searches the new nights with the booking's own seats released (`POST …/dates`, `…/dates/search`); cancellation is `POST …/cancel`; a customer withdraws a request with `POST /api/customer/bookings/:bookingId/withdraw`.
+6. **Check-in and check-out**, per pilgrim: `POST …/guests/:guestId/check-in`, `…/check-out`, `…/no-show`. Booking statuses: `HELD`, `REQUESTED`, `CONFIRMED`, `IN_HOUSE`, `COMPLETED`, `CANCELLED`, `EXPIRED`.
+7. **Occupancy and housekeeping**: `GET /api/hotels/:hotelId/occupancy` (a range of at most 400 days) and `…/occupancy/:date` (the day); hotel tasks (extra-bed work) are listed at `…/tasks` and closed at `…/tasks/:taskId/done`.
+8. **Settings and rules**: `/api/booking-settings` (hold and request hours, passport and retention settings); `/api/hotels/:hotelId/booking-rules/:kind` with the kinds `rates`, `agency-quotas`, `allocation-rules` and `extra-bed-policies`. Rates need `rate.view` and `rate.manage`; the other rules need `booking.view` and `booking.settings`.
+
+### 29.3 Background jobs (pg-boss, schema `pgboss`)
+
+Cron times are UTC.
+
+| Job | Tier | Schedule | What it does |
+|---|---|---|---|
+| `security.cleanup` | light | daily 03:17 | drops expired rate-limit buckets and old sign-in codes |
+| `booking.quote-expiry` | light | hourly at :05 | OFFERED quotes past their validity become EXPIRED |
+| `booking.hold-expiry` | light | every minute | lapsed pending bookings become EXPIRED and free their seats |
+| `booking.details-reminder` | light | daily 06:00 | texts bookers whose pilgrims' details are missing close to check-in (needs SMS) |
+| `booking.guest-data-retention` | light | daily 02:15 | erases pilgrims' details after the retention period following check-out |
+| `booking.passport-retention` | light | daily 02:30 | deletes passport images past their retention (and discarded ones) |
+| `booking.passport-read` | heavy | on upload | reads a passport image: OCR, the MRZ, the optional vision fallback |
+| `event.booking.confirmed.notify-booker`, `event.booking.cancelled.notify-booker` | light | on event | texts the booker when SMS is configured |
+| `events.receipt-prune` | light | daily 03:45 | prunes event receipts older than any retry |
+
+The light tier runs in the API process (`JOBS_MODE=light`, the default; `all` runs both tiers in one process). The heavy tier runs only in the worker (`pnpm --filter @hajj/api worker`), whatever `JOBS_MODE` says. `send` only enqueues and `off` runs no job runtime. Each event handler is its own job, with 5 retries and backoff.
+
+### 29.4 Frontends, proxy and ports
+
+- `packages/ui` (`@hajj/ui`) is the shared Nuxt layer: design tokens, English and Arabic (RTL), the API client and TanStack Query, the shared components and composables, and `server/api/[...path].ts`. That route forwards the app's own `/api/**` to the API (`NUXT_API_PROXY_TARGET`, default `http://localhost:3000`), only under the prefixes the app allows, with the visitor's address in `X-Forwarded-For`. Sessions stay first-party cookies.
+- Apps and dev ports: `apps/public-site` 3001 (`/api/public/`, `/api/customer/`), `apps/agency-portal` 3002 (`/api/agency/`, `/api/public/`), `apps/ops-console` 3003 (the staff endpoints and the demo sign-in). Anything else is 404 on the app's origin.
+- The API lists each frontend's origin in `ALLOWED_ORIGINS`; `TRUST_PROXY=true` when the frontends are in front of it.
+
+### 29.5 Security and personal data
+
+- Fixed-window rate limits in Postgres (`rate_limit_bucket`, `server/security/rateLimit.ts`): sign-in, code requests and checks, agency registration, quotes, stay searches, holds, PII reveals, passport uploads and views, each per address, account or organization. A refusal is 429 `TOO_MANY_REQUESTS` with `Retry-After`.
+- CSRF origin check (`server/middleware/csrfOrigin.ts`): an unsafe `/api/` request needs an `Origin` on the request host or in `ALLOWED_ORIGINS`; a cross-site request without an `Origin` is refused (403 `CSRF_ORIGIN_MISMATCH`).
+- Every response carries `SECURITY_HEADERS` (`packages/contracts/constants/securityHeaders.ts`), set by `routeRules` in the API and in the shared layer.
+- PII (`server/security/piiCrypto.ts`): AES-256-GCM with each value bound to its context, under the key ring `PII_ENCRYPTION_KEYS`; blind indexes are HMAC-SHA256 under `PII_LOOKUP_KEY` (for example `passport_lookup`). Passport numbers, guest details, passport images and TOTP secrets are stored encrypted.
+- Passport images are encrypted before they reach the storage driver, stored under `STORAGE_LOCAL_DIR` with the filename `passport.<ext>`. The retention is `passportImageRetentionMonths` (default 12) after check-out. A cancelled or expired booking's scans, and a discarded scan, become due at once. Each full view of passport data is logged.
+- Pilgrims' details are erased `guestDataRetentionMonths` (default 24) after check-out (`booking.guest-data-retention`).
+- External passport reading (`PASSPORT_AI`) also needs the organization's opt-in (`passportAiAllowed`).
+
+### 29.6 Environment
+
+The variables are documented in `apps/api/.env.example` and validated by `server/utils/env.ts`. Phase 2 added: `PII_ENCRYPTION_KEYS`, `PII_LOOKUP_KEY`, `TRUST_PROXY`, `ALLOWED_ORIGINS`, `STAFF_2FA_ENFORCEMENT`, `SMS_DRIVER`, `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN`, `SMS_ALLOWED_CALLING_CODES`, `SMS_HOURLY_LIMIT`, `SMS_DAILY_LIMIT`, `CAPTCHA_DRIVER`, `CAPTCHA_SECRET`, `JOBS_MODE`, `JOBS_POOL_MAX`, `PASSPORT_OCR`, `PASSPORT_AI`, `PASSPORT_AI_MODEL` and `ANTHROPIC_API_KEY`. The frontends read `NUXT_API_PROXY_TARGET`, `NUXT_API_PROXY_TRUST_PROXY`, `NUXT_PUBLIC_ORGANIZATION_SLUG` and `NUXT_PUBLIC_TURNSTILE_SITE_KEY`. Startup is refused in production without `STAFF_2FA_ENFORCEMENT=required-roles`; outside development, `SMS_DRIVER=log` is refused and `SMS_DRIVER=webhook` needs `CAPTCHA_DRIVER=turnstile`; `SMS_DRIVER=webhook` always needs an `https` `SMS_WEBHOOK_URL`, and `CAPTCHA_DRIVER=turnstile` always needs `CAPTCHA_SECRET`. `docs/DEPLOY_CHECKLIST.md` lists the deployment steps.
 
 ---
 

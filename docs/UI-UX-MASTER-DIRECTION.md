@@ -1,5 +1,8 @@
 # Hajj & Umrah Hotel Operations System — UI/UX Master Direction
 
+> **Status (2026-10-22): implemented.** The UI is built: the shared layer `packages/ui` and the three apps `apps/public-site`, `apps/agency-portal` and `apps/ops-console` (Phase 2; decision records D-P2-52…D-P2-60 in `docs/superpowers/plans/2026-10-21-phase-2-booking-platform.md`).
+> Pinia is not used (no dependency, no import): client state is Nuxt `useState` and server data is TanStack Query, so the Pinia wording below (including D3) is superseded. The "no UI code" statement below is historical.
+
 Status: **APPROVED (2026-09-25).** Decisions D1–D15 are resolved (§44) and the contract changes S1–S14 are integrated into the Phase 1 plan (§42). This is design direction only: no UI code has been written, no UI dependency installed, no Phase 1 task started, and no production file changed.
 
 **Constraints this document treats as fixed:** `docs/ARCHITECTURE.md`; the Phase 0 codebase as it exists on `main`; the Phase 1 plan `docs/superpowers/plans/2026-09-25-phase-1-hotel-inventory-foundation.md` with its approved rulings (Q1–Q6) and decisions (D1–D16). Where the UI needed something the plan did not provide, §42 names the change and the task that owns it; those changes (S1–S14) are approved and now part of the plan.

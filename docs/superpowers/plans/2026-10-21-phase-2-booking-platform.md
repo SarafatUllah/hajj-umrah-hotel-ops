@@ -1,11 +1,11 @@
 # Phase 2 — Booking platform (design v7) — build plan & progress log
 
 Source design: `docs/design/Hajj_Booking_Platform_Architecture_v7.pdf` (Bengali, 45 pages).
-Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed and pushed to `origin/dev`).
+Branch: `dev` (every step is reviewed, verified with `pnpm verify` and committed on `dev`; pushing is the owner's, D-P2-6).
 
 ## Working rules
 
-- One step = one reviewed, green, pushed unit. Review = the code-review skill/agents on the step's diff,
+- One step = one reviewed, green, committed unit. Review = the code-review skill/agents on the step's diff,
   plus `security-reviewer` for auth/PII/money/DB-constraint work and `database-reviewer` for migrations.
 - DRY / SOLID / KISS: new code follows the existing layering (thin `server/api` routes →
   `server/services` → pure `server/domain` → `server/repositories`, scoped by branded scopes).
@@ -38,7 +38,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done; 16g quotes, agencies done; 16h booking settings, booking rules done |
-| 17 | Final review (code, security, database, architecture) and docs | |
+| 17 | Final review (code, security, database, architecture) and docs | done: 17a data protection, database, security; 17c agency passwords; 17d shared layer, typed contracts; 17e bookings on the room calendar; 17f docs |
 
 ## Local environment note
 
@@ -151,7 +151,7 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   create / move / reactivation lock the target floor first (reactivation now also requires an active
   floor, 409 `FLOOR_INACTIVE`). Period → rooms for every override change, including deletes. Cost: room
   creates and moves on one floor serialize on that floor's row (admin operations; acceptable).
-- **D-P2-24 (architecture) Ticket 5 module boundary.** `BUSINESS_MODULES = ['booking']`: only a module's own
+- **D-P2-24 (architecture) Ticket 5 module boundary.** `BUSINESS_MODULES = ['booking', 'accounts']` (`accounts` since 10a): only a module's own
   `server/{services,domain,repositories}/<module>/` files reach its internals; everything else imports
   `server/services/<module>/index.ts`. Phase 1's flat services are not a module.
 
@@ -171,7 +171,8 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   repository factory (principal resolution), nothing else outside the module may.
 - **D-P2-25b (accounts) Follow-ups.** Agency-user password change/reset and invitations (staff currently set the
   first password) come with the agency portal UI (step 16). `agency.view` is organization-wide by design
-  (agencies are not hotel-scoped).
+  (agencies are not hotel-scoped). Delivered in step 17c (D-P2-62): the user's own change and a staff reset;
+  invitations stay deferred (the platform sends no e-mail yet).
 - **D-P2-27 (accounts) Customers sign in by SMS code.** Sign-up and sign-in are one flow (v7 §21): request a
   code (202 whatever the phone), then verify it (a new customer gives a name: 422 `FULL_NAME_REQUIRED`, the
   code stays usable). Six digits from a CSPRNG, valid 5 minutes, 5 attempts per challenge counted atomically,
@@ -640,7 +641,7 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   per staff member, country and currency upper-cased, numbers and identifiers isolated in Arabic, the switcher never
   showing another hotel on an inaccessible page, a refetch never replacing unsaved settings, the collapsed rail with
   tooltips (on the side away from its edge), focus on the code after starting two-factor setup, and the shared toasts
-  (`useNotify`). The generic `ALREADY_EXISTS` message is generic again (it named floors).
+  (`useNotify`, in the shared layer since step 17d). The generic `ALREADY_EXISTS` message is generic again (it named floors).
 - **D-P2-56 (frontends) The ops console, inventory (step 16d, UI-UX-MASTER-DIRECTION §27–§33).** A
   hotel's rooms as of a night (filters in the URL, search after a pause; capacity always as beds and Haji, a season
   named; status; next change), add rooms by range or pasted list (previewed as the API will store them — the range
@@ -771,7 +772,7 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   at the switcher's hotel only where this user may quote, or the only such hotel; a list's page from the URL is a
   whole number from 1 (`pageOf`, every list page); the console does not offer to fill in the staff member's own name
   and email for someone else's sign-in (`AgencyUserFields` `own`, the portal's registration only); riyals and
-  halalas convert in the layer's formatting (`toHalalas`, `toRiyals`). Known limit: the agency filter and picker
+  halalas convert in `@hajj/contracts/utils/money.ts` since step 16h (`toHalalas`, `toRiyals`). Known limit: the agency filter and picker
   list the first 100 agencies (as for bookings, D-P2-57).
 - **D-P2-60 (frontends) The ops console: booking settings and a hotel's booking rules (step 16h, v7 §15).** Booking
   settings (`/admin/booking-settings`, `booking.view`): the organization's holds, requests and quotes (minutes,
@@ -802,6 +803,57 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   list), so a reader without `agency.view` still sees whose quota it is, and quotas are edited only with it (the
   picker lists agencies); a confirmation cannot be closed while its action runs; extra beds offer "add" only once the
   policies are known; a rule deleted elsewhere leaves the list when its save fails.
+- **D-P2-61 (review) Final review: data protection, database, security (step 17a).** Three read-only reviews
+  (security, database, architecture) of the whole of Phase 2. Data protection: a passport photo's stored filename is
+  "passport.<ext>", never the uploader's (it could name the pilgrim and outlived the image; migration 0020 scrubs
+  existing rows); a cancelled or lapsed booking's pilgrims' details are erased `guestDataRetentionMonths` after it
+  ended rather than after its stay; a date change moves the images' retention; the image sweep runs until a batch
+  comes back short. Database: indexes for the staff booking list, the details reminder, the erasure job and a
+  booking's tasks; redundant prefix indexes dropped; the passport retention index per organization; the day calendar
+  and the movements read only the claims touching their dates; a unit price is at most 20,000 SAR (`MAX_UNIT_HALALAS`)
+  so a night's price line (at most 600 pilgrims or 1,000 extra beds) fits its 32-bit column; an out-of-range number
+  is 422 `VALUE_OUT_OF_RANGE`. Security: every response carries security headers (no framing, nosniff, HSTS, a short
+  referrer, camera only for the desk); the frontends' proxy matches a slash-less prefix as a whole resource; the
+  public site shows Cloudflare Turnstile and texting codes outside development refuses to start without it; code
+  verifications are limited per phone and address (10 an hour: a stranger cannot lock the owner out) and per phone
+  (30 an hour: guessing over many addresses stays bounded — a stranger filling it could already deny the owner codes
+  through the request limits, a trade taken for the bound); a registration repeating a known agency's licence or
+  e-mail is recorded on that agency (`AGENCY_REGISTRATION_REPEATED`) and approval asks staff to check the ministry's
+  record; the development database listens on localhost only. Not done (recorded): a per-hotel cap on the seats
+  customers' open requests may hold (Turnstile and the per-customer limits bound it); agency 2FA and "sign out
+  everywhere" for agencies; receipt tokens and customers' phones stored as values (not hashes).
+- **D-P2-62 (accounts) Agency passwords (step 17c, D-P2-25b).** `POST /api/agency/auth/password` (any agency
+  status): the current password proves it (422 `CURRENT_PASSWORD_WRONG`, 5 tries per user in 15 minutes); every
+  session of the user ends and the caller's is renewed with the new session version. `POST
+  /api/agencies/:agencyId/users/:userId/password` (`agency.manage` with every hotel): a new password for a user who
+  lost theirs, given to them off the system; every session of theirs ends. Both audited without the password; the
+  portal's account page, the console's "New password" on an agency's user. Invitations stay deferred.
+- **D-P2-63 (architecture) Shared layer and typed contracts (step 17d).** `useNotify` and `usePublicHotels` live in
+  the shared layer (the portal, the public site and the layer's components no longer build their own toasts or copy
+  the public hotels query); the contracts type every status they send (booking room, guest, scan, hold, the desk's
+  lookup, booker and booking types, child side, event payloads), the API casting at its DTO mappings where a check
+  constraint guarantees the value; one generic `Page<T>`; the console asks again everything a booking's change shows
+  in from one list (`bookingChangeKeys`: a confirmation now refreshes the quotes, a new hold the occupancy and
+  housekeeping, any change the room calendar and the daily summaries); `tsx` is a runtime dependency (the worker).
+- **D-P2-64 (inventory) Bookings on the room calendar (step 17e, UI-UX-MASTER-DIRECTION §19, §31.2, §42-S13).**
+  The room calendar shows a held or requested stay as held, a confirmed one as booked and one in the house as
+  occupied (`BOOKING_INVENTORY_STATUSES`; a block still outranks a booking, which stays named), each run naming its
+  bookings (`bookingIds`) and `refs.bookings` naming exactly the page's (number, agency, stay); the status filter
+  finds them. The pure derivation takes the claims as an optional input (the availability and summary rules leave
+  them out); the booking module answers for its claims (`roomCalendarClaims`: lapsed holds and released claims never
+  show; two statements whatever the size). The console labels a booked bar with its booking's number ("+n" when more
+  share the room), names the bookings in its description and lists the night's bookings in the drawer (each opening
+  on its page with `booking.view`). Review outcomes: a cancellation or a lapse makes the booking's passport scans due
+  at once (their reading cleared; the hold sweep does it in its one statement, a UTC day), so the image sweep stays
+  on its date index — migration 0021 does it for bookings that had already ended; a blocked night keeps its block's
+  label; `refs.bookings` carries no status (each run shows its own).
+- **D-P2-65 (docs) Documentation and open items (step 17f).** README, ARCHITECTURE, DEPLOY_CHECKLIST, MIGRATIONS and
+  `.env.example` describe Phase 2 as built (principal kinds, jobs and the worker, the frontends and their proxy,
+  migrations 0008–0021, every environment variable). Open items carried past Phase 2: no automated end-to-end
+  browser tests (each frontend step was checked in a browser by hand; CI lints, typechecks and unit-tests the
+  frontends but does not build them); staff user management (no list endpoint: the HR phase); payments; agency
+  invitations, 2FA and "sign out everywhere"; the cancellation charges policy (v7 §15: the client decides); Q28
+  (Reception sees every occupancy view, D-P2-58) pending the client; transport after Phase 2.
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on
