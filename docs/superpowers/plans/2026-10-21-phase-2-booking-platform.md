@@ -34,7 +34,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 10d | 2a: WhatsApp quotes and price resolution (quote → agency default → public, per night) | done |
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | done |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | done |
-| 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | 13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders done |
+| 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | |
@@ -360,6 +360,19 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   retried the next day (the run pages past failures, at most 2,000 per organization); skipped entirely while SMS is
   disabled. The message carries no personal data. Marking a task done is a write: not on an inactive hotel.
   Follow-up (step 14): cancelling a booking or changing its rooms cancels its open tasks in the same transaction.
+- **D-P2-42 (booking) Occupancy calendar (v7 §14).** Staff with `occupancy.view` on the hotel (agencies and
+  customers never): `GET /api/hotels/:id/occupancy?from&to` (≤ 400 days, the calendar's range rule) answers per day
+  the rooms in inventory by state — FULL, PARTIAL, HELD (only unconfirmed holds sit in it), EMPTY, BLOCKED (cannot be
+  sold and nobody in it) — the sellable seats (pilgrims, held, free), the fill (taken of sellable, ≤ 100%), the
+  confirmed arrivals and departures, and the capacity periods (Hajj/Ramadan marks). `GET …/occupancy/:date` answers
+  floors → rooms (state, inventory status, capacity, seats) → live claims (booking, status, agency name or
+  individual, occupancy, dates, extra beds) → pilgrims (slot, age group, status, details complete), with the day's
+  summary per booker and the details still missing. Names show only with `pilgrim.view`; passport data never. Built
+  from the calendar engine (versions, seasonal overrides, blocks: no new table) plus one hotel-scoped read
+  repository whose seat count restates `room_night_occupancy`'s rule split confirmed/held (a test pins the two
+  together). Measured without a cache: a 300-room hotel booked solid for a year (14,400 stays) — year view 0.47 s,
+  day view 25 ms. Trigger for a cache or a summary table: a year view over 1 s. Deferred to the frontends: the day
+  list's PDF/Excel export.
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

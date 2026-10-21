@@ -1,4 +1,4 @@
-import { asc, count, eq, ilike, or, type SQL } from 'drizzle-orm'
+import { asc, count, eq, ilike, inArray, or, type SQL } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
 import { agency } from '@hajj/db/schema'
 import type { AgencyStatus } from '@hajj/contracts/constants/accounts'
@@ -31,6 +31,11 @@ export class AgencyRepository {
   async findById(id: string, options: { forUpdate?: boolean } = {}): Promise<AgencyRow | null> {
     const [row] = await this.q.select(agency, eq(agency.id, id), { limit: 1, forUpdate: options.forUpdate })
     return row ?? null
+  }
+
+  async findByIds(ids: readonly string[]): Promise<AgencyRow[]> {
+    if (ids.length === 0) return []
+    return this.q.select(agency, inArray(agency.id, [...new Set(ids)]))
   }
 
   /** Exact match on the normalized licence number. */

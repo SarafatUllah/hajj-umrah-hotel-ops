@@ -26,7 +26,7 @@ async function setup() {
   const { organization, scope } = await makeOrg(db)
   const { hotel, rooms } = await makeStayHotel(db, scope)
   const { user, password } = await makeLoginableUser(db, scope, { allHotels: true })
-  const role = await makeRole(db, scope, { permissions: ['booking.view', 'booking.create', 'booking.checkIn'] })
+  const role = await makeRole(db, scope, { permissions: ['booking.view', 'booking.create', 'booking.checkIn', 'occupancy.view'] })
   await tenantRepos(db, scope).roles.assignToUser(user.id, role.id)
   const staff = await client.login(organization.slug, user.email, password)
   const agency = await makeAgency(db, scope)
@@ -111,5 +111,20 @@ describe('bookings over HTTP (v7 §7, §9–10)', () => {
 
     const tasks = await client.request(`/api/hotels/${env.hotel.id}/tasks?status=OPEN`, { cookie: env.staffCookie })
     expect(tasks).toMatchObject({ status: 200, json: [] })
+  })
+
+  it('the occupancy calendar: a range of days and one day\'s floor map; a reversed range is 422, agencies get 401', async () => {
+    const env = await setup()
+    const search = await client.request('/api/agency/stays/search', { method: 'POST', cookie: env.agencyCookie, body: stay(env.hotel.id) })
+    await client.request('/api/agency/bookings', { method: 'POST', cookie: env.agencyCookie, body: { ...stay(env.hotel.id), rooms: chosen(search.json.options[0]) } })
+
+    const range = await client.request(`/api/hotels/${env.hotel.id}/occupancy?from=2027-06-01&to=2027-06-03`, { cookie: env.staffCookie })
+    expect(range.status).toBe(200)
+    expect(range.json.days.map((d: { date: string }) => d.date)).toEqual(['2027-06-01', '2027-06-02', '2027-06-03'])
+    expect(range.json.days[0]).toMatchObject({ rooms: { total: 6, held: 2 }, seats: { held: 6 } })
+    const day = await client.request(`/api/hotels/${env.hotel.id}/occupancy/2027-06-02`, { cookie: env.staffCookie })
+    expect(day.json.floors.map((f: { level: number }) => f.level)).toEqual([1, 2])
+    expectStandardError(await client.request(`/api/hotels/${env.hotel.id}/occupancy?from=2027-06-03&to=2027-06-01`, { cookie: env.staffCookie }), { status: 422 })
+    expectStandardError(await client.request(`/api/hotels/${env.hotel.id}/occupancy/2027-06-02`, { cookie: env.agencyCookie }), { status: 401 })
   })
 })

@@ -5,7 +5,7 @@ import { trustedHotelScope, type OrganizationScope } from '../../../server/secur
 import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
 import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from '../../../server/repositories/accounts'
-import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingRecordRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, GuestRepository, HotelTaskRepository, PassportScanRepository, PiiAccessLogRepository, PilgrimRepository, PriceQuoteRepository, RateRepository } from '../../../server/repositories/booking'
+import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingRecordRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, GuestRepository, HotelTaskRepository, OccupancyReadRepository, PassportScanRepository, PiiAccessLogRepository, PilgrimRepository, PriceQuoteRepository, RateRepository } from '../../../server/repositories/booking'
 import { makeAgency, makeBooking, makeBookingRoom, makeCustomer, makeGuest, makeHotelWithRooms, makeStay } from '../../support/bookingFixtures'
 import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeHotelDocument, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
@@ -1526,6 +1526,11 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: (db, scope, ids) => new BookingInventoryRepository(db, trustedHotelScope(scope, ids.hotelId)).seatsUsed([ids.roomId], { from: '2027-01-01', to: '2027-12-31' }),
     expect: 'empty',
   }),
+  // v7 §14 occupancy calendar (hotel scope): org B with org A's hotel id sees nothing of it.
+  'OccupancyReadRepository.nightlySeats': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new OccupancyReadRepository(db, trustedHotelScope(scope, ids.hotelId)).nightlySeats({ from: '2027-01-01', to: '2027-12-31' }), expect: 'empty' }),
+  'OccupancyReadRepository.movements': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new OccupancyReadRepository(db, trustedHotelScope(scope, ids.hotelId)).movements({ from: '2027-01-01', to: '2027-12-31' }), expect: 'empty' }),
+  'OccupancyReadRepository.claimsOn': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new OccupancyReadRepository(db, trustedHotelScope(scope, ids.hotelId)).claimsOn('2027-06-02'), expect: 'empty' }),
+  'OccupancyReadRepository.guestsOn': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new OccupancyReadRepository(db, trustedHotelScope(scope, ids.hotelId)).guestsOn('2027-06-02'), expect: 'empty' }),
   'BookingInventoryRepository.agencyPersonsByNight': isolationCase({
     arrange: arrangeBookedRoom,
     act: async (db, scope, ids) => [...(await new BookingInventoryRepository(db, trustedHotelScope(scope, ids.hotelId)).agencyPersonsByNight(ids.agencyId, { from: '2027-01-01', to: '2027-12-31' }))],
@@ -1692,6 +1697,7 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     },
     expect: 'empty',
   }),
+  'AgencyRepository.findByIds': isolationCase({ arrange: arrangeAgencyUser, act: (db, scope, ids) => new AgencyRepository(db, scope).findByIds([ids.agencyId]), expect: 'empty' }),
   'AgencyRepository.findById': isolationCase({
     arrange: arrangeAgencyUser,
     act: (db, scope, ids) => new AgencyRepository(db, scope).findById(ids.agencyId),
