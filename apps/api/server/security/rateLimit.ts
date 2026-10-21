@@ -46,6 +46,8 @@ export const RATE_LIMITS = {
   otpVerifyPerIp: { name: 'otp-verify-ip', limit: 60, windowSeconds: 15 * 60 },
   /** Code verifications for one phone across every challenge and address (bounds slow distributed guessing). */
   otpVerifyPerPhone: { name: 'otp-verify-phone', limit: 10, windowSeconds: 60 * 60 },
+  /** Quote requests per agency (each takes a reference number and lands in the sellers' queue). */
+  quoteRequestPerAgency: { name: 'quote-agency', limit: 30, windowSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>
 
 /** Buckets are kept this long after their window started (far beyond the longest window), then purged. */

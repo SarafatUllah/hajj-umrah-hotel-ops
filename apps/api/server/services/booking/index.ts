@@ -6,3 +6,4 @@
 export { assertBookingsStillFit, type InventoryChange } from './inventoryGuard'
 export { createBookingRule, deleteBookingRule, listBookingRules, updateBookingRule, type BookingRuleDto } from './bookingRulesService'
 export { getBookingSettings, updateBookingSettings, type BookingSettingsDto } from './bookingSettingsService'
+export { createQuoteForAgency, declineQuote, expireOfferedQuotes, getAgencyQuote, getQuote, listAgencyQuotes, listQuotes, offerQuote, requestQuote, type OfferedQuote, type QuoteDto, type QuotePage, type RequestedQuote } from './quoteService'

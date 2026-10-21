@@ -31,7 +31,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 10a | 2a: agency accounts — registration, staff approval, agency users, agency sign-in (`AgencyScope`), RBAC sync | done |
 | 10b | 2a: customers — phone OTP sign-up/sign-in (`CustomerScope`) | done |
 | 10c | 2a: booking settings, rates, quotas, room-mix rules, extra-bed policies (staff admin) | done |
-| 10d | 2a: WhatsApp quotes and price resolution (quote → agency default → public, per night) | |
+| 10d | 2a: WhatsApp quotes and price resolution (quote → agency default → public, per night) | done |
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | |
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | |
@@ -200,6 +200,25 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   (`BOOKING_RULE_CREATED|UPDATED|DELETED`). Booking settings (`/api/booking-settings`, organization-wide) are
   read with get-or-create (an existing row is read without writing), so the defaults live only in the schema;
   changes are audited with the changed fields.
+- **D-P2-29 (booking) Quotes.** An approved agency asks (`POST /api/agency/quotes`) or staff open one for an
+  approved agency; a REQUESTED quote gets `Q-<year>-<n>` from `document_sequence` (one atomic UPSERT per
+  organization, kind and year; the row lock serializes concurrent requests) and a WhatsApp click-to-chat link
+  (`wa.me`, the organization's number and template from the booking settings; null while unset). Staff with
+  `quote.manage` on the hotel offer the price (REQUESTED or OFFERED → OFFERED, valid `validHours`, default the
+  48 h setting; the answer flags a price above the highest public rate for the stay) or decline with a reason
+  (audit only). An OFFERED quote past its validity reads EXPIRED at once and an hourly light job stores it. An
+  agency only ever sees its own quotes; staff only quotes of hotels they can access (others are 404). A quote
+  never holds rooms (v7 §8). The reference year is the hotel's local year; agency requests are limited to 30
+  an hour per agency; an inactive hotel's quotes can be read but not offered or declined (409). The expiry
+  sweep logs a failing organization and carries on with the rest, then fails the job so pg-boss retries it.
+- **D-P2-30 (booking) Pricing domain.** `domain/booking/pricing.ts`: per night and room type, a quote's price,
+  else (agency) the AGENCY_DEFAULT rate, else the PUBLIC rate; GROUP per person (seated pilgrims only — empty
+  seats are never charged), FAMILY per room (a quote's unit wins); extra beds per room type at the policy price;
+  a night without a price leaves the stay unpriced (the hold refuses it, step 11). Lines are what
+  `booking_price_line` stores, frozen at booking time.
+- **D-P2-31 (security) Organization-wide changes need every hotel.** Booking settings, agency approval and
+  agency users serve every hotel, so (like Phase 1's organization-level writes) they also require `allHotels`
+  besides the permission (an automated review caught the gap in the settings).
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

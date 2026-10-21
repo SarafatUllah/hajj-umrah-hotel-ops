@@ -3,3 +3,5 @@
 export * from './bookingInventoryRepository'
 export * from './hotelRuleRepository'
 export * from './bookingSettingRepository'
+export * from './priceQuoteRepository'
+export * from './documentSequenceRepository'

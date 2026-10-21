@@ -153,9 +153,11 @@ describe('booking settings', () => {
     expect(audits[0]).toMatchObject({ beforeData: { holdMinutes: 10, whatsappNumber: null }, afterData: { holdMinutes: 15, whatsappNumber: '966512345678' } })
   })
 
-  it('needs booking.settings to change; the infant age must stay at or below the child age', async () => {
+  it('needs booking.settings and access to every hotel to change; the infant age must stay at or below the child age', async () => {
     const env = await setup()
     await expect(updateBookingSettings(env.viewer, { holdMinutes: 20 })).rejects.toMatchObject({ httpStatus: 403 })
+    const hotelScoped = ctxFor(env.scope, env.manager.identity.userId, ['booking.view', 'booking.settings'], [env.hotel.id])
+    await expect(updateBookingSettings(hotelScoped, { holdMinutes: 20 })).rejects.toMatchObject({ httpStatus: 403 })
     await expect(updateBookingSettings(env.manager, { infantAgeLimit: 5, childAgeLimit: 4 })).rejects.toMatchObject({ code: 'INVALID_AGE_LIMITS', httpStatus: 422 })
   })
 })

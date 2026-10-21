@@ -3,7 +3,7 @@ import { ValidationError } from '../../errors/domainError'
 import { bookingOrgRepos, tenantRepos } from '../../repositories'
 import type { BookingSettingRow } from '../../repositories/booking'
 import type { AuthContext } from '../../security/authContext'
-import { requireOrgPermission } from '../../security/authorize'
+import { requireAllHotels, requireOrgPermission } from '../../security/authorize'
 import type { OrganizationScope } from '../../security/scope'
 import { recordAudit } from '../audit'
 
@@ -26,11 +26,13 @@ export async function getBookingSettings(ctx: AuthContext): Promise<BookingSetti
 
 /**
  * Changes organization-wide booking settings (v7 §15: hold and request lifetimes, quote validity, individual
- * limits, child and infant ages, passport rules, WhatsApp). The row is locked; the infant age must stay below the
- * child age. Audited with before/after of the changed fields only.
+ * limits, child and infant ages, passport rules, WhatsApp). Organization-wide, so only a caller with access to
+ * every hotel may change them (like Phase 1's organization-level writes). The row is locked; the infant age must
+ * stay below the child age. Audited with before/after of the changed fields only.
  */
 export async function updateBookingSettings(ctx: AuthContext, patch: BookingSettingsPatch): Promise<BookingSettingsDto> {
   requireOrgPermission(ctx, 'booking.settings')
+  requireAllHotels(ctx)
   return ctx.db.transaction(async (tx) => {
     const repo = bookingOrgRepos(tx, ctx.scope).settings
     const current = await repo.ensureForUpdate()

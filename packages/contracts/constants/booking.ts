@@ -65,3 +65,7 @@ export const HOTEL_TASK_KINDS = ['EXTRA_BED_SETUP', 'EXTRA_BED_REMOVAL'] as cons
 export type HotelTaskKind = typeof HOTEL_TASK_KINDS[number]
 export const HOTEL_TASK_STATUSES = ['OPEN', 'DONE', 'CANCELLED'] as const
 export type HotelTaskStatus = typeof HOTEL_TASK_STATUSES[number]
+
+/** Human reference numbers, counted per organization and calendar year (`Q-2027-0001`, `B-2027-0088`). */
+export const DOCUMENT_SEQUENCE_KINDS = ['QUOTE', 'BOOKING'] as const
+export type DocumentSequenceKind = typeof DOCUMENT_SEQUENCE_KINDS[number]

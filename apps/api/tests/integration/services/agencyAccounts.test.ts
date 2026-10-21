@@ -94,6 +94,8 @@ describe('staff administration of agencies', () => {
     expect((await getAgency(env.viewer, registered!.id)).users).toHaveLength(1)
     await expect(listAgencies(env.nobody, { page: 1, pageSize: 20 })).rejects.toMatchObject({ httpStatus: 403 })
     await expect(changeAgencyStatus(env.viewer, registered!.id, { status: 'APPROVED', reason: 'Licence checked' })).rejects.toMatchObject({ httpStatus: 403 })
+    const hotelScoped = { ...env.admin, authz: { ...env.admin.authz, allHotels: false, hotelIds: new Set(['00000000-0000-4000-8000-000000000001']) } }
+    await expect(changeAgencyStatus(hotelScoped, registered!.id, { status: 'APPROVED', reason: 'Licence checked' })).rejects.toMatchObject({ httpStatus: 403 })
   })
 
   it('approve → suspend → approve; impossible transitions are 409; every decision is audited with its reason', async () => {

@@ -51,6 +51,10 @@ export const AUDIT_ACTIONS = [
   'BOOKING_RULE_UPDATED',
   'BOOKING_RULE_DELETED',
   'BOOKING_SETTINGS_CHANGED',
+  // WhatsApp price quotes (entityType 'price_quote'); an agency's own request has no staff actor.
+  'QUOTE_REQUESTED',
+  'QUOTE_OFFERED',
+  'QUOTE_DECLINED',
 ] as const
 
 export type AuditAction = typeof AUDIT_ACTIONS[number]

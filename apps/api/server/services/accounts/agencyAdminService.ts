@@ -6,7 +6,7 @@ import { ConflictError, NotFoundError } from '../../errors/domainError'
 import { accountsRepos, tenantRepos } from '../../repositories'
 import type { AgencyRow } from '../../repositories/accounts'
 import type { AuthContext } from '../../security/authContext'
-import { requireOrgPermission } from '../../security/authorize'
+import { requireAllHotels, requireOrgPermission } from '../../security/authorize'
 import { hashPassword } from '../../utils/password'
 import { canChangeAgencyStatus, normalizeLicenseNo } from '../../domain/accounts/agencyRules'
 import { recordAudit } from '../audit'
@@ -17,6 +17,12 @@ export interface AgencyDetail extends AgencyDto { users: AgencyUserDto[] }
 
 /** The database handle a repository accepts (a service may not import db/client itself). */
 type Db = Parameters<typeof accountsRepos>[0]
+
+/** Agencies serve every hotel of the organization: changing them needs `agency.manage` AND access to every hotel. */
+function requireAgencyManager(ctx: AuthContext): void {
+  requireOrgPermission(ctx, 'agency.manage')
+  requireAllHotels(ctx)
+}
 
 async function loadAgency(ctx: AuthContext, agencyId: string, forUpdate = false, db: Db = ctx.db): Promise<AgencyRow> {
   const row = await accountsRepos(db, ctx.scope).agencies.findById(agencyId, { forUpdate })
@@ -39,7 +45,7 @@ export async function getAgency(ctx: AuthContext, agencyId: string): Promise<Age
 
 /** Staff create an agency they verified offline: APPROVED at once, with its first user. Audited. */
 export async function createAgency(ctx: AuthContext, input: CreateAgencyInput): Promise<AgencyDetail> {
-  requireOrgPermission(ctx, 'agency.manage')
+  requireAgencyManager(ctx)
   const passwordHash = await hashPassword(input.user.password)
   const now = ctx.now()
   return ctx.db.transaction(async (tx) => {
@@ -55,7 +61,7 @@ export async function createAgency(ctx: AuthContext, input: CreateAgencyInput): 
 
 /** Approve, suspend or reject (v7 §15), with a reason; the agency row is locked so decisions serialize. Audited. */
 export async function changeAgencyStatus(ctx: AuthContext, agencyId: string, input: AgencyStatusChangeInput): Promise<AgencyDto> {
-  requireOrgPermission(ctx, 'agency.manage')
+  requireAgencyManager(ctx)
   return ctx.db.transaction(async (tx) => {
     const current = await loadAgency(ctx, agencyId, true, tx)
     if (!canChangeAgencyStatus(current.status as AgencyStatus, input.status)) {
@@ -68,7 +74,7 @@ export async function changeAgencyStatus(ctx: AuthContext, agencyId: string, inp
 }
 
 export async function addAgencyUser(ctx: AuthContext, agencyId: string, input: CreateAgencyUserInput): Promise<AgencyUserDto> {
-  requireOrgPermission(ctx, 'agency.manage')
+  requireAgencyManager(ctx)
   const passwordHash = await hashPassword(input.password)
   return ctx.db.transaction(async (tx) => {
     const current = await loadAgency(ctx, agencyId, false, tx)
@@ -80,7 +86,7 @@ export async function addAgencyUser(ctx: AuthContext, agencyId: string, input: C
 
 /** Activates or deactivates an agency user; deactivation ends every session of that user. Audited. */
 export async function updateAgencyUser(ctx: AuthContext, agencyId: string, userId: string, input: UpdateAgencyUserInput): Promise<AgencyUserDto> {
-  requireOrgPermission(ctx, 'agency.manage')
+  requireAgencyManager(ctx)
   return ctx.db.transaction(async (tx) => {
     const repos = accountsRepos(tx, ctx.scope)
     const before = await repos.agencyUsers.findById(userId)
