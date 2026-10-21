@@ -48,6 +48,21 @@ export function safeText(max: number) {
     .refine(value => value.length <= max, { message: `Must be at most ${max} characters` })
 }
 
+/** Like `safeText`, but something must remain once trimmed (a name, a city, a title). */
+export function requiredText(max: number) {
+  return safeText(max).refine(value => value.length > 0, { message: 'Required' })
+}
+
+/** An optional text detail on create: empty (once trimmed) means none, so it is left out. */
+export function optionalText(max: number) {
+  return safeText(max).transform(value => value || undefined).optional()
+}
+
+/** The same detail on update: `null` or empty means none, so it is cleared. */
+export function clearableText(max: number) {
+  return safeText(max).transform(value => value || null).nullable().optional()
+}
+
 /** An array of uuids, deduplicated, capped at `max` entries; non-empty is required unless `required: false` is passed. */
 export function uniqueIds(max: number, opts: { required?: boolean } = {}) {
   const required = opts.required ?? true

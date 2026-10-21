@@ -3,23 +3,12 @@ import { DEMO_PASSWORD, DEMO_PERSONAS } from '../demo/personas'
 import { platformRepos } from '../repositories'
 import { isDemoSignInEnabled } from '../utils/env'
 import { ROLE_DEFINITIONS } from '@hajj/contracts/constants/roles'
+import type { DemoSignInPersona, DemoSignInPayload } from '@hajj/contracts/types/staff'
+
+export type { DemoSignInPersona, DemoSignInPayload }
 
 /** The database handle a platform repository accepts (a service may not import db/client itself). */
 type Db = Parameters<typeof platformRepos>[0]
-
-export interface DemoSignInPersona {
-  email: string
-  fullName: string
-  roleName: string
-  hotels: Array<{ code: string, name: string }>
-  phase1Available: boolean
-}
-
-export interface DemoSignInPayload {
-  organizationSlug: string
-  password: string
-  personas: DemoSignInPersona[]
-}
 
 /**
  * The public demo sign-in metadata (S14 / D9). Returns `null` — which the route turns into the SAME 404 an

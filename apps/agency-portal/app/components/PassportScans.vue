@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useMutation, useQueryClient } from '@tanstack/vue-query'
-import { MAX_UPLOAD_BYTES } from '@hajj/contracts/constants/documents'
 import { PASSPORT_IMAGE_TYPES } from '@hajj/contracts/constants/pilgrimData'
 import { guestDetailsSchema } from '@hajj/contracts/schemas/guest'
 import type { GuestSlotDto, PassportScanDto } from '@hajj/contracts/types/booking'
@@ -36,18 +35,12 @@ const scans = useApiQuery(() => ['agency-scans', props.bookingId], () => api<Pas
 })
 const refresh = () => queryClient.invalidateQueries({ queryKey: ['agency-scans', props.bookingId] })
 
-/** Why the API would refuse this file, checked before sending it (the API checks again). */
-function refusal(file: File): string | null {
-  if (!IMAGE_TYPES.includes(file.type)) return 'TYPE_NOT_ALLOWED'
-  if (file.size > MAX_UPLOAD_BYTES) return 'FILE_TOO_LARGE'
-  return null
-}
 interface UploadOutcome { sent: number, refused: Array<{ name: string, message: string }> }
 /** One photo after the other; each failure is noted and the rest still go — unless the booking takes no more (409). */
 async function uploadAll(files: File[]): Promise<UploadOutcome> {
   const outcome: UploadOutcome = { sent: 0, refused: [] }
   for (const [index, file] of files.entries()) {
-    const code = refusal(file)
+    const code = uploadRefusal(file, IMAGE_TYPES)
     if (code) {
       outcome.refused.push({ name: file.name, message: t(`errors.codes.${code}`) })
       continue

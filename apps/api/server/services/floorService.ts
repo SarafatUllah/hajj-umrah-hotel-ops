@@ -7,19 +7,13 @@ import type { FloorPatch, FloorRow } from '../repositories/hotel'
 import type { AuthContext } from '../security/authContext'
 import { authorizeHotel } from '../security/authorize'
 import { recordAudit } from './audit'
+import type { FloorListItem } from '@hajj/contracts/types/hotel'
+
+export type { FloorListItem }
 
 /** `0` = Ground Floor; every other level's default label is `"Floor N"`. Applied by the service — never the schema — so it stays in exactly one place. */
 function defaultFloorLabel(level: number): string {
   return level === 0 ? 'Ground' : `Floor ${level}`
-}
-
-export interface FloorListItem {
-  id: string
-  level: number
-  label: string
-  isActive: boolean
-  /** Rooms in inventory (a base-config version covering the hotel's own local today) on this floor. */
-  roomCount: number
 }
 
 function toFloorListItem(row: FloorRow, roomCount: number): FloorListItem {

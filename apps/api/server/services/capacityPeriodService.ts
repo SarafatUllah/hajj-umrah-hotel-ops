@@ -10,7 +10,7 @@ import type {
 } from '@hajj/contracts/schemas/capacityPeriod'
 import { InvalidRangeError, type IsoDate, maxIsoDate, minIsoDate, type NightRange, rangeLength, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { type BaseVersion, baseCapacityAt, type CapacitySegment, capacitySegments, effectiveCapacityAt } from '../domain/inventory/capacity'
-import { assertOverridesChangeable, assertPeriodDeletable, assertPeriodPatchAllowed, assertPeriodRange, computeOverrideValues, periodPhase, type PeriodPhase } from '../domain/inventory/capacityPeriodRules'
+import { assertOverridesChangeable, assertPeriodDeletable, assertPeriodPatchAllowed, assertPeriodRange, computeOverrideValues, periodPhase } from '../domain/inventory/capacityPeriodRules'
 import { InventoryRuleError } from '../domain/inventory/rules'
 import { extractPgError, translateDbError } from '../errors/dbErrors'
 import { ConflictError, NotFoundError, ValidationError } from '../errors/domainError'
@@ -21,6 +21,9 @@ import { authorizeHotel } from '../security/authorize'
 import { recordAudit } from './audit'
 import { assertBookingsStillFit } from './booking'
 import { type CapacityValues, type PeriodRef, toBaseVersion, toCapacityOverride } from './roomDto'
+import type { CapacityPeriodDto } from '@hajj/contracts/types/inventory'
+
+export type { CapacityPeriodDto }
 
 /**
  * Rethrows a caught `InventoryRuleError` as the matching HTTP-mapped `DomainError`. Also catches
@@ -144,19 +147,6 @@ async function assertOverriddenRoomsCoverRange(hotelScoped: ReturnType<typeof ho
 // impact are always resolved from a FIXED number of batched queries — never
 // one query per period, even when listing many.
 // ---------------------------------------------------------------------------
-
-export interface CapacityPeriodDto {
-  id: string
-  name: string
-  kind: CapacityPeriodKind
-  startDate: IsoDate
-  endDate: IsoDate
-  notes: string | null
-  phase: PeriodPhase
-  nights: number
-  overrideCount: number
-  impact: { sellableDelta: number, bedsDelta: number }
-}
 
 function toPeriodDto(row: CapacityPeriodRow, overrideCount: number, impact: { sellableDelta: number, bedsDelta: number }, today: IsoDate): CapacityPeriodDto {
   return {

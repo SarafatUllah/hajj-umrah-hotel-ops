@@ -2,12 +2,17 @@ import { z } from 'zod'
 import { AUDIT_ACTIONS } from '../constants/audit'
 import { OWNERSHIP_TYPES } from '../constants/inventory'
 import { isValidIsoDate, isValidTimezone } from '../utils/dates'
-import { safeText } from './common'
+import { clearableText, optionalText, requiredText } from './common'
 
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,19}$/
+const RESERVED_CODES: ReadonlySet<string> = new Set(['NEW'])
 const COUNTRY_PATTERN = /^[A-Z]{2}$/
 const CURRENCY_PATTERN = /^[A-Z]{3}$/
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
+
+/** An email detail: empty means none (left out on create, cleared on update). */
+const detailEmail = z.preprocess(value => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().email().max(254).optional())
+const clearableEmail = z.preprocess(value => (typeof value === 'string' && value.trim() === '' ? null : value), z.string().email().max(254).nullable().optional())
 
 /**
  * The one hotel-creation/edit schema every field of `HotelDetail` traces back to. `.strict()` so an
@@ -15,26 +20,37 @@ const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/
  * never silently dropped or silently accepted (no mass assignment).
  */
 export const createHotelSchema = z.object({
-  code: z.string().regex(CODE_PATTERN, { message: 'Code must be 2-20 characters: uppercase letters, digits and hyphens, starting with a letter or digit' }),
-  name: safeText(120),
-  city: safeText(80),
+  code: z.string().regex(CODE_PATTERN, { message: 'Code must be 2-20 characters: uppercase letters, digits and hyphens, starting with a letter or digit' })
+    // A hotel's pages live at /hotels/<code>: `new` is the page that creates one.
+    .refine(code => !RESERVED_CODES.has(code), { message: 'This code is reserved' }),
+  name: requiredText(120),
+  city: requiredText(80),
   country: z.string().regex(COUNTRY_PATTERN, { message: 'Country must be a 2-letter uppercase ISO code' }).default('SA'),
-  address: safeText(300).optional(),
-  phone: safeText(40).optional(),
-  email: z.string().email().max(254).optional(),
+  address: optionalText(300),
+  phone: optionalText(40),
+  email: detailEmail,
   timezone: z.string().refine(isValidTimezone, { message: 'Invalid IANA timezone' }),
   currency: z.string().regex(CURRENCY_PATTERN, { message: 'Currency must be a 3-letter uppercase ISO code' }).default('SAR'),
   checkInTime: z.string().regex(TIME_PATTERN, { message: 'Must be HH:MM (24h)' }).default('15:00'),
   checkOutTime: z.string().regex(TIME_PATTERN, { message: 'Must be HH:MM (24h)' }).default('12:00'),
-  licenseReference: safeText(100).optional(),
+  licenseReference: optionalText(100),
   ownershipType: z.enum(OWNERSHIP_TYPES).default('OWNED'),
-  notes: safeText(2000).optional(),
+  notes: optionalText(2000),
 }).strict()
 
 export type CreateHotelInput = z.infer<typeof createHotelSchema>
 
-/** `code` is immutable after creation (domain rule) — never part of an update body. */
-export const updateHotelSchema = createHotelSchema.omit({ code: true }).partial().strict()
+/**
+ * `code` is immutable after creation (domain rule) — never part of an update body. An optional detail (address,
+ * phone, email, licence, notes) is cleared with `null` or an empty value.
+ */
+export const updateHotelSchema = createHotelSchema.omit({ code: true }).partial().extend({
+  address: clearableText(300),
+  phone: clearableText(40),
+  email: clearableEmail,
+  licenseReference: clearableText(100),
+  notes: clearableText(2000),
+}).strict()
 
 export type UpdateHotelInput = z.infer<typeof updateHotelSchema>
 

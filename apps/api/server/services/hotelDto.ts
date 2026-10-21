@@ -1,41 +1,12 @@
 import type { HotelStatus, OwnershipType } from '@hajj/contracts/constants/inventory'
 import type { IsoDate } from '@hajj/contracts/utils/dates'
 import type { HotelRow } from '../repositories/tenant'
+import type { HotelSummary, HotelDetail } from '@hajj/contracts/types/hotel'
 
-/**
- * `HotelSummary` — the hotel switcher's data (also every item of `GET /api/hotels`).
- * `floorCount` (Task 13) is the number of ACTIVE floors for `GET /api/hotels` and
- * `GET /api/hotels/:hotelId`, computed via one batched `HotelRepository.activeFloorCounts` call;
- * `roomCount` stays `null` until Task 14. Both are `null` whenever the caller lacks `room.view`
- * (PF-13) — the service computes both via `hotelExtras` and hands them in already resolved, so this
- * mapper never has to know about permissions itself.
- */
-export interface HotelSummary {
-  id: string
-  code: string
-  name: string
-  city: string
-  country: string
-  status: HotelStatus
-  timezone: string
-  today: IsoDate
-  floorCount: number | null
-  roomCount: number | null
-}
+export type { HotelSummary, HotelDetail }
 
-export interface HotelDetail extends HotelSummary {
-  address: string | null
-  phone: string | null
-  email: string | null
-  currency: string
-  checkInTime: string
-  checkOutTime: string
-  ownershipType: OwnershipType
-  licenseReference: string | null
-  notes: string | null
-  createdAt: string
-  updatedAt: string
-}
+/** Postgres `time` reads back as HH:MM:SS; the API speaks HH:MM (minutes are a hotel's precision). */
+export const asMinutes = (time: string): string => time.slice(0, 5)
 
 export interface HotelDtoExtras {
   today: IsoDate
@@ -65,8 +36,8 @@ export function toHotelDetail(hotel: HotelRow, extras: HotelDtoExtras): HotelDet
     phone: hotel.phone,
     email: hotel.email,
     currency: hotel.currency,
-    checkInTime: hotel.checkInTime,
-    checkOutTime: hotel.checkOutTime,
+    checkInTime: asMinutes(hotel.checkInTime),
+    checkOutTime: asMinutes(hotel.checkOutTime),
     ownershipType: hotel.ownershipType as OwnershipType,
     licenseReference: hotel.licenseReference,
     notes: hotel.notes,

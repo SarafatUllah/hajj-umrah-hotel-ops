@@ -1,7 +1,7 @@
 import { type BlockKind, CALENDAR_FILTER_STATUSES, type CalendarFilterStatus, type CapacityPeriodKind, DEFAULT_CALENDAR_PAGE_SIZE, MAX_CALENDAR_RESPONSE_BYTES, MAX_CALENDAR_ROOMS, MAX_ROOMS_PER_PAGE } from '@hajj/contracts/constants/inventory'
 import { calendarQueryIssues } from '@hajj/contracts/schemas/roomCalendar'
 import { type IsoDate, type NightRange, isValidIsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
-import { buildRoomSegments, type CalendarOptions, type CalendarSegment, type DailySummary, matchesCapacityFilter, matchesStatusFilter, summarizeDaily } from '../domain/inventory/calendar'
+import { buildRoomSegments, type CalendarOptions, type CalendarSegment, matchesCapacityFilter, matchesStatusFilter, summarizeDaily } from '../domain/inventory/calendar'
 import { ValidationError } from '../errors/domainError'
 import { hotelRepos } from '../repositories'
 import { calendarOptionsFor } from './calendarOptions'
@@ -9,12 +9,9 @@ import type { InventoryReadRepository, InventoryRefs, InventoryRoomInput, RoomCa
 import type { AuthContext } from '../security/authContext'
 import { authorizeHotel } from '../security/authorize'
 import type { HotelScope } from '../security/scope'
+import type { CalendarMetaDto, DailySummaryDto } from '@hajj/contracts/types/inventory'
 
-/** `today` is the hotel-local today (`todayInTimezone(hotel.timezone, ctx.now())`); `maintenanceBlocksSales` is the resolved hotel setting. */
-export interface CalendarMetaDto {
-  today: IsoDate
-  maintenanceBlocksSales: boolean
-}
+export type { CalendarMetaDto, DailySummaryDto }
 
 export interface CalendarRoomDto {
   roomId: string
@@ -41,13 +38,6 @@ export interface RoomCalendarDto {
   /** EXACTLY the periods and blocks referenced by the segments of `rooms` (this page) — nothing else. */
   refs: CalendarRefsDto
   rooms: CalendarRoomDto[]
-}
-
-export interface DailySummaryDto {
-  range: NightRange
-  meta: CalendarMetaDto
-  /** One row per date of the inclusive range, in date order. */
-  days: DailySummary[]
 }
 
 export interface RoomCalendarQueryInput {

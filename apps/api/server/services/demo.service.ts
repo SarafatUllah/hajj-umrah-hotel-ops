@@ -2,6 +2,9 @@ import { useDb } from '../utils/db'
 import { platformRepos, tenantRepos } from '../repositories'
 import { seedDemoOrganization, assertDemoSeedAllowed, DEMO_ORG_SLUG, type SeedDemoResult } from '../../db/seed/demo-org'
 import type { IsoDate } from '@hajj/contracts/utils/dates'
+import type { DemoResetResult } from '@hajj/contracts/types/staff'
+
+export type { DemoResetResult }
 
 export { DemoSeedForbiddenError } from '../../db/seed/demo-org'
 
@@ -33,11 +36,6 @@ export interface DemoResetActor {
 export interface DemoResetOptions {
   /** The date every time-relative demo row hangs off (a real ISO date, validated by the caller); default `DEMO_ANCHOR_DATE`. */
   anchorDate?: IsoDate
-}
-
-export interface DemoResetResult {
-  organizationId: string
-  anchorDate: IsoDate
 }
 
 /**

@@ -1,6 +1,6 @@
 import { resolveSettings, type ResolvedSettings, type UpdateSettingsInput } from '@hajj/contracts/business-rules/hotelSettings'
 import { encodeAuditCursor, type CreateHotelInput, type ListHotelAuditQuery, type UpdateHotelInput } from '@hajj/contracts/schemas/hotel'
-import type { PublicHotel } from '@hajj/contracts/types/hotel'
+import type { AuditItemDto, AuditPageDto, PublicHotel } from '@hajj/contracts/types/hotel'
 import { type IsoDate, maxIsoDate, minIsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { orgCan, hasHotelAccess } from '../domain/rbac/authorize'
 import { translateDbError } from '../errors/dbErrors'
@@ -14,7 +14,9 @@ import type { HotelScope } from '../security/scope'
 import { authorizeHotel, requireAllHotels, requireOrgPermission } from '../security/authorize'
 import { recordAudit } from './audit'
 import { assertBookingsStillFit } from './booking'
-import { toHotelDetail, toHotelSummary, type HotelDetail, type HotelDtoExtras, type HotelSummary } from './hotelDto'
+import { asMinutes, toHotelDetail, toHotelSummary, type HotelDetail, type HotelDtoExtras, type HotelSummary } from './hotelDto'
+
+export type { AuditItemDto, AuditPageDto }
 
 /**
  * `today` is always computed from the hotel's own timezone and the injected clock — never the
@@ -142,6 +144,8 @@ export async function createHotel(ctx: AuthContext, input: CreateHotelInput): Pr
   })
 }
 
+const TIME_FIELDS: ReadonlySet<string> = new Set(['checkInTime', 'checkOutTime'])
+
 /** Only the fields patch actually sets AND that differ from the current row — never the full row. */
 function diffHotelFields(hotel: HotelRow, patch: UpdateHotelInput): { before: Record<string, unknown>, after: Record<string, unknown>, changed: HotelPatch } {
   const before: Record<string, unknown> = {}
@@ -151,7 +155,9 @@ function diffHotelFields(hotel: HotelRow, patch: UpdateHotelInput): { before: Re
   for (const key of Object.keys(patch) as Array<keyof UpdateHotelInput>) {
     const newValue = patch[key]
     if (newValue === undefined) continue
-    const oldValue = (hotel as unknown as Record<string, unknown>)[key]
+    const stored = (hotel as unknown as Record<string, unknown>)[key]
+    // Times are compared as the API shows them (HH:MM), so re-sending the same time is no change.
+    const oldValue = TIME_FIELDS.has(key) && typeof stored === 'string' ? asMinutes(stored) : stored
     if (oldValue !== newValue) {
       before[key] = oldValue
       after[key] = newValue
@@ -300,23 +306,6 @@ export async function updateSettings(ctx: AuthContext, hotelId: string, patch: U
 
     return resolveSettings({ ...stored, ...after })
   })
-}
-
-export interface AuditItemDto {
-  id: string
-  action: string
-  entityType: string
-  entityId: string
-  actor: { id: string, fullName: string } | null
-  before: unknown
-  after: unknown
-  reason: string | null
-  createdAt: string
-}
-
-export interface AuditPageDto {
-  items: AuditItemDto[]
-  nextCursor: string | null
 }
 
 export async function listHotelAudit(ctx: AuthContext, hotelId: string, filter: ListHotelAuditQuery): Promise<AuditPageDto> {

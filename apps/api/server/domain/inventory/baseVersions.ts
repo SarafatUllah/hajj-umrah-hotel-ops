@@ -10,7 +10,7 @@ function last(versions: BaseVersionRow[]): BaseVersionRow | null {
   return [...versions].sort((a, b) => toEpochDay(a.validFrom) - toEpochDay(b.validFrom)).at(-1) ?? null
 }
 
-function assertNotInPast(effectiveFrom: IsoDate, today: IsoDate, code: string) {
+function assertNotInPast(effectiveFrom: IsoDate, today: IsoDate, code: 'BASE_CHANGE_IN_PAST' | 'RETIRE_IN_PAST' | 'REACTIVATE_IN_PAST') {
   if (toEpochDay(effectiveFrom) < toEpochDay(today)) {
     throw new InventoryRuleError(code, 'Changes take effect from today (hotel time) onwards; past nights are history and cannot be rewritten')
   }

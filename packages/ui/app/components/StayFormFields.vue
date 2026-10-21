@@ -14,13 +14,7 @@ const { t } = useI18n()
 const types = computed(() => choiceItems(BOOKING_TYPES, value => t(`booking.type.${value}`)))
 const childSides = computed(() => choiceItems(CHILD_SIDES, value => t(`booking.childSide.${value}`)))
 
-/** One field of the form: read from it, written as a new value of the whole (never changed in place). */
-function field<K extends keyof StayForm>(key: K) {
-  return computed({
-    get: () => form.value[key],
-    set: (value: StayForm[K]) => { form.value = { ...form.value, [key]: value } },
-  })
-}
+const field = useModelFields(form)
 const hotelId = field('hotelId')
 const checkIn = field('checkIn')
 const checkOut = field('checkOut')

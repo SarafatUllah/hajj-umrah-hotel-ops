@@ -37,7 +37,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
-| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done |
+| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done |
 | 17 | Final review (code, security, database, architecture) and docs | |
 
 ## Local environment note
@@ -598,6 +598,49 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   loads, and the review slideovers describe themselves. Not changed: the quote request keeps its own short form
   (men and women only, no children or infants, unlike `StayFormFields`); the offered quotes for a booking are one page
   of 100, the API's largest.
+- **D-P2-55 (frontends) The ops console, foundation (step 16c, UI-UX-MASTER-DIRECTION §2–§7, §21–§26, §34–§35).**
+  `apps/ops-console` (dev port 3003) on the shared layer; only `/login` renders on the server (D2), its proxy forwards
+  the staff endpoints and the demo sign-in only. Shell: the sidebar at the reading start (collapsible, remembered),
+  a drawer below 1024 px (language and theme move into it on phones), the hotel switcher in the header (one hotel: a
+  label; several: a searchable menu; on a hotel's page it opens the same page for another hotel, on a portfolio page
+  it sets `?hotel=`, elsewhere it remembers the last hotel per staff member), the user menu (roles, organization,
+  two-factor, sign out). The URL is the hotel scope's only source (§6.1): hotels by code (D4); an unknown or
+  inaccessible code shows the same state. Navigation lists only built modules the user may open (`utils/nav.ts`, one
+  entry per module); hotel links resolve with the last hotel or the chooser. Permissions mirror `me` for display
+  (`can`, `canInHotel`, `hasAllHotels`); the API decides, and a 403/hotel-404 asks `me` again (`hajj:api-error`).
+  Sign-in: organization ID remembered, the code asked after `TWO_FACTOR_REQUIRED`, the demo personas only when the
+  API's demo sign-in answers (nothing of them in the bundle); a role that requires two-factor and has not set it up is
+  sent to the setup first (`TWO_FACTOR_ENROLLMENT_REQUIRED`), the setup draws the code in the browser. Pages: the
+  overview (tonight's figures summed from each hotel's own daily summary, the 30/90-night outlook as one quiet series
+  with its table, what needs attention, the seasons grouped across hotels, per hotel), hotels (filters in the URL,
+  inventory columns only with `room.view`), a new hotel, the hotel profile (overview with the setup checklist, floors
+  with the bulk preview and the existing levels named, settings in three panels, documents, activity with "load
+  older"), room types (the defaults-apply-to-new-rooms rule stated three times), demo data (tier 3: a typed phrase).
+  Shared with the other apps through the layer: `QrCode`, `useModelFields` (an object v-model's fields; writes made
+  before the parent re-renders — autofill — build on each other instead of losing all but the last; found in the
+  browser run, now used by every form), `uploadRefusal`/`formatBytes`, `formatNumber`, `common.actions`/`clearFilters`.
+  Contracts: the staff, hotel and inventory response types (`types/staff|hotel|inventory.ts`), `staffLoginSchema`,
+  `PERIOD_PHASES`, `DOCUMENT_MIME_TYPES`. API fixes found on the way: required names (hotel name and city, room type
+  and season name) refused empty (`requiredText`; they took ""), a hotel's optional details cleared with `null`,
+  check-in/out returned as HH:MM (they read HH:MM:SS, so a re-sent unchanged time was a change with an audit row),
+  and 16 error codes that reach clients without a translation (`EMPTY_FILE`, the inventory rule codes) — the locale
+  test now scans those error classes too. Verified in a browser against the built API and the demo: sign-in (wrong
+  password, a persona, two-factor set up then signed in with a code, a wrong code refused), the overview, hotels,
+  a new hotel (duplicate code on its field), floors (bulk with an existing level, deactivation refused while rooms
+  remain), settings, documents (upload and download through the proxy), activity, room types, the demo reset, the
+  Accountant and Reception personas' read-only views, an inaccessible hotel, Arabic RTL and dark mode, a phone.
+  Review outcomes (no CRITICAL/HIGH; every call matched its route, every query key names its hotel): an empty
+  optional detail means none in the API (left out on create, cleared on update — hotels and the room type's
+  description: `optionalText`/`clearableText`), the hotel code `NEW` reserved (`/hotels/new` creates one), three more
+  error codes translated that a helper threw by variable (the locale test now sees them), after any write to a hotel
+  everything shown of it is asked again (`useHotelRefresh`: its detail, figures, seasons, documents, history and the
+  lists across hotels), the overview and the hotels list say when a section failed instead of showing "none", the
+  document file input labelled with its limits and problem announced, an untyped floor label left to the API (never
+  stored in the language of whoever added it), row actions named for assistive technology, the last hotel used kept
+  per staff member, country and currency upper-cased, numbers and identifiers isolated in Arabic, the switcher never
+  showing another hotel on an inaccessible page, a refetch never replacing unsaved settings, the collapsed rail with
+  tooltips (on the side away from its edge), focus on the code after starting two-factor setup, and the shared toasts
+  (`useNotify`). The generic `ALREADY_EXISTS` message is generic again (it named floors).
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on

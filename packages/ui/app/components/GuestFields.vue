@@ -8,13 +8,7 @@ defineProps<{ required?: boolean }>()
 const { t } = useI18n()
 const genders = computed(() => GENDERS.map(value => ({ value, label: t(`booking.gender.${value}`) })))
 
-/** One field of the model: read from it, written as a new value of the whole (never changed in place). */
-function field<K extends keyof GuestFieldValues>(key: K, normalize: (value: GuestFieldValues[K]) => GuestFieldValues[K] = value => value) {
-  return computed({
-    get: () => model.value[key],
-    set: (value) => { model.value = { ...model.value, [key]: normalize(value) } },
-  })
-}
+const field = useModelFields(model)
 const fullName = field('fullName')
 const gender = field('gender')
 // The passport's three letters, as printed: upper case whatever was typed.

@@ -258,6 +258,37 @@ describe('updateHotel — diff-only audit, no-op, and code immutability', () => 
   })
 })
 
+describe('updateHotel — times and clearable details', () => {
+  it('reads check-in and check-out as HH:MM; sending the same time again changes nothing', async () => {
+    const { scope } = await makeOrg(db)
+    const target = await makeHotel(db, scope)
+    const ctx = makeCtx(scope, { permissions: ['hotel.view', 'hotel.manage'], hotelIds: [target.id] })
+
+    const detail = await getHotel(ctx, target.id)
+    expect(detail).toMatchObject({ checkInTime: '15:00', checkOutTime: '12:00' })
+    await updateHotel(ctx, target.id, { checkInTime: '15:00', checkOutTime: '12:00' })
+    expect(await db.select().from(auditLog).where(eq(auditLog.action, 'HOTEL_UPDATED'))).toHaveLength(0)
+
+    expect(await updateHotel(ctx, target.id, { checkInTime: '14:30' })).toMatchObject({ checkInTime: '14:30' })
+    const [change] = await db.select().from(auditLog).where(eq(auditLog.action, 'HOTEL_UPDATED'))
+    expect(change).toMatchObject({ beforeData: { checkInTime: '15:00' }, afterData: { checkInTime: '14:30' } })
+  })
+
+  it('an optional detail is cleared with null: stored so, and recorded before and after', async () => {
+    const { scope } = await makeOrg(db)
+    const target = await makeHotel(db, scope)
+    const ctx = makeCtx(scope, { permissions: ['hotel.manage'], hotelIds: [target.id] })
+    const details = { address: 'Ajyad Street', phone: '+966 12 000 0000', email: 'desk@hotel.test', licenseReference: 'LIC-1', notes: 'Near the Haram' }
+    await updateHotel(ctx, target.id, details)
+    const cleared = { address: null, phone: null, email: null, licenseReference: null, notes: null }
+    expect(await updateHotel(ctx, target.id, cleared)).toMatchObject(cleared)
+    const [row] = await db.select().from(hotel).where(eq(hotel.id, target.id))
+    expect(row).toMatchObject(cleared)
+    const changes = await db.select().from(auditLog).where(eq(auditLog.action, 'HOTEL_UPDATED'))
+    expect(changes.find(c => (c.afterData as Record<string, unknown>).address === null)).toMatchObject({ beforeData: details, afterData: cleared })
+  })
+})
+
 describe('activateHotel / deactivateHotel — lifecycle', () => {
   it('deactivate an active hotel -> INACTIVE + audit; a second deactivate -> 409 ALREADY_INACTIVE', async () => {
     const { scope } = await makeOrg(db)

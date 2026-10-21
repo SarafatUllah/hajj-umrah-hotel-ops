@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDate, formatMoney, formatStay, localeTag, nightsBetween } from '../app/utils/format'
+import { formatDate, formatMoney, formatNumber, formatStay, localeTag, nightsBetween } from '../app/utils/format'
 
 describe('formatting (D5, §13: Gregorian dates and Western digits in both languages)', () => {
   it('dates are calendar dates: the same day whatever the time zone, Gregorian with Western digits in Arabic', () => {
@@ -20,5 +20,11 @@ describe('formatting (D5, §13: Gregorian dates and Western digits in both langu
     expect(formatMoney(1250000, 'en').replace(/\s/g, ' ')).toBe('SAR 12,500.00')
     expect(formatMoney(1250000, 'ar')).toMatch(/12,500\.00/)
     expect(formatMoney(1250000, 'ar')).not.toMatch(/[٠-٩]/)
+  })
+
+  it('a count is grouped by thousands, with Western digits in Arabic too', () => {
+    expect(formatNumber(1490, 'en')).toBe('1,490')
+    expect(formatNumber(1490, 'ar')).toMatch(/1.490/)
+    expect(formatNumber(1490, 'ar')).not.toMatch(/[٠-٩]/)
   })
 })

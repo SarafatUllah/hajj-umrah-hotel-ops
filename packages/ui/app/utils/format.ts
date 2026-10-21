@@ -44,6 +44,11 @@ export function formatMoney(halalas: number, locale: string): string {
     .format(halalas / HALALAS_PER_RIYAL)
 }
 
+/** A count for people: grouped by thousands ("1,490"), Western digits in both languages. */
+export function formatNumber(value: number, locale: string): string {
+  return new Intl.NumberFormat(localeTag(locale)).format(value)
+}
+
 /** A timestamp (ISO) in the hotel's time zone: "1 Jun 2027, 14:30". */
 export function formatDateTime(isoTimestamp: string, locale: string, timeZone = 'Asia/Riyadh'): string {
   return new Intl.DateTimeFormat(localeTag(locale), { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone }).format(new Date(isoTimestamp))

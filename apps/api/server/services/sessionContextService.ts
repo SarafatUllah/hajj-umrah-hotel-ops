@@ -1,17 +1,8 @@
+import type { SessionOrganization, SessionRole } from '@hajj/contracts/types/staff'
 import { tenantRepos } from '../repositories'
 import type { AuthContext } from '../security/authContext'
 
-export interface SessionOrganization {
-  id: string
-  name: string
-  slug: string
-  isDemo: boolean
-}
-
-export interface SessionRole {
-  key: string
-  name: string
-}
+export type { SessionOrganization, SessionRole }
 
 export interface SessionContext {
   organization: SessionOrganization

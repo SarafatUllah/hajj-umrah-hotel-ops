@@ -7,27 +7,9 @@ import type { RoomTypePatch, RoomTypeRow } from '../repositories/tenant'
 import type { AuthContext } from '../security/authContext'
 import { requireAllHotels, requireOrgPermission } from '../security/authorize'
 import { recordAudit } from './audit'
+import type { RoomTypeListItem } from '@hajj/contracts/types/hotel'
 
-/**
- * `usageCount` (Task 14): rooms in inventory across the ENTIRE organization for this room type, for
- * an `allHotels` caller only — `null` forever for a hotel-scoped (non-`allHotels`) caller, a
- * deliberate information-hiding rule (they must never learn organization-wide room usage of a
- * catalog entry they can otherwise see). Only `listRoomTypes` wires the real map (`usageCounts`
- * below); every other call site here (create/update/activate/deactivate) passes no map, which yields
- * `null` regardless of the caller's `allHotels` bit — mirroring `floorCount`/`roomCount`'s
- * "`undefined` map -> `null`" convention in `hotelService.ts`/`floorService.ts`.
- */
-export interface RoomTypeListItem {
-  id: string
-  code: string
-  name: string
-  defaultPhysicalBeds: number
-  defaultSellableCapacity: number
-  description: string | null
-  sortOrder: number
-  isActive: boolean
-  usageCount: number | null
-}
+export type { RoomTypeListItem }
 
 function toRoomTypeListItem(row: RoomTypeRow, usageCounts?: ReadonlyMap<string, number>): RoomTypeListItem {
   return {

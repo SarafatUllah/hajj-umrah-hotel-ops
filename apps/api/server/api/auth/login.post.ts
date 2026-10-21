@@ -1,20 +1,11 @@
-import { z } from 'zod'
 import { login } from '../../services/auth.service'
 import { UnauthenticatedError } from '../../errors/domainError'
 import { defineApiHandler } from '../../utils/apiHandler'
 import { clientIp } from '../../utils/clientIp'
-import { totpCodeSchema } from '@hajj/contracts/schemas/auth'
-
-// Upper bounds keep a hostile body from feeding huge strings to Argon2 and the rate-limit hashes.
-const bodySchema = z.object({
-  organizationSlug: z.string().min(1).max(100),
-  email: z.string().email().max(254),
-  password: z.string().min(1).max(1024),
-  totpCode: totpCodeSchema.optional(),
-})
+import { staffLoginSchema } from '@hajj/contracts/schemas/auth'
 
 export default defineApiHandler({
-  body: bodySchema,
+  body: staffLoginSchema,
   auth: 'none',
   handler: async ({ event, body }) => {
     const result = await login(body, { clientIp: clientIp(event), now: new Date() })

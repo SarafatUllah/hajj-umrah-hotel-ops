@@ -2,9 +2,11 @@ import { MAX_BEDS_PER_ROOM, MAX_CAPACITY_PERIOD_DAYS } from '@hajj/contracts/con
 import { type IsoDate, addDays, makeRange, rangeLength, toEpochDay } from '@hajj/contracts/utils/dates'
 import type { CapacityValues } from './baseVersions'
 import { InventoryRuleError } from './rules'
+import type { PeriodPhase } from '@hajj/contracts/types/inventory'
+
+export type { PeriodPhase }
 
 export interface PeriodDates { startDate: IsoDate, endDate: IsoDate }
-export type PeriodPhase = 'FUTURE' | 'ACTIVE' | 'ENDED'
 
 export function periodPhase(p: PeriodDates, today: IsoDate): PeriodPhase {
   if (toEpochDay(p.endDate) < toEpochDay(today)) return 'ENDED'

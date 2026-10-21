@@ -4,6 +4,9 @@ export type DocType = typeof DOC_TYPES[number]
 
 export const MAX_DOCUMENT_TITLE_LENGTH = 200
 export const MAX_DOCUMENT_DESCRIPTION_LENGTH = 2000
+/** What a hotel document may be: a PDF, or a PNG or JPEG image (the API also checks the bytes). */
+export const DOCUMENT_MIME_TYPES = ['application/pdf', 'image/png', 'image/jpeg'] as const
+
 /** Largest file any upload may carry (hotel documents, passport photos); the API refuses more, the frontends say so first. */
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 /** Most documents one list page returns. */

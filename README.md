@@ -32,6 +32,7 @@ A pnpm workspace driven by Turborepo; every command below runs from the reposito
 | `packages/db` | `@hajj/db` | Drizzle schema, migrations, the database client factory, migrate and drift CLIs. |
 | `packages/ui` | `@hajj/ui` | The shared Nuxt layer of the frontends: design tokens (light/dark), English and Arabic (RTL), the API client, TanStack Query, formatting, the status registry and the shared components. |
 | `apps/public-site` | `@hajj/public-site` | The public site (Nuxt, server-rendered): hotels, phone sign-in, a family's or group's request at the public price, its bookings, receipt and account. |
+| `apps/ops-console` | `@hajj/ops-console` | The staff console (Nuxt, rendered in the browser after sign-in): sign-in with two-factor codes and the demo personas, the hotel switcher, the overview, hotels (profile, floors, settings, documents, activity), room types, demo data. |
 | `apps/agency-portal` | `@hajj/agency-portal` | The agency portal (Nuxt, rendered in the browser after sign-in): registration and approval, quotes, search at the agency price, holds and confirmation, pilgrims, passport photos, receipts. |
 
 The Phase 2 design is `docs/design/Hajj_Booking_Platform_Architecture_v7.pdf`; its open client questions are tracked in
@@ -172,13 +173,15 @@ the demo organization to its baseline.
 
 Each frontend is a Nuxt app that extends the shared layer `@hajj/ui`. The layer forwards the app's own `/api/**` to the
 API — only the path prefixes that app uses (the public site: `/api/public/`, `/api/customer/`; the agency portal:
-`/api/agency/`, `/api/public/`; anything else is 404 on its origin), with the visitor's address in `X-Forwarded-For` — so sessions are first-party cookies; the API lists each
+`/api/agency/`, `/api/public/`; the ops console: the staff endpoints and the demo sign-in, never the agency or
+customer ones; anything else is 404 on its origin), with the visitor's address in `X-Forwarded-For` — so sessions are first-party cookies; the API lists each
 frontend's origin in `ALLOWED_ORIGINS` and runs with `TRUST_PROXY=true` behind them.
 
 | App | Dev port | Run |
 |---|---|---|
 | Public site (`apps/public-site`) | 3001 | `pnpm --filter @hajj/public-site dev` (API on `NUXT_API_PROXY_TARGET`, default `http://localhost:3000`) |
 | Agency portal (`apps/agency-portal`) | 3002 | `pnpm --filter @hajj/agency-portal dev` |
+| Ops console (`apps/ops-console`) | 3003 | `pnpm --filter @hajj/ops-console dev` |
 
 Runtime variables of a frontend: `NUXT_API_PROXY_TARGET` (the API's internal origin), `NUXT_API_PROXY_TRUST_PROXY`
 (`true` only when the frontend itself sits behind one proxy that sets `X-Forwarded-For`) and, for the public site and

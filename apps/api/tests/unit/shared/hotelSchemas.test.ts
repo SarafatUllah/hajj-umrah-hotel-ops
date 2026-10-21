@@ -200,3 +200,31 @@ describe('listHotelAuditQuerySchema', () => {
     expect(listHotelAuditQuerySchema.safeParse({ bogus: 'x' }).success).toBe(false)
   })
 })
+
+describe('required and clearable hotel fields', () => {
+  it('a name or city that is empty (or only spaces) is refused', () => {
+    expect(createHotelSchema.safeParse({ ...VALID_HOTEL, name: '' }).success).toBe(false)
+    expect(createHotelSchema.safeParse({ ...VALID_HOTEL, city: '   ' }).success).toBe(false)
+    expect(updateHotelSchema.safeParse({ name: '' }).success).toBe(false)
+  })
+
+  it('an edit clears an optional detail with null', () => {
+    const cleared = updateHotelSchema.parse({ address: null, phone: null, email: null, licenseReference: null, notes: null })
+    expect(cleared).toEqual({ address: null, phone: null, email: null, licenseReference: null, notes: null })
+  })
+})
+
+describe('an empty optional detail means none', () => {
+  it('on create it is left out; on update it clears the detail (null), the email included', () => {
+    const created = createHotelSchema.parse({ ...VALID_HOTEL, address: '  ', email: '', notes: '' })
+    expect(created).toMatchObject({ address: undefined, email: undefined, notes: undefined })
+    expect(updateHotelSchema.parse({ address: '', email: '', phone: 'x' })).toEqual({ address: null, email: null, phone: 'x' })
+  })
+})
+
+describe('reserved hotel codes', () => {
+  it('NEW is refused: /hotels/new is the page that creates a hotel', () => {
+    expect(createHotelSchema.safeParse({ ...VALID_HOTEL, code: 'NEW' }).success).toBe(false)
+    expect(createHotelSchema.safeParse({ ...VALID_HOTEL, code: 'NEW-1' }).success).toBe(true)
+  })
+})

@@ -231,3 +231,24 @@ describe('listRoomTypesQuerySchema', () => {
     expect(listRoomTypesQuerySchema.parse({ includeInactive: 'false' }).includeInactive).toBe(false)
   })
 })
+
+describe('a room type needs a name', () => {
+  it('an empty name is refused', () => {
+    expect(createRoomTypeSchema.safeParse({ code: 'QUAD', name: '  ' }).success).toBe(false)
+  })
+})
+
+describe('a room type keeps a name on edit', () => {
+  it('an update emptying the name is refused; other fields alone pass', () => {
+    expect(updateRoomTypeSchema.safeParse({ name: '' }).success).toBe(false)
+    expect(updateRoomTypeSchema.safeParse({ defaultPhysicalBeds: 5 }).success).toBe(true)
+  })
+})
+
+describe('a room type description can be cleared', () => {
+  it('null or an empty value on update clears it; on create an empty one is none', () => {
+    expect(updateRoomTypeSchema.parse({ description: null })).toEqual({ description: null })
+    expect(updateRoomTypeSchema.parse({ description: '  ' })).toEqual({ description: null })
+    expect(createRoomTypeSchema.parse({ code: 'QUAD', name: 'Quad', description: '' }).description).toBeUndefined()
+  })
+})

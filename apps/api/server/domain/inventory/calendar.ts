@@ -2,6 +2,9 @@ import { type IsoDate, type NightRange, eachDate, fromEpochDay, toEpochDay } fro
 import { type CapacitySource, type PreparedCapacity, capacityOnDay, cutDays, prepareCapacity } from './capacity'
 import { type AverageResult, type RoomCapacityInput, makeAverage } from './averages'
 import { type BlockKind, type InventoryStatus, INVENTORY_STATUSES } from '@hajj/contracts/constants/inventory'
+import type { DailySummary } from '@hajj/contracts/types/inventory'
+
+export type { DailySummary }
 
 
 export interface BlockInput { id: string, kind: BlockKind, from: IsoDate, to: IsoDate }
@@ -86,17 +89,6 @@ function deriveDaySegments(input: RoomCalendarInput, start: number, end: number,
 export function buildRoomSegments(input: RoomCalendarInput, range: NightRange, options: CalendarOptions): CalendarSegment[] {
   return deriveDaySegments(input, toEpochDay(range.from), toEpochDay(range.to), options)
     .map(seg => ({ from: fromEpochDay(seg.from), to: fromEpochDay(seg.to), ...seg.state }))
-}
-
-export interface DailySummary {
-  date: IsoDate
-  roomsInInventory: number
-  sellableRooms: number
-  outOfService: number
-  maintenance: number
-  operationalBlock: number
-  effectiveSellableCapacity: number
-  sellableRoomCapacity: number
 }
 
 export function summarizeDaily(rooms: RoomCalendarInput[], range: NightRange, options: CalendarOptions): DailySummary[] {

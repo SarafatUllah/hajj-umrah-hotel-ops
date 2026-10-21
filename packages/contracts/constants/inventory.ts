@@ -9,6 +9,10 @@ export type BlockKind = typeof BLOCK_KINDS[number]
 export const CAPACITY_PERIOD_KINDS = ['HAJJ', 'RAMADAN', 'SPECIAL'] as const
 export type CapacityPeriodKind = typeof CAPACITY_PERIOD_KINDS[number]
 
+/** A season's phase against the hotel's today (computed, never stored): Upcoming, Running, Ended. */
+export const PERIOD_PHASES = ['FUTURE', 'ACTIVE', 'ENDED'] as const
+export type PeriodPhase = typeof PERIOD_PHASES[number]
+
 export const HOTEL_STATUSES = ['ACTIVE', 'INACTIVE'] as const
 export type HotelStatus = typeof HOTEL_STATUSES[number]
 export const OWNERSHIP_TYPES = ['OWNED', 'LEASED', 'CONTRACTED'] as const

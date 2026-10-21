@@ -1,4 +1,4 @@
-import { type DateStyle, formatDate, formatDateTime, formatMoney, formatStay, nightsBetween } from '../utils/format'
+import { type DateStyle, formatDate, formatDateTime, formatMoney, formatNumber, formatStay, nightsBetween } from '../utils/format'
 
 /** The formatters bound to the current language. */
 export function useFormat() {
@@ -8,6 +8,7 @@ export function useFormat() {
     dateTime: (isoTimestamp: string, timeZone?: string) => formatDateTime(isoTimestamp, locale.value, timeZone),
     stay: (checkIn: string, checkOut: string) => formatStay(checkIn, checkOut, locale.value),
     money: (halalas: number) => formatMoney(halalas, locale.value),
+    number: (value: number) => formatNumber(value, locale.value),
     nights: nightsBetween,
   }
 }

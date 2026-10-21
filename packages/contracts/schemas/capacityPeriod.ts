@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { CAPACITY_PERIOD_KINDS, MAX_BEDS_PER_ROOM, MAX_OVERRIDE_SELECTOR_ROOMS } from '../constants/inventory'
 import { isValidIsoDate, toEpochDay } from '../utils/dates'
-import { dateRange, isoDate, safeText, uniqueIds, uuid } from './common'
+import { dateRange, isoDate, requiredText, safeText, uniqueIds, uuid } from './common'
 
 const capacityValue = z.number().int().min(0).max(MAX_BEDS_PER_ROOM)
 const physicalBedsValue = capacityValue.min(1)
@@ -12,7 +12,7 @@ const deltaValue = z.number().int().min(-MAX_BEDS_PER_ROOM).max(MAX_BEDS_PER_ROO
 const MAX_SELECTOR_GROUP_IDS = 200
 
 export const createCapacityPeriodSchema = z.object({
-  name: safeText(200),
+  name: requiredText(200),
   kind: z.enum(CAPACITY_PERIOD_KINDS),
   startDate: isoDate,
   endDate: isoDate,
@@ -31,7 +31,7 @@ export type CreateCapacityPeriodInput = z.infer<typeof createCapacityPeriodSchem
 
 /** `.strict()` rejects any key outside this list (mass-assignment guard) — `id`/`organizationId`/`hotelId` are never accepted. */
 export const updateCapacityPeriodSchema = z.object({
-  name: safeText(200).optional(),
+  name: requiredText(200).optional(),
   kind: z.enum(CAPACITY_PERIOD_KINDS).optional(),
   startDate: isoDate.optional(),
   endDate: isoDate.optional(),

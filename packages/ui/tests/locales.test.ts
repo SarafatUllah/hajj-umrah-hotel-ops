@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { AGENCY_STATUSES } from '@hajj/contracts/constants/accounts'
 import { BOOKING_STATUSES, GUEST_STATUSES, HOTEL_TASK_STATUSES } from '@hajj/contracts/constants/booking'
-import { HOTEL_STATUSES } from '@hajj/contracts/constants/inventory'
+import { HOTEL_STATUSES, PERIOD_PHASES } from '@hajj/contracts/constants/inventory'
 import { PASSPORT_SCAN_STATUSES } from '@hajj/contracts/constants/pilgrimData'
 import { QUOTE_STATUSES } from '@hajj/contracts/constants/pricing'
 import { STATUS_REGISTRY, type StatusDomain } from '../app/utils/statusRegistry'
@@ -33,7 +33,9 @@ function serverErrorCodes(): string[] {
   const codes = new Set<string>()
   for (const file of files) {
     const source = readFileSync(file, 'utf8')
-    for (const match of source.matchAll(/(?:ValidationError|ConflictError|NotFoundError|ForbiddenError|UnauthenticatedError|TooManyRequestsError|ServiceUnavailableError|PayloadTooLargeError)\(\s*'([A-Z0-9_]+)'/g)) codes.add(match[1]!)
+    for (const match of source.matchAll(/(?:ValidationError|ConflictError|NotFoundError|ForbiddenError|UnauthenticatedError|TooManyRequestsError|ServiceUnavailableError|UploadRejectedError|InventoryRuleError)\(\s*'([A-Z0-9_]+)'/g)) codes.add(match[1]!)
+    // Codes handed to a helper that throws them (`assertNotInPast(…, 'RETIRE_IN_PAST')`).
+    for (const match of source.matchAll(/assertNotInPast\([^)]*'([A-Z0-9_]+)'\)/g)) codes.add(match[1]!)
     // The database-error map (`dbErrors.ts`) and the hand-built error bodies (`data: { code: … }`).
     const mapped = file.endsWith('dbErrors.ts') ? /code: '([A-Z0-9_]+)'/g : /data: \{ code: '([A-Z0-9_]+)'/g
     for (const match of source.matchAll(mapped)) codes.add(match[1]!)
@@ -56,7 +58,7 @@ describe('locales (§13, acceptance 11)', () => {
   it('every status value has a look in the registry and a label in both languages', () => {
     const statuses: Record<StatusDomain, readonly string[]> = {
       booking: BOOKING_STATUSES, guest: GUEST_STATUSES, quote: QUOTE_STATUSES, hotel: HOTEL_STATUSES,
-      agency: AGENCY_STATUSES, scan: PASSPORT_SCAN_STATUSES, task: HOTEL_TASK_STATUSES,
+      agency: AGENCY_STATUSES, scan: PASSPORT_SCAN_STATUSES, task: HOTEL_TASK_STATUSES, season: PERIOD_PHASES,
     }
     for (const [domain, values] of Object.entries(statuses) as Array<[StatusDomain, readonly string[]]>) {
       expect(Object.keys(STATUS_REGISTRY[domain]).sort()).toEqual([...values].sort())

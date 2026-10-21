@@ -7,6 +7,9 @@ import { clearRateLimit, consumeRateLimit, RATE_LIMITS } from '../security/rateL
 import { generateTotpSecret, totpUri, verifyTotp } from '../security/totp'
 import { usePiiCipher } from '../utils/pii'
 import { recordAudit } from './audit'
+import type { TwoFactorStatus, TwoFactorSetup } from '@hajj/contracts/types/staff'
+
+export type { TwoFactorStatus, TwoFactorSetup }
 
 /** Shown by authenticator apps next to the account. */
 export const TOTP_ISSUER = 'Hajj Hotel Ops'
@@ -22,21 +25,6 @@ type Db = Parameters<typeof tenantRepos>[0]
 const totpSecretContext = (userId: string) => `app_user.totp_secret:${userId}`
 
 const readSecret = (userId: string, ciphertext: string) => usePiiCipher().decrypt(ciphertext, totpSecretContext(userId))
-
-export interface TwoFactorStatus {
-  enabled: boolean
-  /** A setup was started and not confirmed yet. */
-  setupPending: boolean
-  /** One of the user's roles requires two-factor authentication. */
-  requiredByRole: boolean
-}
-
-export interface TwoFactorSetup {
-  /** Base32 secret, shown once for manual entry. */
-  secret: string
-  /** `otpauth://` URI, rendered as a QR code by the client. */
-  otpauthUri: string
-}
 
 export type SecondFactorCheck = 'ok' | 'required' | 'invalid'
 

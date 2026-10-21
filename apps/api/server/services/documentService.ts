@@ -11,6 +11,9 @@ import { authorizeHotel, requireOrgPermission } from '../security/authorize'
 import { generateStorageKey, getStorageDriver, StorageObjectNotFoundError, UploadRejectedError, validateUpload, type StorageDriver } from '../storage'
 import { recordAudit } from './audit'
 import { type DocumentDto, toDocumentDto } from './documentDto'
+import type { DocumentPage } from '@hajj/contracts/types/hotel'
+
+export type { DocumentPage }
 
 /**
  * Hotel documents (Task 19): metadata in Postgres, bytes behind the `StorageDriver`.
@@ -29,8 +32,6 @@ export interface DocumentUploadInput {
   fields: Record<string, unknown>
   file: { bytes: Uint8Array, mimeType: string, filename: string }
 }
-
-export interface DocumentPage { items: DocumentDto[], page: number, pageSize: number, total: number }
 
 export interface DocumentDownload {
   stream: Readable

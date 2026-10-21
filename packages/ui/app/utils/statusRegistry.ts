@@ -53,6 +53,12 @@ export const STATUS_REGISTRY = {
     FAILED: look('error', 'triangle-alert'),
     DISCARDED: look('neutral', 'trash-2'),
   },
+  // A season (§19.1): indigo is the season layer's own colour, used for nothing else.
+  season: {
+    FUTURE: look('secondary', 'calendar-clock'),
+    ACTIVE: look('success', 'play'),
+    ENDED: look('neutral', 'history'),
+  },
   task: {
     OPEN: look('warning', 'circle-dot'),
     DONE: look('success', 'circle-check'),
