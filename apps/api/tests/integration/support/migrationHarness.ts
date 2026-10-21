@@ -4,9 +4,10 @@ import { join } from 'node:path'
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import { MIGRATIONS_FOLDER } from '@hajj/db/migrations'
 import { requireTestDatabaseUrl } from './testDatabase'
 
-const MIGRATIONS_DIR = join(process.cwd(), 'db/migrations')
+const MIGRATIONS_DIR = MIGRATIONS_FOLDER
 
 interface Journal {
   entries: Array<{ idx: number }>

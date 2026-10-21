@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
-import { organization, appUser, role, permission, rolePermission, userRole } from '../../../db/schema'
+import { organization, appUser, role, permission, rolePermission, userRole } from '@hajj/db/schema'
 import { seedDemoOrganization, DemoSlugConflictError, DEMO_ORG_SLUG } from '../../../db/seed/demo-org'
 import { DEMO_ADMIN_EMAIL, DEMO_PASSWORD } from '../../../server/demo/personas'
 import { hashPassword } from '../../../server/utils/password'

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { and, eq, isNotNull, isNull } from 'drizzle-orm'
-import { capacityPeriod, floor, hotel, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType } from '../../../db/schema'
+import { capacityPeriod, floor, hotel, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType } from '@hajj/db/schema'
 import { seedDemoOrganization } from '../../../db/seed/demo-org'
 import { demoIds } from '../../../db/seed/demo/ids'
 import { versionsCoverEveryNight } from '../../../db/seed/demo/inventory'

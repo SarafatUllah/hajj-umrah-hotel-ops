@@ -1,7 +1,6 @@
 import 'dotenv/config'
 import postgres from 'postgres'
-import { drizzle } from 'drizzle-orm/postgres-js'
-import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import { runMigrations } from '@hajj/db/migrations'
 import { requireTestDatabaseUrl } from '../../tests/integration/support/testDatabase'
 
 /**
@@ -21,9 +20,8 @@ async function main() {
   await client.unsafe('DROP SCHEMA IF EXISTS drizzle CASCADE')
   await client.unsafe('CREATE SCHEMA public')
 
-  const db = drizzle(client)
-  await migrate(db, { migrationsFolder: './db/migrations' })
   await client.end()
+  await runMigrations(connectionString)
   console.log('Test database reset and migrated successfully')
 }
 

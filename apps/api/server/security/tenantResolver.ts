@@ -1,4 +1,4 @@
-import type { DbOrTx } from '../../db/client'
+import type { DbOrTx } from '@hajj/db/client'
 import { platformRepos, type OrganizationRow } from '../repositories'
 import { trustedOrganizationScope, type OrganizationScope } from './scope'
 

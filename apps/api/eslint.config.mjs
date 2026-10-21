@@ -35,7 +35,7 @@ export default withNuxt(
     rules: {
       'no-restricted-imports': ['error', { patterns: [
         { group: ['drizzle-orm', 'drizzle-orm/*'], message: 'Only repositories may build queries.' },
-        { group: ['**/db/schema', '**/db/schema/*', '**/db/client'], message: 'Go through a repository.' },
+        { group: ['@hajj/db/schema', '@hajj/db/schema/*', '@hajj/db/client', '**/db/schema', '**/db/schema/*', '**/db/client'], message: 'Go through a repository.' },
         TRUSTED_MINTING,
         IDENTITY_MINTING,
       ] }],

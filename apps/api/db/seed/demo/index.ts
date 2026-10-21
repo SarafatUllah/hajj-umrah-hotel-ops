@@ -1,4 +1,4 @@
-import type { DbOrTx } from '../../client'
+import type { DbOrTx } from '@hajj/db/client'
 import { hotelRepos, tenantRepos } from '../../../server/repositories'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { DEMO_PERSONAS } from '../../../server/demo/personas'

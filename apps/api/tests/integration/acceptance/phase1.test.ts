@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
-import { auditLog } from '../../../db/schema'
+import { auditLog } from '@hajj/db/schema'
 import { seedDemoOrganization } from '../../../db/seed/demo-org'
 import { seedOrganizationRoles, seedPermissionCatalog } from '../../../db/seed/rbac'
 import { demoIds } from '../../../db/seed/demo/ids'

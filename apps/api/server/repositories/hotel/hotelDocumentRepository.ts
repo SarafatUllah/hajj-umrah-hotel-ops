@@ -1,6 +1,6 @@
 import { and, count, desc, eq, isNull, type SQL } from 'drizzle-orm'
-import type { DbOrTx } from '../../../db/client'
-import { documentAsset, hotelDocument } from '../../../db/schema'
+import type { DbOrTx } from '@hajj/db/client'
+import { documentAsset, hotelDocument } from '@hajj/db/schema'
 import type { HotelScope } from '../../security/scope'
 import { HotelQuery } from '../base/scopedQuery'
 import type { DocumentAssetRow } from '../tenant/documentAssetRepository'

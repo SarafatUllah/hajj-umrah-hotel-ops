@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { and, eq, sql } from 'drizzle-orm'
-import { organization, appUser, role, permission, rolePermission, userRole } from '../../../db/schema'
+import { organization, appUser, role, permission, rolePermission, userRole } from '@hajj/db/schema'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
 import { resolveAuthContext } from '../../../server/security/authContext'

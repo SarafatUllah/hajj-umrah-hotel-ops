@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { and, eq, isNull } from 'drizzle-orm'
-import { appUser, role, room, roomBaseConfig, userHotelAccess, userRole } from '../../../db/schema'
+import { appUser, role, room, roomBaseConfig, userHotelAccess, userRole } from '@hajj/db/schema'
 import { seedDemoOrganization } from '../../../db/seed/demo-org'
 import { demoIds } from '../../../db/seed/demo/ids'
 import { DEMO_HOTELS, DEMO_ORG_SLUG } from '../../../server/demo/catalog'

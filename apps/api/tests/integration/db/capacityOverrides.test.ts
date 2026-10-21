@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { capacityPeriod, roomCapacityOverride } from '../../../db/schema'
+import { capacityPeriod, roomCapacityOverride } from '@hajj/db/schema'
 import { extractPgError, translateDbError } from '../../../server/errors/dbErrors'
 import { ConflictError, ValidationError } from '../../../server/errors/domainError'
 import { CapacityPeriodRepository, RoomCapacityOverrideRepository } from '../../../server/repositories/hotel'

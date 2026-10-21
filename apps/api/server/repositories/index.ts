@@ -1,4 +1,4 @@
-import type { DbOrTx } from '../../db/client'
+import type { DbOrTx } from '@hajj/db/client'
 import type { HotelScope, OrganizationScope } from '../security/scope'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from './hotel'
 import { PlatformOrganizationRepository } from './platform/organizationRepository'

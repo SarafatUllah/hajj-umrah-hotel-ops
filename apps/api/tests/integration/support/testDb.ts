@@ -1,7 +1,7 @@
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
-import * as schema from '../../../db/schema'
-import type { Database } from '../../../db/client'
+import * as schema from '@hajj/db/schema'
+import type { Database } from '@hajj/db/client'
 import { requireTestDatabaseUrl } from './testDatabase'
 
 let client: postgres.Sql | null = null

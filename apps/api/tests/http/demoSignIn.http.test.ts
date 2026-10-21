@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, inject, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { organization } from '../../db/schema'
+import { organization } from '@hajj/db/schema'
 import { demoIds } from '../../db/seed/demo/ids'
 import { DEMO_HOTELS } from '../../server/demo/catalog'
 import { DEMO_PASSWORD, DEMO_PERSONAS } from '../../server/demo/personas'

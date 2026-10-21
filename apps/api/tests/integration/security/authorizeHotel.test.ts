@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import type { Database } from '../../../db/client'
+import type { Database } from '@hajj/db/client'
 import { NotFoundError } from '../../../server/errors/domainError'
 import { authorizeHotel } from '../../../server/security/authorize'
 import type { AuthContext } from '../../../server/security/authContext'

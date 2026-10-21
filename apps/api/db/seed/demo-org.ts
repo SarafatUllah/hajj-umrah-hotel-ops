@@ -1,4 +1,4 @@
-import type { Database, DbOrTx } from '../client'
+import type { Database, DbOrTx } from '@hajj/db/client'
 import { platformRepos } from '../../server/repositories'
 import { trustedOrganizationScope, type OrganizationScope } from '../../server/security/scope'
 import { seedPermissionCatalog, seedOrganizationRoles } from './rbac'

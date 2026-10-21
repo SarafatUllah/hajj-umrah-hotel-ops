@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { DbOrTx } from '../../db/client'
+import type { DbOrTx } from '@hajj/db/client'
 import { hotelRepos, platformRepos, tenantRepos } from '../../server/repositories'
 import type { CapacityPeriodRow, FloorRow, HotelDocumentRow, NewCapacityPeriod, NewFloor, NewRoom, NewRoomBaseConfig, NewRoomCapacityOverride, NewRoomOperationalBlock, RoomBaseConfigRow, RoomCapacityOverrideRow, RoomOperationalBlockRow, RoomRow } from '../../server/repositories/hotel'
 import type { NewOrganization, OrganizationRow } from '../../server/repositories/platform/organizationRepository'

@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull, sql, type SQL } from 'drizzle-orm'
-import type { DbOrTx } from '../../../db/client'
-import { appUser, auditLog } from '../../../db/schema'
+import type { DbOrTx } from '@hajj/db/client'
+import { appUser, auditLog } from '@hajj/db/schema'
 import type { OrganizationScope } from '../../security/scope'
 import { OrgQuery } from '../base/scopedQuery'
 

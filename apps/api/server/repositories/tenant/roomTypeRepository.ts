@@ -1,6 +1,6 @@
 import { asc, eq, inArray, sql } from 'drizzle-orm'
-import type { DbOrTx } from '../../../db/client'
-import { room, roomBaseConfig, roomType } from '../../../db/schema'
+import type { DbOrTx } from '@hajj/db/client'
+import { room, roomBaseConfig, roomType } from '@hajj/db/schema'
 import type { OrganizationScope } from '../../security/scope'
 import type { IsoDate } from '@hajj/contracts/utils/dates'
 import { OrgQuery } from '../base/scopedQuery'

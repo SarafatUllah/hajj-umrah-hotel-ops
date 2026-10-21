@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import { organization, appUser } from '../../../db/schema'
+import { organization, appUser } from '@hajj/db/schema'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
 const db = getTestDb()

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { sql } from 'drizzle-orm'
-import { createDbWithClient } from '../../../db/client'
+import { createDbWithClient } from '@hajj/db/client'
 import { closeDb, useDb } from '../../../server/utils/db'
 import { getTestClient } from './testDb'
 import { requireTestDatabaseUrl } from './testDatabase'

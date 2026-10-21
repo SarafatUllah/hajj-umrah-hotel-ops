@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { floor, hotel, roomType } from '../../../db/schema'
+import { floor, hotel, roomType } from '@hajj/db/schema'
 import { platformRepos } from '../../../server/repositories'
 import { trustedHotelScope } from '../../../server/security/scope'
 import { extractPgError, translateDbError } from '../../../server/errors/dbErrors'

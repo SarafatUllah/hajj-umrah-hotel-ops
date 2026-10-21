@@ -1,6 +1,6 @@
 import { asc, count, eq, inArray } from 'drizzle-orm'
-import type { DbOrTx } from '../../../db/client'
-import { floor } from '../../../db/schema'
+import type { DbOrTx } from '@hajj/db/client'
+import { floor } from '@hajj/db/schema'
 import type { HotelScope } from '../../security/scope'
 import { HotelQuery } from '../base/scopedQuery'
 

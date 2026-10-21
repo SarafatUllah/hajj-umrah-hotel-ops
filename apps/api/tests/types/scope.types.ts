@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { appUser, role } from '../../db/schema'
-import type { DbOrTx } from '../../db/client'
+import { appUser, role } from '@hajj/db/schema'
+import type { DbOrTx } from '@hajj/db/client'
 import { OrgQuery } from '../../server/repositories/base/scopedQuery'
 import { trustedOrganizationScope } from '../../server/security/scope'
 
@@ -15,6 +15,6 @@ export async function demo(db: DbOrTx) {
   // @ts-expect-error organizationId must not be caller-supplied on insert
   await q.insert(appUser, { organizationId: 'other', email: 'a@b.c', passwordHash: 'x', fullName: 'A' })
   // @ts-expect-error a table without organization_id (the global permission catalog) cannot be queried through a tenant query
-  await q.select((await import('../../db/schema')).permission)
+  await q.select((await import('@hajj/db/schema')).permission)
   return first
 }

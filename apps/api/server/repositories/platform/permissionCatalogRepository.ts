@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
-import type { DbOrTx } from '../../../db/client'
-import { permission } from '../../../db/schema'
+import type { DbOrTx } from '@hajj/db/client'
+import { permission } from '@hajj/db/schema'
 
 export type PermissionRow = typeof permission.$inferSelect
 

@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto'
 import { eq, inArray, type SQL } from 'drizzle-orm'
 import { getTableColumns, getTableName } from 'drizzle-orm'
 import type { PgTable } from 'drizzle-orm/pg-core'
-import type { DbOrTx } from '../../db/client'
-import { appUser, capacityPeriod, floor, hotel, hotelSetting, role, rolePermission, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, userHotelAccess, userRole } from '../../db/schema'
+import type { DbOrTx } from '@hajj/db/client'
+import { appUser, capacityPeriod, floor, hotel, hotelSetting, role, rolePermission, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, userHotelAccess, userRole } from '@hajj/db/schema'
 
 /**
  * A SHA-256 fingerprint of an organization's BUSINESS state, for determinism and reset tests.

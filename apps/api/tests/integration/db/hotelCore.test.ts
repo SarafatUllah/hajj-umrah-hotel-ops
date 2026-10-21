@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
-import { auditLog, hotel, hotelSetting, userHotelAccess } from '../../../db/schema'
+import { auditLog, hotel, hotelSetting, userHotelAccess } from '@hajj/db/schema'
 import { platformRepos, tenantRepos } from '../../../server/repositories'
 import { HotelSettingRepository } from '../../../server/repositories/hotel'
 import { trustedHotelScope } from '../../../server/security/scope'

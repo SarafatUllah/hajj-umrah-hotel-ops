@@ -1,6 +1,6 @@
 import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm'
-import type { DbOrTx } from '../../../db/client'
-import { roomCapacityOverride } from '../../../db/schema'
+import type { DbOrTx } from '@hajj/db/client'
+import { roomCapacityOverride } from '@hajj/db/schema'
 import type { HotelScope } from '../../security/scope'
 import type { IsoDate, NightRange } from '@hajj/contracts/utils/dates'
 import { HotelQuery } from '../base/scopedQuery'

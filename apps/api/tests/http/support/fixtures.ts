@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import { appUser } from '../../../db/schema'
-import type { Database } from '../../../db/client'
+import { appUser } from '@hajj/db/schema'
+import type { Database } from '@hajj/db/client'
 import { tenantRepos } from '../../../server/repositories'
 import type { OrganizationScope } from '../../../server/security/scope'
 import type { UserRow } from '../../../server/repositories/tenant'

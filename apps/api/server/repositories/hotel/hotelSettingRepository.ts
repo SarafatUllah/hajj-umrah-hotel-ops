@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
-import type { DbOrTx } from '../../../db/client'
-import { hotelSetting } from '../../../db/schema'
+import type { DbOrTx } from '@hajj/db/client'
+import { hotelSetting } from '@hajj/db/schema'
 import type { HotelScope } from '../../security/scope'
 import { HotelQuery } from '../base/scopedQuery'
 

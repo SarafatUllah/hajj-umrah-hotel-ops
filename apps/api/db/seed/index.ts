@@ -1,5 +1,5 @@
 import 'dotenv/config'
-import { createDbWithClient } from '../client'
+import { createDbWithClient } from '@hajj/db/client'
 import { seedDemoOrganization } from './demo-org'
 
 async function main() {

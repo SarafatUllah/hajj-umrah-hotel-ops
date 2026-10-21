@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
-import { appUser, organization } from '../../../db/schema'
+import { appUser, organization } from '@hajj/db/schema'
 import { ConflictError, ValidationError } from '../../../server/errors/domainError'
 import { translateDbError } from '../../../server/errors/dbErrors'
 import { closeTestDb, getTestDb, truncateAllTables } from './testDb'

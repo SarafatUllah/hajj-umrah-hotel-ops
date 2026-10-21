@@ -17,6 +17,9 @@ importers:
       '@hajj/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@hajj/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@node-rs/argon2':
         specifier: ^2.2.1
         version: 2.2.1
@@ -48,9 +51,6 @@ importers:
       dotenv:
         specifier: ^18.0.3
         version: 18.0.3
-      drizzle-kit:
-        specifier: ^0.31.11
-        version: 0.31.11
       eslint:
         specifier: ^10.11.0
         version: 10.11.0(jiti@2.7.0)
@@ -79,6 +79,37 @@ importers:
       eslint:
         specifier: ^10.11.0
         version: 10.11.0(jiti@2.7.0)
+      typescript:
+        specifier: ^6.0.0
+        version: 6.0.3
+
+  packages/db:
+    dependencies:
+      dotenv:
+        specifier: ^18.0.3
+        version: 18.0.3
+      drizzle-orm:
+        specifier: ^0.45.3
+        version: 0.45.3(postgres@3.4.9)
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
+    devDependencies:
+      '@nuxt/eslint-config':
+        specifier: 1.17.0
+        version: 1.17.0(@typescript-eslint/utils@8.70.1(eslint@10.11.0(jiti@2.7.0))(typescript@6.0.3))(@vue/compiler-sfc@3.5.43)(eslint@10.11.0(jiti@2.7.0))(typescript@6.0.3)
+      '@types/node':
+        specifier: ^26.6.2
+        version: 26.6.2
+      drizzle-kit:
+        specifier: ^0.31.11
+        version: 0.31.11
+      eslint:
+        specifier: ^10.11.0
+        version: 10.11.0(jiti@2.7.0)
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
       typescript:
         specifier: ^6.0.0
         version: 6.0.3

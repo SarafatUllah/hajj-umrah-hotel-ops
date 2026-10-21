@@ -1,6 +1,6 @@
 import { eq, sql } from 'drizzle-orm'
-import type { DbOrTx } from '../../../db/client'
-import { organization } from '../../../db/schema'
+import type { DbOrTx } from '@hajj/db/client'
+import { organization } from '@hajj/db/schema'
 
 /** Arbitrary constant, unique to this application's demo seed lock. */
 const DEMO_SEED_LOCK_KEY = 5_120_260_901

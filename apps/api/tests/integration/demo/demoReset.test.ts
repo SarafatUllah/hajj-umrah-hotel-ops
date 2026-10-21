@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { count, eq } from 'drizzle-orm'
-import { appUser, auditLog, documentAsset, hotel, hotelDocument, organization, room } from '../../../db/schema'
+import { appUser, auditLog, documentAsset, hotel, hotelDocument, organization, room } from '@hajj/db/schema'
 import { seedDemoOrganization, DEMO_ORG_SLUG } from '../../../db/seed/demo-org'
 import { seedOrganizationRoles, seedPermissionCatalog } from '../../../db/seed/rbac'
 import { demoIds } from '../../../db/seed/demo/ids'

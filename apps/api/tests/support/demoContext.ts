@@ -1,4 +1,4 @@
-import type { Database } from '../../db/client'
+import type { Database } from '@hajj/db/client'
 import { DEMO_ORG_SLUG } from '../../server/demo/catalog'
 import { DEMO_PASSWORD, DEMO_PERSONAS } from '../../server/demo/personas'
 import { type AuthContext, resolveAuthContext } from '../../server/security/authContext'

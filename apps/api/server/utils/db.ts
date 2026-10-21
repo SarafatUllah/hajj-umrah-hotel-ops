@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { createDbWithClient, type Database, type DbHandle } from '../../db/client'
+import { createDbWithClient, type Database, type DbHandle } from '@hajj/db/client'
 import { getEnv } from './env'
 
 let handle: DbHandle | null = null

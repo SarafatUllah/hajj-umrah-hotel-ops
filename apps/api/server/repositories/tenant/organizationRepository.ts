@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
-import type { DbOrTx } from '../../../db/client'
-import { organization } from '../../../db/schema'
+import type { DbOrTx } from '@hajj/db/client'
+import { organization } from '@hajj/db/schema'
 import type { OrganizationScope } from '../../security/scope'
 import type { OrganizationRow } from '../platform/organizationRepository'
 

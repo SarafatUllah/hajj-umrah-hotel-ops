@@ -1,4 +1,4 @@
-import type { Database } from '../../db/client'
+import type { Database } from '@hajj/db/client'
 import type { AuthorizationContext } from '../domain/rbac/hasPermission'
 import type { Permission } from '@hajj/contracts/constants/permissions'
 import { tenantRepos } from '../repositories'

@@ -1,8 +1,9 @@
-import 'dotenv/config'
 import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { MIGRATIONS_FOLDER } from '../migrations'
 
 /**
  * Detects drift between the Drizzle schema and the committed migrations by
@@ -20,7 +21,9 @@ import { join } from 'node:path'
  * deleted or modified.
  */
 
-const MIGRATIONS_DIR = join(process.cwd(), 'db/migrations')
+const MIGRATIONS_DIR = MIGRATIONS_FOLDER
+// drizzle-kit reads drizzle.config.ts from its working directory: always this package, whatever the caller's cwd.
+const PACKAGE_DIR = fileURLToPath(new URL('../', import.meta.url))
 const JOURNAL_PATH = join(MIGRATIONS_DIR, 'meta', '_journal.json')
 
 interface Snapshot {
@@ -55,7 +58,7 @@ function main(): void {
   const before = snapshot()
 
   try {
-    execSync('pnpm exec drizzle-kit generate --name drift_check', { stdio: 'pipe' })
+    execSync('pnpm exec drizzle-kit generate --name drift_check', { stdio: 'pipe', cwd: PACKAGE_DIR })
   }
   catch (err) {
     const output = err instanceof Error && 'stdout' in err ? String((err as { stdout: unknown }).stdout) : String(err)

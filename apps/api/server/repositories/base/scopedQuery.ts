@@ -1,6 +1,6 @@
 import { and, eq, type SQL } from 'drizzle-orm'
 import type { AnyPgColumn, PgTable } from 'drizzle-orm/pg-core'
-import type { DbOrTx } from '../../../db/client'
+import type { DbOrTx } from '@hajj/db/client'
 import type { HotelScope, OrganizationScope } from '../../security/scope'
 
 type OrgTable = PgTable & { organizationId: AnyPgColumn }
