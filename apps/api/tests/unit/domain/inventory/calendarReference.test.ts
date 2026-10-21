@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { buildRoomSegments, summarizeDaily, type CalendarSegment, type DailySummary, type RoomCalendarInput } from '../../../../server/domain/inventory/calendar'
 import { capacitySegments } from '../../../../server/domain/inventory/capacity'
-import type { BlockKind } from '../../../../shared/constants/inventory'
-import { fromEpochDay, toEpochDay, type NightRange } from '../../../../shared/utils/dates'
+import type { BlockKind } from '@hajj/contracts/constants/inventory'
+import { fromEpochDay, toEpochDay, type NightRange } from '@hajj/contracts/utils/dates'
 
 /**
  * Pins the calendar derivation against an INDEPENDENT naive reference: one state per NIGHT, computed

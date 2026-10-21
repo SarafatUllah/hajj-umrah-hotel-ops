@@ -1,5 +1,5 @@
 import type { AuditRepository } from '../repositories/tenant/auditRepository'
-import type { AuditAction } from '../../shared/constants/audit'
+import type { AuditAction } from '@hajj/contracts/constants/audit'
 
 export interface AuditEntry {
   hotelId?: string | null

@@ -30,7 +30,7 @@ export default withNuxt(
   },
   // Only repositories build queries.
   {
-    files: ['server/services/**/*.ts', 'server/api/**/*.ts', 'server/domain/**/*.ts', 'server/utils/**/*.ts', 'shared/**/*.ts'],
+    files: ['server/services/**/*.ts', 'server/api/**/*.ts', 'server/domain/**/*.ts', 'server/utils/**/*.ts'],
     ignores: ['server/utils/db.ts'],
     rules: {
       'no-restricted-imports': ['error', { patterns: [

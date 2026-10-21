@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { defineApiHandler } from '../../../utils/apiHandler'
 import { listHotelAudit } from '../../../services/hotelService'
-import { listHotelAuditQuerySchema } from '../../../../shared/schemas/hotel'
-import { uuid } from '../../../../shared/schemas/common'
+import { listHotelAuditQuerySchema } from '@hajj/contracts/schemas/hotel'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

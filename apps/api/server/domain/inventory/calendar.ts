@@ -1,7 +1,7 @@
-import { type IsoDate, type NightRange, eachDate, fromEpochDay, toEpochDay } from '../../../shared/utils/dates'
+import { type IsoDate, type NightRange, eachDate, fromEpochDay, toEpochDay } from '@hajj/contracts/utils/dates'
 import { type CapacitySource, type PreparedCapacity, capacityOnDay, cutDays, prepareCapacity } from './capacity'
 import { type AverageResult, type RoomCapacityInput, makeAverage } from './averages'
-import { type BlockKind, type InventoryStatus, INVENTORY_STATUSES } from '../../../shared/constants/inventory'
+import { type BlockKind, type InventoryStatus, INVENTORY_STATUSES } from '@hajj/contracts/constants/inventory'
 
 
 export interface BlockInput { id: string, kind: BlockKind, from: IsoDate, to: IsoDate }

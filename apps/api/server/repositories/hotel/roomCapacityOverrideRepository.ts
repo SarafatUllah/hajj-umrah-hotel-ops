@@ -2,7 +2,7 @@ import { and, asc, eq, gte, inArray, lte } from 'drizzle-orm'
 import type { DbOrTx } from '../../../db/client'
 import { roomCapacityOverride } from '../../../db/schema'
 import type { HotelScope } from '../../security/scope'
-import type { IsoDate, NightRange } from '../../../shared/utils/dates'
+import type { IsoDate, NightRange } from '@hajj/contracts/utils/dates'
 import { HotelQuery } from '../base/scopedQuery'
 
 export type RoomCapacityOverrideRow = typeof roomCapacityOverride.$inferSelect

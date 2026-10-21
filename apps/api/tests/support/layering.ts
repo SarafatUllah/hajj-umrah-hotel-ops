@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import ts from 'typescript'
 
@@ -28,11 +28,26 @@ export interface Violation { file: string, line: number, rule: string, specifier
 const SOURCE_EXTENSIONS = /\.(?:[cm]?[jt]s|vue)$/
 const SKIPPED_DIRS = new Set(['node_modules', '.nuxt', '.output', '.git', '.data', 'dist', 'coverage', '.remember', '.superpowers', 'docs'])
 
+/**
+ * The layering rules speak in LOGICAL layer paths (`server/...`, `shared/...`, `db/...`), which were
+ * also the physical paths before the monorepo split. Each workspace package is mounted at its logical
+ * prefix here, so the rules (and their meta-tests) stay about layers rather than folder layout.
+ */
+export const WORKSPACE_LAYOUT = [
+  { dir: 'apps/api', logical: '', specifier: null },
+  { dir: 'packages/contracts', logical: 'shared', specifier: '@hajj/contracts' },
+  { dir: 'packages/db', logical: 'db', specifier: '@hajj/db' },
+] as const
+
 function resolveTarget(file: string, specifier: string): string {
   let target = specifier
   if (specifier.startsWith('.')) target = posix.normalize(posix.join(posix.dirname(file), specifier))
   else if (/^(?:~~|@@)\//.test(specifier)) target = specifier.slice(3)
   else if (specifier.startsWith('#shared/')) target = `shared/${specifier.slice('#shared/'.length)}`
+  else {
+    const pkg = WORKSPACE_LAYOUT.find(p => p.specifier && (specifier === p.specifier || specifier.startsWith(`${p.specifier}/`)))
+    if (pkg) target = `${pkg.logical}${specifier.slice(pkg.specifier!.length)}`
+  }
   return target.replace(/\.(?:[cm]?[jt]s)$/, '').replace(/\/index$/, '')
 }
 
@@ -219,5 +234,24 @@ export function readRepoSources(root: string): Record<string, string> {
     }
   }
   walk(root, '')
+  return sources
+}
+
+/**
+ * Every source file of the workspace, keyed by its LOGICAL path (see `WORKSPACE_LAYOUT`): apps/api
+ * files keep their app-relative path, `packages/contracts/x` becomes `shared/x` and `packages/db/x`
+ * becomes `db/x`. A package that does not exist (yet) contributes nothing.
+ */
+export function readWorkspaceSources(workspaceRoot: string): Record<string, string> {
+  const sources: Record<string, string> = {}
+  for (const pkg of WORKSPACE_LAYOUT) {
+    const dir = join(workspaceRoot, pkg.dir)
+    if (!existsSync(dir)) continue
+    for (const [file, source] of Object.entries(readRepoSources(dir))) {
+      const logical = pkg.logical ? `${pkg.logical}/${file}` : file
+      if (logical in sources) throw new Error(`Two workspace files map to the same logical path: ${logical}`)
+      sources[logical] = source
+    }
+  }
   return sources
 }

@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { defineApiHandler } from '../../../utils/apiHandler'
 import { getRoomCalendar } from '../../../services/roomCalendarService'
-import { roomCalendarQuerySchema } from '../../../../shared/schemas/roomCalendar'
-import { uuid } from '../../../../shared/schemas/common'
+import { roomCalendarQuerySchema } from '@hajj/contracts/schemas/roomCalendar'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

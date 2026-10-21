@@ -29,6 +29,7 @@
     "verify": "pnpm lint && pnpm typecheck && pnpm typecheck:types && pnpm db:check && pnpm db:drift && pnpm test:unit && pnpm test:integration && pnpm test:http"
   },
   "dependencies": {
+    "@hajj/contracts": "workspace:*",
     "@node-rs/argon2": "^2.2.1",
     "drizzle-orm": "^0.45.3",
     "h3": "1.15.11",

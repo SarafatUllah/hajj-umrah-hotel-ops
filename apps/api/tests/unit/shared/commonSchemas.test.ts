@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { dateRange, isoDate, pagination, safeText, uniqueIds, uuid } from '../../../shared/schemas/common'
-import { MAX_CALENDAR_DAYS } from '../../../shared/constants/inventory'
+import { dateRange, isoDate, pagination, safeText, uniqueIds, uuid } from '@hajj/contracts/schemas/common'
+import { MAX_CALENDAR_DAYS } from '@hajj/contracts/constants/inventory'
 
 describe('uuid', () => {
   it('accepts a valid uuid and rejects garbage', () => {

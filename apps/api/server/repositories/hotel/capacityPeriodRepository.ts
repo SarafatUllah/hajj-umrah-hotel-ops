@@ -2,7 +2,7 @@ import { and, asc, count, eq, gte, inArray } from 'drizzle-orm'
 import type { DbOrTx } from '../../../db/client'
 import { capacityPeriod, roomCapacityOverride } from '../../../db/schema'
 import type { HotelScope } from '../../security/scope'
-import type { IsoDate } from '../../../shared/utils/dates'
+import type { IsoDate } from '@hajj/contracts/utils/dates'
 import { HotelQuery } from '../base/scopedQuery'
 
 export type CapacityPeriodRow = typeof capacityPeriod.$inferSelect

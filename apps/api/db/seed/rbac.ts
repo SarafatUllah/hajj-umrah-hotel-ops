@@ -1,8 +1,8 @@
 import type { DbOrTx } from '../client'
 import { platformRepos, tenantRepos } from '../../server/repositories'
 import { trustedOrganizationScope } from '../../server/security/scope'
-import { PERMISSIONS, PERMISSION_DESCRIPTIONS } from '../../shared/constants/permissions'
-import { ROLE_DEFINITIONS } from '../../shared/constants/roles'
+import { PERMISSIONS, PERMISSION_DESCRIPTIONS } from '@hajj/contracts/constants/permissions'
+import { ROLE_DEFINITIONS } from '@hajj/contracts/constants/roles'
 
 export async function seedPermissionCatalog(db: DbOrTx): Promise<void> {
   await platformRepos(db).permissionCatalog.upsertAll(PERMISSIONS.map(key => ({ key, description: PERMISSION_DESCRIPTIONS[key] })))

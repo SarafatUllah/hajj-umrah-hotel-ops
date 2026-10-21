@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DEMO_ONLY_PERMISSIONS, PERMISSIONS } from '../../../shared/constants/permissions'
-import { ROLE_DEFINITIONS } from '../../../shared/constants/roles'
+import { DEMO_ONLY_PERMISSIONS, PERMISSIONS } from '@hajj/contracts/constants/permissions'
+import { ROLE_DEFINITIONS } from '@hajj/contracts/constants/roles'
 
 describe('role definitions', () => {
   it('seeds the seven demo personas', () => {

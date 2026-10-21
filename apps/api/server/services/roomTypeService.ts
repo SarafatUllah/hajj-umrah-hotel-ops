@@ -1,5 +1,5 @@
-import type { CreateRoomTypeInput, ListRoomTypesQuery, UpdateRoomTypeInput } from '../../shared/schemas/roomType'
-import { todayInTimezone } from '../../shared/utils/dates'
+import type { CreateRoomTypeInput, ListRoomTypesQuery, UpdateRoomTypeInput } from '@hajj/contracts/schemas/roomType'
+import { todayInTimezone } from '@hajj/contracts/utils/dates'
 import { translateDbError } from '../errors/dbErrors'
 import { ConflictError, NotFoundError } from '../errors/domainError'
 import { tenantRepos } from '../repositories'

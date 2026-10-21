@@ -1,5 +1,5 @@
-import type { BlockKind } from '../../shared/constants/inventory'
-import { type IsoDate, rangeLength } from '../../shared/utils/dates'
+import type { BlockKind } from '@hajj/contracts/constants/inventory'
+import { type IsoDate, rangeLength } from '@hajj/contracts/utils/dates'
 import { type BlockPhase, blockPhase, planBlockCancellation } from '../domain/inventory/blockRules'
 import { InventoryRuleError } from '../domain/inventory/rules'
 import type { BlockActor, RoomOperationalBlockView } from '../repositories/hotel'

@@ -1,5 +1,5 @@
-import { MAX_BEDS_PER_ROOM, MAX_CAPACITY_PERIOD_DAYS } from '../../../shared/constants/inventory'
-import { type IsoDate, addDays, makeRange, rangeLength, toEpochDay } from '../../../shared/utils/dates'
+import { MAX_BEDS_PER_ROOM, MAX_CAPACITY_PERIOD_DAYS } from '@hajj/contracts/constants/inventory'
+import { type IsoDate, addDays, makeRange, rangeLength, toEpochDay } from '@hajj/contracts/utils/dates'
 import type { CapacityValues } from './baseVersions'
 import { InventoryRuleError } from './rules'
 

@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { defineApiHandler } from '../../../../utils/apiHandler'
 import { listRooms } from '../../../../services/roomService'
-import { listRoomsQuerySchema } from '../../../../../shared/schemas/room'
-import { uuid } from '../../../../../shared/schemas/common'
+import { listRoomsQuerySchema } from '@hajj/contracts/schemas/room'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

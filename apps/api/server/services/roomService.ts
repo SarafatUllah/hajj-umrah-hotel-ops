@@ -1,6 +1,6 @@
-import { resolveSettings } from '../../shared/business-rules/hotelSettings'
-import type { BaseConfigOrigin, CapacityPeriodKind } from '../../shared/constants/inventory'
-import { MAX_BULK_ROOMS, MAX_CALENDAR_DAYS } from '../../shared/constants/inventory'
+import { resolveSettings } from '@hajj/contracts/business-rules/hotelSettings'
+import type { BaseConfigOrigin, CapacityPeriodKind } from '@hajj/contracts/constants/inventory'
+import { MAX_BULK_ROOMS, MAX_CALENDAR_DAYS } from '@hajj/contracts/constants/inventory'
 import type {
   BulkCreateRoomsInput,
   ChangeBaseConfigInput,
@@ -9,9 +9,9 @@ import type {
   ReactivateRoomInput,
   RetireRoomInput,
   UpdateRoomInput,
-} from '../../shared/schemas/room'
-import { addDays, type IsoDate, todayInTimezone } from '../../shared/utils/dates'
-import { normalizeRoomNumber } from '../../shared/utils/roomNumber'
+} from '@hajj/contracts/schemas/room'
+import { addDays, type IsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
+import { normalizeRoomNumber } from '@hajj/contracts/utils/roomNumber'
 import { type BaseVersionRow, planBaseChange, planReactivate, planRetire } from '../domain/inventory/baseVersions'
 import type { BlockInput, CalendarOptions } from '../domain/inventory/calendar'
 import type { CapacityOverride } from '../domain/inventory/capacity'

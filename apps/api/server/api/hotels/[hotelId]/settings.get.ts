@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { defineApiHandler } from '../../../utils/apiHandler'
 import { getSettings } from '../../../services/hotelService'
-import { uuid } from '../../../../shared/schemas/common'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

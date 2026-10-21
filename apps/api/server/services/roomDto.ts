@@ -1,5 +1,5 @@
-import type { BaseConfigOrigin, CapacityPeriodKind, InventoryStatus, RoomFeature } from '../../shared/constants/inventory'
-import { type IsoDate, toEpochDay } from '../../shared/utils/dates'
+import type { BaseConfigOrigin, CapacityPeriodKind, InventoryStatus, RoomFeature } from '@hajj/contracts/constants/inventory'
+import { type IsoDate, toEpochDay } from '@hajj/contracts/utils/dates'
 import { type BaseVersion, type CapacityOverride, baseCapacityAt, effectiveCapacityAt } from '../domain/inventory/capacity'
 import { type BlockInput, type CalendarOptions, buildRoomSegments } from '../domain/inventory/calendar'
 import { type PeriodPhase, periodPhase } from '../domain/inventory/capacityPeriodRules'

@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { defineApiHandler } from '../../../../../utils/apiHandler'
 import { cancelRoomBlock } from '../../../../../services/operationalBlockService'
-import { cancelRoomBlockSchema } from '../../../../../../shared/schemas/roomBlock'
-import { uuid } from '../../../../../../shared/schemas/common'
+import { cancelRoomBlockSchema } from '@hajj/contracts/schemas/roomBlock'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

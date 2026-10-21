@@ -12,7 +12,7 @@ import { DEMO_HOTELS, DEMO_ORG_SLUG } from '../../../server/demo/catalog'
 import { DEMO_PASSWORD, DEMO_PERSONAS } from '../../../server/demo/personas'
 import { getDemoSignIn } from '../../../server/services/demoSignInService'
 import { getDemoEnv, getEnv, resetEnvCache } from '../../../server/utils/env'
-import { ROLE_DEFINITIONS } from '../../../shared/constants/roles'
+import { ROLE_DEFINITIONS } from '@hajj/contracts/constants/roles'
 import { makeOrg, makeUser } from '../../support/fixtures'
 import { closeTestDb, getTestClient, getTestDb, truncateAllTables } from '../support/testDb'
 

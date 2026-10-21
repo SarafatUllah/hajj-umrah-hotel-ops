@@ -6,8 +6,8 @@ import { DEMO_ADMIN_EMAIL, DEMO_PASSWORD } from '../../../server/demo/personas'
 import { hashPassword } from '../../../server/utils/password'
 import { authenticate } from '../../../server/services/auth.service'
 import { resolveAuthContext } from '../../../server/security/authContext'
-import { PERMISSIONS } from '../../../shared/constants/permissions'
-import { ROLE_DEFINITIONS } from '../../../shared/constants/roles'
+import { PERMISSIONS } from '@hajj/contracts/constants/permissions'
+import { ROLE_DEFINITIONS } from '@hajj/contracts/constants/roles'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
 const db = getTestDb()

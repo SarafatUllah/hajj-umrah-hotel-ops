@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { defineApiHandler } from '../../../../utils/apiHandler'
 import { listFloors } from '../../../../services/floorService'
-import { listFloorsQuerySchema } from '../../../../../shared/schemas/floor'
-import { uuid } from '../../../../../shared/schemas/common'
+import { listFloorsQuerySchema } from '@hajj/contracts/schemas/floor'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

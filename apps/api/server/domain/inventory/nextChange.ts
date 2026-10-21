@@ -1,5 +1,5 @@
-import { type IsoDate, addDays } from '../../../shared/utils/dates'
-import { MAX_CALENDAR_DAYS } from '../../../shared/constants/inventory'
+import { type IsoDate, addDays } from '@hajj/contracts/utils/dates'
+import { MAX_CALENDAR_DAYS } from '@hajj/contracts/constants/inventory'
 import { type BaseVersion, type CapacityOverride, type CapacitySegment, type CapacitySource, capacitySegments } from './capacity'
 
 export interface NextChangeCapacity { physicalBeds: number, sellableCapacity: number, source: CapacitySource, periodId: string | null }

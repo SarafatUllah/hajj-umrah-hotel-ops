@@ -6,7 +6,7 @@ import { ForbiddenError, NotFoundError } from '../../../server/errors/domainErro
 import { AuditRepository, RoomTypeRepository } from '../../../server/repositories/tenant'
 import type { AuthContext } from '../../../server/security/authContext'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
-import type { Permission } from '../../../shared/constants/permissions'
+import type { Permission } from '@hajj/contracts/constants/permissions'
 import {
   activateRoomType,
   createRoomType,

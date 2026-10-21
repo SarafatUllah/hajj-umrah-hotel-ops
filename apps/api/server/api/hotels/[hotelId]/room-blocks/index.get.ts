@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { defineApiHandler } from '../../../../utils/apiHandler'
 import { listRoomBlocks } from '../../../../services/operationalBlockService'
-import { listRoomBlocksQuerySchema } from '../../../../../shared/schemas/roomBlock'
-import { uuid } from '../../../../../shared/schemas/common'
+import { listRoomBlocksQuerySchema } from '@hajj/contracts/schemas/roomBlock'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

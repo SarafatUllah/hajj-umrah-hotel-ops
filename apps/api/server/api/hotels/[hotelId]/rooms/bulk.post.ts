@@ -2,8 +2,8 @@ import { setResponseStatus } from 'h3'
 import { z } from 'zod'
 import { defineApiHandler } from '../../../../utils/apiHandler'
 import { bulkCreateRooms } from '../../../../services/roomService'
-import { bulkCreateRoomsSchema } from '../../../../../shared/schemas/room'
-import { uuid } from '../../../../../shared/schemas/common'
+import { bulkCreateRoomsSchema } from '@hajj/contracts/schemas/room'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

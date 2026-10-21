@@ -1,4 +1,4 @@
-import { type IsoDate, type NightRange, rangeLength } from '../../../shared/utils/dates'
+import { type IsoDate, type NightRange, rangeLength } from '@hajj/contracts/utils/dates'
 import { type BaseVersion, type CapacityOverride, baseCapacityAt, capacitySegments, effectiveCapacityAt } from './capacity'
 
 export interface RoomCapacityInput { roomId: string, versions: BaseVersion[], overrides: CapacityOverride[] }

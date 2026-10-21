@@ -7,9 +7,9 @@ import { AuditRepository, RoomTypeRepository } from '../../../server/repositorie
 import { CapacityPeriodRepository, FloorRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
 import type { AuthContext } from '../../../server/security/authContext'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
-import type { Permission } from '../../../shared/constants/permissions'
-import { MAX_OVERRIDE_SELECTOR_ROOMS } from '../../../shared/constants/inventory'
-import { applyOverridesSchema, overrideSelectorSchema, removeOverridesSchema } from '../../../shared/schemas/capacityPeriod'
+import type { Permission } from '@hajj/contracts/constants/permissions'
+import { MAX_OVERRIDE_SELECTOR_ROOMS } from '@hajj/contracts/constants/inventory'
+import { applyOverridesSchema, overrideSelectorSchema, removeOverridesSchema } from '@hajj/contracts/schemas/capacityPeriod'
 import {
   applyOverrides,
   createCapacityPeriod,

@@ -4,8 +4,8 @@ import { expectStandardError } from './support/errorShape'
 import { assignRole, closeTestDb, getHttpTestDb, makeFloor, makeHotel, makeLoginableUser, makeOrg, makeRole, makeRoomType, truncateAllTables } from './support/fixtures'
 import { hotelRepos } from '../../server/repositories'
 import { trustedHotelScope } from '../../server/security/scope'
-import { MAX_CALENDAR_RESPONSE_BYTES, MAX_CALENDAR_ROOMS } from '../../shared/constants/inventory'
-import { ROLE_DEFINITIONS } from '../../shared/constants/roles'
+import { MAX_CALENDAR_RESPONSE_BYTES, MAX_CALENDAR_ROOMS } from '@hajj/contracts/constants/inventory'
+import { ROLE_DEFINITIONS } from '@hajj/contracts/constants/roles'
 import { generateCalendarScaleHotel, SCALE_ROOMS } from '../support/calendarScaleHotel'
 
 const baseUrl = inject('httpTestBaseUrl')

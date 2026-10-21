@@ -17,10 +17,10 @@ import { trustedHotelScope, type OrganizationScope } from '../../../server/secur
 import { LocalStorageDriver, type StorageDriver } from '../../../server/storage'
 import { MAX_UPLOAD_BYTES } from '../../../server/storage/uploadValidation'
 import { listHotelAudit } from '../../../server/services/hotelService'
-import { AUDIT_ENTITY_TYPES, listHotelAuditQuerySchema } from '../../../shared/schemas/hotel'
+import { AUDIT_ENTITY_TYPES, listHotelAuditQuerySchema } from '@hajj/contracts/schemas/hotel'
 import { archiveHotelDocument, assertCanUploadDocument, downloadHotelDocument, listHotelDocuments, uploadHotelDocument } from '../../../server/services/documentService'
-import type { Permission } from '../../../shared/constants/permissions'
-import { ROLE_DEFINITIONS } from '../../../shared/constants/roles'
+import type { Permission } from '@hajj/contracts/constants/permissions'
+import { ROLE_DEFINITIONS } from '@hajj/contracts/constants/roles'
 import { makeHotel, makeHotelDocument, makeOrg, makeUser } from '../../support/fixtures'
 import { closeTestDb, getTestClient, getTestDb, truncateAllTables } from '../support/testDb'
 

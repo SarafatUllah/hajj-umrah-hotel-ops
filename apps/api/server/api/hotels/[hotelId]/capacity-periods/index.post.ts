@@ -2,8 +2,8 @@ import { setResponseStatus } from 'h3'
 import { z } from 'zod'
 import { defineApiHandler } from '../../../../utils/apiHandler'
 import { createCapacityPeriod } from '../../../../services/capacityPeriodService'
-import { createCapacityPeriodSchema } from '../../../../../shared/schemas/capacityPeriod'
-import { uuid } from '../../../../../shared/schemas/common'
+import { createCapacityPeriodSchema } from '@hajj/contracts/schemas/capacityPeriod'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

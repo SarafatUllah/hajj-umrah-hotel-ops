@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { availableStayAverage, buildRoomSegments, matchesCapacityFilter, matchesStatusFilter, summarizeDaily, type RoomCalendarInput } from '../../../../server/domain/inventory/calendar'
-import { makeRange } from '../../../../shared/utils/dates'
+import { makeRange } from '@hajj/contracts/utils/dates'
 
 const opts = { maintenanceBlocksSales: true }
 const room = (over: Partial<RoomCalendarInput> = {}): RoomCalendarInput => ({

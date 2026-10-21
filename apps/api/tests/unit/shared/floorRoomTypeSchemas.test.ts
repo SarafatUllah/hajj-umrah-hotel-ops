@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { bulkCreateFloorsSchema, createFloorSchema, listFloorsQuerySchema, updateFloorSchema } from '../../../shared/schemas/floor'
-import { createRoomTypeSchema, listRoomTypesQuerySchema, updateRoomTypeSchema } from '../../../shared/schemas/roomType'
+import { bulkCreateFloorsSchema, createFloorSchema, listFloorsQuerySchema, updateFloorSchema } from '@hajj/contracts/schemas/floor'
+import { createRoomTypeSchema, listRoomTypesQuerySchema, updateRoomTypeSchema } from '@hajj/contracts/schemas/roomType'
 
 describe('createFloorSchema — level boundaries', () => {
   it('accepts the minimum level -5', () => {

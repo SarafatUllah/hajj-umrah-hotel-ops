@@ -7,7 +7,7 @@ import { tenantRepos } from '../../../server/repositories'
 import { AuditRepository, HotelRepository } from '../../../server/repositories/tenant'
 import type { AuthContext } from '../../../server/security/authContext'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
-import type { Permission } from '../../../shared/constants/permissions'
+import type { Permission } from '@hajj/contracts/constants/permissions'
 import {
   activateHotel,
   createHotel,
@@ -19,7 +19,7 @@ import {
   updateHotel,
   updateSettings,
 } from '../../../server/services/hotelService'
-import { auditCursorSchema } from '../../../shared/schemas/hotel'
+import { auditCursorSchema } from '@hajj/contracts/schemas/hotel'
 import { makeFloor, makeHotel, makeOrg, makeRoomType, makeRoomWithVersion, makeUser } from '../../support/fixtures'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 

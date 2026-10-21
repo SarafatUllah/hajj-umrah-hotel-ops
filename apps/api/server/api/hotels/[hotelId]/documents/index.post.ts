@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { defineApiHandler } from '../../../../utils/apiHandler'
 import { readUploadForm } from '../../../../utils/multipartUpload'
 import { assertCanUploadDocument, uploadHotelDocument } from '../../../../services/documentService'
-import { uuid } from '../../../../../shared/schemas/common'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 // multipart/form-data: `file` (the binary part) + text fields docType, title, description?. No `body`
 // schema here — defineApiHandler's JSON body reader is not for multipart; the fields are validated by

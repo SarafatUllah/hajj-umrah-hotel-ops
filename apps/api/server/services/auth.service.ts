@@ -2,7 +2,7 @@ import { useDb } from '../utils/db'
 import { tenantRepos } from '../repositories'
 import { resolveTenantBySlug } from '../security/tenantResolver'
 import { verifyPassword, TIMING_SAFETY_DUMMY_HASH } from '../utils/password'
-import { normalizeEmail } from '../../shared/utils/email'
+import { normalizeEmail } from '@hajj/contracts/utils/email'
 
 export interface AuthenticatedUser {
   id: string

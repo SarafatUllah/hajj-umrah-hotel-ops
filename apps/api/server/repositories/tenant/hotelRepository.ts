@@ -2,7 +2,7 @@ import { and, count, eq, inArray, sql } from 'drizzle-orm'
 import type { DbOrTx } from '../../../db/client'
 import { floor, hotel, room, roomBaseConfig } from '../../../db/schema'
 import type { OrganizationScope } from '../../security/scope'
-import type { IsoDate } from '../../../shared/utils/dates'
+import type { IsoDate } from '@hajj/contracts/utils/dates'
 import { OrgQuery } from '../base/scopedQuery'
 
 export type HotelRow = typeof hotel.$inferSelect

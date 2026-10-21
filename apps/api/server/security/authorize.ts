@@ -1,4 +1,4 @@
-import type { Permission } from '../../shared/constants/permissions'
+import type { Permission } from '@hajj/contracts/constants/permissions'
 import { hasHotelAccess, orgCan } from '../domain/rbac/authorize'
 import { ConflictError, ForbiddenError, NotFoundError } from '../errors/domainError'
 import { tenantRepos } from '../repositories'

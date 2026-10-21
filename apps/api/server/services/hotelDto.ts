@@ -1,5 +1,5 @@
-import type { HotelStatus, OwnershipType } from '../../shared/constants/inventory'
-import type { IsoDate } from '../../shared/utils/dates'
+import type { HotelStatus, OwnershipType } from '@hajj/contracts/constants/inventory'
+import type { IsoDate } from '@hajj/contracts/utils/dates'
 import type { HotelRow } from '../repositories/tenant'
 
 /**

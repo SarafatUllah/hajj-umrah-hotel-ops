@@ -1,4 +1,4 @@
-import { type IsoDate, addDays, makeRange, rangeLength, toEpochDay } from '../../../shared/utils/dates'
+import { type IsoDate, addDays, makeRange, rangeLength, toEpochDay } from '@hajj/contracts/utils/dates'
 import { InventoryRuleError } from './rules'
 
 export const MAX_BLOCK_DAYS = 731

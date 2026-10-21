@@ -2,8 +2,8 @@ import { setResponseStatus } from 'h3'
 import { z } from 'zod'
 import { defineApiHandler } from '../../../../utils/apiHandler'
 import { bulkCreateRoomBlocks } from '../../../../services/operationalBlockService'
-import { bulkCreateRoomBlocksSchema } from '../../../../../shared/schemas/roomBlock'
-import { uuid } from '../../../../../shared/schemas/common'
+import { bulkCreateRoomBlocksSchema } from '@hajj/contracts/schemas/roomBlock'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

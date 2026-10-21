@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, inject, it } from 'vitest'
-import { encodeAuditCursor } from '../../shared/schemas/hotel'
+import { encodeAuditCursor } from '@hajj/contracts/schemas/hotel'
 import { apiClient } from './support/client'
 import { expectStandardError } from './support/errorShape'
 import { assignRole, closeTestDb, getHttpTestDb, makeHotel, makeLoginableUser, makeOrg, makeRole, truncateAllTables } from './support/fixtures'

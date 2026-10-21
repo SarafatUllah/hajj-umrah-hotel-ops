@@ -2,8 +2,8 @@ import { setResponseStatus } from 'h3'
 import { z } from 'zod'
 import { defineApiHandler } from '../../../../utils/apiHandler'
 import { createFloor } from '../../../../services/floorService'
-import { createFloorSchema } from '../../../../../shared/schemas/floor'
-import { uuid } from '../../../../../shared/schemas/common'
+import { createFloorSchema } from '@hajj/contracts/schemas/floor'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

@@ -2,7 +2,7 @@ import { asc, eq, inArray, sql } from 'drizzle-orm'
 import type { DbOrTx } from '../../../db/client'
 import { room, roomBaseConfig, roomType } from '../../../db/schema'
 import type { OrganizationScope } from '../../security/scope'
-import type { IsoDate } from '../../../shared/utils/dates'
+import type { IsoDate } from '@hajj/contracts/utils/dates'
 import { OrgQuery } from '../base/scopedQuery'
 
 export type RoomTypeRow = typeof roomType.$inferSelect

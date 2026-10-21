@@ -1,7 +1,7 @@
 import { setResponseStatus } from 'h3'
 import { defineApiHandler } from '../../utils/apiHandler'
 import { createHotel } from '../../services/hotelService'
-import { createHotelSchema } from '../../../shared/schemas/hotel'
+import { createHotelSchema } from '@hajj/contracts/schemas/hotel'
 
 export default defineApiHandler({
   auth: 'required',

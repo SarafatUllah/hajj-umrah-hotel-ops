@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HOTEL_SETTINGS, resolveSettings, updateSettingsSchema } from '../../../shared/business-rules/hotelSettings'
+import { HOTEL_SETTINGS, resolveSettings, updateSettingsSchema } from '@hajj/contracts/business-rules/hotelSettings'
 
 describe('resolveSettings', () => {
   it('fills in every registry default when nothing is stored', () => {

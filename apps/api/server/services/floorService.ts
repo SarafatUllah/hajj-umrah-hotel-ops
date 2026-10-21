@@ -1,5 +1,5 @@
-import type { BulkCreateFloorsInput, CreateFloorInput, ListFloorsQuery, UpdateFloorInput } from '../../shared/schemas/floor'
-import { type IsoDate, toEpochDay, todayInTimezone } from '../../shared/utils/dates'
+import type { BulkCreateFloorsInput, CreateFloorInput, ListFloorsQuery, UpdateFloorInput } from '@hajj/contracts/schemas/floor'
+import { type IsoDate, toEpochDay, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { translateDbError } from '../errors/dbErrors'
 import { ConflictError, NotFoundError } from '../errors/domainError'
 import { hotelRepos, tenantRepos } from '../repositories'

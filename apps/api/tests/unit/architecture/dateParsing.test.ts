@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import ts from 'typescript'
-import { readRepoSources } from '../../support/layering'
+import { readWorkspaceSources } from '../../support/layering'
 
 /** Directories scanned for ad-hoc date-string parsing; production code only. */
 const SCANNED_DIRS = ['server/', 'shared/'] as const
@@ -80,7 +80,7 @@ describe('date-parsing checker (meta-tests: the checker itself is tested)', () =
 })
 
 describe('date-parsing fitness check on the real repository', () => {
-  const sources = readRepoSources(join(import.meta.dirname, '../../..'))
+  const sources = readWorkspaceSources(join(import.meta.dirname, '../../../../..'))
 
   it('reads the real source tree', () => {
     expect(Object.keys(sources)).toEqual(expect.arrayContaining(['shared/utils/dates.ts']))

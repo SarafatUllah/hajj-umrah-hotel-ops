@@ -3,8 +3,8 @@ import { z } from 'zod'
 import { defineApiHandler } from '../../../../../utils/apiHandler'
 import { attachmentDisposition } from '../../../../../utils/contentDisposition'
 import { downloadHotelDocument } from '../../../../../services/documentService'
-import { downloadDocumentQuerySchema } from '../../../../../../shared/schemas/document'
-import { uuid } from '../../../../../../shared/schemas/common'
+import { downloadDocumentQuerySchema } from '@hajj/contracts/schemas/document'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 // Streams the stored bytes through the API after authorization (no public URL, no redirect).
 export default defineApiHandler({

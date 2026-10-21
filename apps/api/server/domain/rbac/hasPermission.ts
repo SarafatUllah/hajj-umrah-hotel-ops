@@ -1,4 +1,4 @@
-import type { Permission } from '../../../shared/constants/permissions'
+import type { Permission } from '@hajj/contracts/constants/permissions'
 
 export interface AuthorizationContext {
   permissions: ReadonlySet<Permission>

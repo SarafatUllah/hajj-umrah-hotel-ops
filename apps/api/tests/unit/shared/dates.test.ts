@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addDays, containsDate, eachDate, intersect, isValidIsoDate, isValidTimezone, makeRange, rangeFromStay, rangeLength, rangesOverlap, todayInTimezone, toEpochDay, fromEpochDay, InvalidRangeError } from '../../../shared/utils/dates'
+import { addDays, containsDate, eachDate, intersect, isValidIsoDate, isValidTimezone, makeRange, rangeFromStay, rangeLength, rangesOverlap, todayInTimezone, toEpochDay, fromEpochDay, InvalidRangeError } from '@hajj/contracts/utils/dates'
 
 describe('isValidIsoDate', () => {
   it.each(['2027-05-01', '2028-02-29', '1900-01-01'])('accepts %s', d => expect(isValidIsoDate(d)).toBe(true))

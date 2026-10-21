@@ -1,7 +1,7 @@
 import { useDb } from '../utils/db'
 import { platformRepos, tenantRepos } from '../repositories'
 import { seedDemoOrganization, assertDemoSeedAllowed, DEMO_ORG_SLUG, type SeedDemoResult } from '../../db/seed/demo-org'
-import type { IsoDate } from '../../shared/utils/dates'
+import type { IsoDate } from '@hajj/contracts/utils/dates'
 
 export { DemoSeedForbiddenError } from '../../db/seed/demo-org'
 

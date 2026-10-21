@@ -2,8 +2,8 @@ import type { DbOrTx } from '../../db/client'
 import { hotelRepos } from '../../server/repositories'
 import type { NewRoomBaseConfig, NewRoomCapacityOverride, NewRoomOperationalBlock } from '../../server/repositories/hotel'
 import { trustedHotelScope, type OrganizationScope } from '../../server/security/scope'
-import { BLOCK_KINDS } from '../../shared/constants/inventory'
-import { addDays } from '../../shared/utils/dates'
+import { BLOCK_KINDS } from '@hajj/contracts/constants/inventory'
+import { addDays } from '@hajj/contracts/utils/dates'
 import { makeHotel, makeRoomType } from './fixtures'
 
 /**

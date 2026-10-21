@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { auditCursorSchema, createHotelSchema, encodeAuditCursor, listHotelAuditQuerySchema, updateHotelSchema } from '../../../shared/schemas/hotel'
+import { auditCursorSchema, createHotelSchema, encodeAuditCursor, listHotelAuditQuerySchema, updateHotelSchema } from '@hajj/contracts/schemas/hotel'
 
 const VALID_HOTEL = {
   code: 'HTL-01',

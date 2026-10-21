@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { defineApiHandler } from '../../../../../../utils/apiHandler'
 import { removeOverrides } from '../../../../../../services/capacityPeriodService'
-import { removeOverridesSchema } from '../../../../../../../shared/schemas/capacityPeriod'
-import { uuid } from '../../../../../../../shared/schemas/common'
+import { removeOverridesSchema } from '@hajj/contracts/schemas/capacityPeriod'
+import { uuid } from '@hajj/contracts/schemas/common'
 
 export default defineApiHandler({
   auth: 'required',

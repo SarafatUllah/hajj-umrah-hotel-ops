@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { findViolations, LAYERING_RULES, parseImports, platformRepositoryClasses, readRepoSources, repositoryClassesOutsideRegisteredDirs, unprefixedPlatformDirClasses } from '../../support/layering'
+import { findViolations, LAYERING_RULES, parseImports, platformRepositoryClasses, readWorkspaceSources, repositoryClassesOutsideRegisteredDirs, unprefixedPlatformDirClasses } from '../../support/layering'
 import { REPOSITORY_BARRELS } from '../../support/repositoryBarrels'
 
 const rulesHit = (sources: Record<string, string>) => findViolations(sources, LAYERING_RULES).map(v => v.rule)
@@ -16,6 +16,14 @@ describe('layering checker (meta-tests: the checker itself is tested)', () => {
     expect(rulesHit({ 'server/utils/other.ts': 'import { createDb } from \'../../db/client\'' })).toEqual(['no-query-building'])
     expect(rulesHit({ 'shared/x.ts': 'import { type SQL } from \'drizzle-orm\'' })).toEqual(['no-query-building'])
     expect(rulesHit({ 'server/services/s.ts': 'import { appUser } from \'~~/db/schema\'' })).toEqual(['no-query-building'])
+  })
+
+  it('resolves workspace package specifiers to their logical layer (@hajj/contracts → shared, @hajj/db → db)', () => {
+    expect(parseImports('server/x.ts', 'import { hotelCreateSchema } from \'@hajj/contracts/schemas/hotel\'')[0]?.target).toBe('shared/schemas/hotel')
+    expect(parseImports('server/x.ts', 'import { appUser } from \'@hajj/db/schema\'')[0]?.target).toBe('db/schema')
+    expect(rulesHit({ 'server/services/s.ts': 'import { appUser } from \'@hajj/db/schema/tenancy\'' })).toEqual(['no-query-building'])
+    expect(rulesHit({ 'server/api/a.ts': 'import type { DbOrTx } from \'@hajj/db/client\'' })).toEqual(['no-query-building'])
+    expect(rulesHit({ 'db/seed/x.ts': 'import { room } from \'@hajj/db/schema/inventory\'' })).toEqual(['seed-through-repositories'])
   })
 
   it('sees re-exports, dynamic imports, require and import() types', () => {
@@ -114,7 +122,7 @@ describe('repository directory registration (meta-tests)', () => {
 })
 
 describe('layering of this repository', () => {
-  const sources = readRepoSources(join(import.meta.dirname, '../../..'))
+  const sources = readWorkspaceSources(join(import.meta.dirname, '../../../../..'))
   const violationsOf = (rule: string) => findViolations(sources, LAYERING_RULES.filter(r => r.id === rule))
 
   it('reads the real source tree', () => {

@@ -1,4 +1,4 @@
-import type { HotelAccessBody } from '../../shared/schemas/hotelAccess'
+import type { HotelAccessBody } from '@hajj/contracts/schemas/hotelAccess'
 import { recordAudit } from './audit'
 import { ForbiddenError, NotFoundError, ValidationError } from '../errors/domainError'
 import { tenantRepos } from '../repositories'

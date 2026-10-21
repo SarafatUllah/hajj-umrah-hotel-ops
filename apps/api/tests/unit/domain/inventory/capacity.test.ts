@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { capacitySegments, effectiveCapacityAt, findOverlaps, minSellableOverStay, type BaseVersion, type CapacityOverride } from '../../../../server/domain/inventory/capacity'
 import { baseHotelAverage, combineAverages, dateEffectiveHotelAverage, formatRatio, makeAverage, rangeEffectiveAverage, type RoomCapacityInput } from '../../../../server/domain/inventory/averages'
-import { makeRange } from '../../../../shared/utils/dates'
+import { makeRange } from '@hajj/contracts/utils/dates'
 
 const base44: BaseVersion[] = [{ validFrom: '2025-01-01', validTo: null, physicalBeds: 4, sellableCapacity: 4 }]
 const hajj2027 = (beds = 6, sellable = 6): CapacityOverride => ({ periodId: 'hajj-2027', validFrom: '2027-05-01', validTo: '2027-07-31', physicalBeds: beds, sellableCapacity: sellable })

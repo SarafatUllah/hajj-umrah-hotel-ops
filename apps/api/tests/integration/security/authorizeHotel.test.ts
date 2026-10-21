@@ -4,7 +4,7 @@ import { NotFoundError } from '../../../server/errors/domainError'
 import { authorizeHotel } from '../../../server/security/authorize'
 import type { AuthContext } from '../../../server/security/authContext'
 import type { OrganizationScope } from '../../../server/security/scope'
-import type { Permission } from '../../../shared/constants/permissions'
+import type { Permission } from '@hajj/contracts/constants/permissions'
 import { makeHotel, makeOrg } from '../../support/fixtures'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 

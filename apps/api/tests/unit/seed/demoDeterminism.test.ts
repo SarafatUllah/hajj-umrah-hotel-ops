@@ -7,7 +7,7 @@ import { mulberry32, seedFromString, shuffled, streamFor } from '../../../db/see
 import { buildDemoPlan, versionsCoverEveryNight } from '../../../db/seed/demo/inventory'
 import { DEMO_HOTELS, DEMO_ROOM_TYPES, DEMO_SHOWCASE_ROOM, ROOM_TYPE_CODES } from '../../../server/demo/catalog'
 import { DEMO_ADMIN_EMAIL, DEMO_PASSWORD, DEMO_PERSONAS } from '../../../server/demo/personas'
-import { ROLE_DEFINITIONS } from '../../../shared/constants/roles'
+import { ROLE_DEFINITIONS } from '@hajj/contracts/constants/roles'
 
 describe('uuidV5', () => {
   it('matches the RFC 4122 / Python reference vector (DNS namespace, "www.example.com")', () => {

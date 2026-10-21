@@ -3,8 +3,8 @@ import { alias } from 'drizzle-orm/pg-core'
 import type { DbOrTx } from '../../../db/client'
 import { appUser, room, roomOperationalBlock } from '../../../db/schema'
 import type { HotelScope } from '../../security/scope'
-import type { BlockKind } from '../../../shared/constants/inventory'
-import type { IsoDate, NightRange } from '../../../shared/utils/dates'
+import type { BlockKind } from '@hajj/contracts/constants/inventory'
+import type { IsoDate, NightRange } from '@hajj/contracts/utils/dates'
 import { HotelQuery } from '../base/scopedQuery'
 
 export type RoomOperationalBlockRow = typeof roomOperationalBlock.$inferSelect

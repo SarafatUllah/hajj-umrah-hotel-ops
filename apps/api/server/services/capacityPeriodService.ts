@@ -1,4 +1,4 @@
-import type { CapacityPeriodKind } from '../../shared/constants/inventory'
+import type { CapacityPeriodKind } from '@hajj/contracts/constants/inventory'
 import type {
   ApplyOverridesInput,
   CapacityTimelineQuery,
@@ -7,8 +7,8 @@ import type {
   OverrideSelector,
   RemoveOverridesInput,
   UpdateCapacityPeriodInput,
-} from '../../shared/schemas/capacityPeriod'
-import { InvalidRangeError, type IsoDate, type NightRange, rangeLength, todayInTimezone } from '../../shared/utils/dates'
+} from '@hajj/contracts/schemas/capacityPeriod'
+import { InvalidRangeError, type IsoDate, type NightRange, rangeLength, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { type BaseVersion, baseCapacityAt, type CapacitySegment, capacitySegments, effectiveCapacityAt } from '../domain/inventory/capacity'
 import { assertOverridesChangeable, assertPeriodDeletable, assertPeriodPatchAllowed, assertPeriodRange, computeOverrideValues, periodPhase, type PeriodPhase } from '../domain/inventory/capacityPeriodRules'
 import { InventoryRuleError } from '../domain/inventory/rules'

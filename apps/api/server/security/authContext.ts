@@ -1,6 +1,6 @@
 import type { Database } from '../../db/client'
 import type { AuthorizationContext } from '../domain/rbac/hasPermission'
-import type { Permission } from '../../shared/constants/permissions'
+import type { Permission } from '@hajj/contracts/constants/permissions'
 import { tenantRepos } from '../repositories'
 import { trustedOrganizationScope, type OrganizationScope } from './scope'
 

@@ -2,7 +2,7 @@ import { DEMO_HOTELS, DEMO_ORG_SLUG } from '../demo/catalog'
 import { DEMO_PASSWORD, DEMO_PERSONAS } from '../demo/personas'
 import { platformRepos } from '../repositories'
 import { isDemoSignInEnabled } from '../utils/env'
-import { ROLE_DEFINITIONS } from '../../shared/constants/roles'
+import { ROLE_DEFINITIONS } from '@hajj/contracts/constants/roles'
 
 /** The database handle a platform repository accepts (a service may not import db/client itself). */
 type Db = Parameters<typeof platformRepos>[0]

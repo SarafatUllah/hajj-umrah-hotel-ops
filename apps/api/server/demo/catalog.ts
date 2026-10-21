@@ -1,5 +1,5 @@
-import type { OwnershipType } from '../../shared/constants/inventory'
-import { isValidIsoDate } from '../../shared/utils/dates'
+import type { OwnershipType } from '@hajj/contracts/constants/inventory'
+import { isValidIsoDate } from '@hajj/contracts/utils/dates'
 
 /**
  * Demo hotel catalogue (Task 20). PURE DATA: no database, repository or secret imports. Shared by the

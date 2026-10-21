@@ -1,4 +1,4 @@
-import { type IsoDate, type NightRange, containsDate, fromEpochDay, rangeLength, toEpochDay } from '../../../shared/utils/dates'
+import { type IsoDate, type NightRange, containsDate, fromEpochDay, rangeLength, toEpochDay } from '@hajj/contracts/utils/dates'
 
 export interface BaseVersion { validFrom: IsoDate, validTo: IsoDate | null, physicalBeds: number, sellableCapacity: number }
 export interface CapacityOverride { periodId: string, validFrom: IsoDate, validTo: IsoDate, physicalBeds: number, sellableCapacity: number }

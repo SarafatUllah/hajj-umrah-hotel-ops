@@ -3,7 +3,7 @@ import { apiClient } from './support/client'
 import { expectStandardError } from './support/errorShape'
 import { assignRole, closeTestDb, getHttpTestDb, makeFloor, makeHotel, makeLoginableUser, makeOrg, makeRole, makeRoomType, truncateAllTables } from './support/fixtures'
 import { trustedHotelScope } from '../../server/security/scope'
-import { ROLE_DEFINITIONS } from '../../shared/constants/roles'
+import { ROLE_DEFINITIONS } from '@hajj/contracts/constants/roles'
 
 const baseUrl = inject('httpTestBaseUrl')
 const client = apiClient(baseUrl)

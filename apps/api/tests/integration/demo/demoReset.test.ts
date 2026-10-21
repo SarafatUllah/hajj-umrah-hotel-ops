@@ -16,7 +16,7 @@ import { cancelRoomBlock, createRoomBlock } from '../../../server/services/opera
 import { changeBaseConfig, createRoom } from '../../../server/services/roomService'
 import { authenticate } from '../../../server/services/auth.service'
 import { DEMO_ADMIN_EMAIL, DEMO_PASSWORD } from '../../../server/demo/personas'
-import { PERMISSIONS } from '../../../shared/constants/permissions'
+import { PERMISSIONS } from '@hajj/contracts/constants/permissions'
 import { demoContext } from '../../support/demoContext'
 import { fingerprintOrganization } from '../../support/fingerprint'
 import { makeCapacityPeriod, makeFloor, makeHotel, makeHotelDocument, makeOrg, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser } from '../../support/fixtures'

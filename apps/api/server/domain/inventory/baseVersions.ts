@@ -1,4 +1,4 @@
-import { type IsoDate, addDays, toEpochDay } from '../../../shared/utils/dates'
+import { type IsoDate, addDays, toEpochDay } from '@hajj/contracts/utils/dates'
 import type { BaseVersion } from './capacity'
 import { InventoryRuleError } from './rules'
 

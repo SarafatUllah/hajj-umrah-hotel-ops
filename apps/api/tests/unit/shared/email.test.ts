@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeEmail } from '../../../shared/utils/email'
+import { normalizeEmail } from '@hajj/contracts/utils/email'
 
 describe('normalizeEmail', () => {
   it('lowercases the address', () => {

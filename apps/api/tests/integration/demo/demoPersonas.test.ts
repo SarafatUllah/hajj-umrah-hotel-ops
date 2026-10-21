@@ -17,8 +17,8 @@ import { changeBaseConfig, createRoom, listRooms } from '../../../server/service
 import { createRoomType } from '../../../server/services/roomTypeService'
 import { getRoomCalendar } from '../../../server/services/roomCalendarService'
 import { getSessionContext } from '../../../server/services/sessionContextService'
-import { PERMISSIONS } from '../../../shared/constants/permissions'
-import { ROLE_DEFINITIONS } from '../../../shared/constants/roles'
+import { PERMISSIONS } from '@hajj/contracts/constants/permissions'
+import { ROLE_DEFINITIONS } from '@hajj/contracts/constants/roles'
 import { demoContext } from '../../support/demoContext'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEMO_ONLY_PERMISSIONS, PERMISSIONS, PERMISSION_DESCRIPTIONS } from '../../../shared/constants/permissions'
+import { DEMO_ONLY_PERMISSIONS, PERMISSIONS, PERMISSION_DESCRIPTIONS } from '@hajj/contracts/constants/permissions'
 
 const SPEC_REQUIRED_PERMISSIONS = [
   'hotel.view', 'room.view', 'room.manage', 'capacity.manage', 'room.block',

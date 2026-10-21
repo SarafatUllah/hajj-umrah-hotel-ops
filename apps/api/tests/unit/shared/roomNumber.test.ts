@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeRoomNumber } from '../../../shared/utils/roomNumber'
+import { normalizeRoomNumber } from '@hajj/contracts/utils/roomNumber'
 
 describe('normalizeRoomNumber', () => {
   it.each([

@@ -1,4 +1,4 @@
-import type { Permission } from '../../../shared/constants/permissions'
+import type { Permission } from '@hajj/contracts/constants/permissions'
 import type { AuthorizationContext } from './hasPermission'
 
 /** Pure. Org-level permission check: no hotel scoping at all. */

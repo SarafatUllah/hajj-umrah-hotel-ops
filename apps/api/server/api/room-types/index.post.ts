@@ -1,7 +1,7 @@
 import { setResponseStatus } from 'h3'
 import { defineApiHandler } from '../../utils/apiHandler'
 import { createRoomType } from '../../services/roomTypeService'
-import { createRoomTypeSchema } from '../../../shared/schemas/roomType'
+import { createRoomTypeSchema } from '@hajj/contracts/schemas/roomType'
 
 export default defineApiHandler({
   auth: 'required',
