@@ -1,7 +1,7 @@
 import type { DbOrTx } from '@hajj/db/client'
 import type { HotelScope, OrganizationScope } from '../security/scope'
 import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from './accounts'
-import { BookingInventoryRepository } from './booking'
+import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingSettingRepository, ExtraBedPolicyRepository, RateRepository } from './booking'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from './hotel'
 import { PlatformOrganizationRepository } from './platform/organizationRepository'
 import { PlatformOtpChallengeRepository } from './platform/otpChallengeRepository'
@@ -82,6 +82,17 @@ export function accountsRepos(db: DbOrTx, scope: OrganizationScope) {
 export function bookingRepos(db: DbOrTx, scope: HotelScope) {
   return lazy({
     inventory: () => new BookingInventoryRepository(db, scope),
+    rates: () => new RateRepository(db, scope),
+    agencyQuotas: () => new AgencyQuotaRepository(db, scope),
+    allocationRules: () => new AllocationRuleRepository(db, scope),
+    extraBedPolicies: () => new ExtraBedPolicyRepository(db, scope),
+  })
+}
+
+/** Booking-module repositories for organization-wide data (settings); used only inside server/services/booking. */
+export function bookingOrgRepos(db: DbOrTx, scope: OrganizationScope) {
+  return lazy({
+    settings: () => new BookingSettingRepository(db, scope),
   })
 }
 

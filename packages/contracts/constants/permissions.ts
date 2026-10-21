@@ -88,5 +88,5 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   'pilgrim.viewSensitive': 'View passport numbers and passport images (every view is logged)',
   'booking.checkIn': 'Check pilgrims in and out',
   'occupancy.view': 'View the occupancy calendar',
-  'booking.settings': 'Manage booking settings, rates, quotas, room-mix rules and extra-bed policies',
+  'booking.settings': 'Manage booking settings, agency quotas, room-mix rules and extra-bed policies (rates: rate.manage)',
 }

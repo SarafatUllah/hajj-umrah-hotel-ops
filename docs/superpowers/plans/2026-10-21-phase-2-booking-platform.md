@@ -30,7 +30,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 9 | 2a: inventory ↔ booking conflict rules + Phase 1 lock gaps (floor deactivate, room reactivate, period delete) | done |
 | 10a | 2a: agency accounts — registration, staff approval, agency users, agency sign-in (`AgencyScope`), RBAC sync | done |
 | 10b | 2a: customers — phone OTP sign-up/sign-in (`CustomerScope`) | done |
-| 10c | 2a: booking settings, rates, quotas, room-mix rules, extra-bed policies (staff admin) | |
+| 10c | 2a: booking settings, rates, quotas, room-mix rules, extra-bed policies (staff admin) | done |
 | 10d | 2a: WhatsApp quotes and price resolution (quote → agency default → public, per night) | |
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | |
@@ -187,6 +187,19 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
 - **D-P2-27b (accounts) Accepted risk: the phone is the identity.** Whoever controls the number (SIM swap,
   recycled number) gets the account. When bookings and passport data attach to customers (step 15), sensitive
   actions get a fresh-code step-up and the UI masks the phone.
+- **D-P2-28 (booking) One implementation for the hotel booking rules.** Rates, agency quotas, room-mix rules and
+  extra-bed policies are hotel-scoped rows a manager lists, adds, edits and removes, so one repository base
+  (`ScopedRuleTable`, a concrete `*Repository` per table for the isolation registry), one service driven by a
+  per-kind config (permissions, audit entity type) and one route set
+  `/api/hotels/:hotelId/booking-rules/:kind` (`rates|agency-quotas|allocation-rules|extra-bed-policies`) serve
+  them. Rates use `rate.view` / `rate.manage` (so the Accountant role, which holds `rate.manage`, maintains
+  prices), the others `booking.view` / `booking.settings`. A PATCH is merged onto the stored rule (row-locked:
+  concurrent edits serialize) and validated as a whole with the kind's schema (an unknown key is a 422; a no-op
+  writes nothing); overlaps and duplicates come from the table constraints (409 `RANGE_OVERLAP` /
+  `ALREADY_EXISTS`). Every change is audited
+  (`BOOKING_RULE_CREATED|UPDATED|DELETED`). Booking settings (`/api/booking-settings`, organization-wide) are
+  read with get-or-create (an existing row is read without writing), so the defaults live only in the schema;
+  changes are audited with the changed fields.
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

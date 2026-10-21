@@ -46,6 +46,11 @@ export const AUDIT_ACTIONS = [
   'AGENCY_STATUS_CHANGED',
   'AGENCY_USER_CREATED',
   'AGENCY_USER_UPDATED',
+  // Booking rules (entityType rate / agency_quota / allocation_rule / extra_bed_policy) and settings.
+  'BOOKING_RULE_CREATED',
+  'BOOKING_RULE_UPDATED',
+  'BOOKING_RULE_DELETED',
+  'BOOKING_SETTINGS_CHANGED',
 ] as const
 
 export type AuditAction = typeof AUDIT_ACTIONS[number]

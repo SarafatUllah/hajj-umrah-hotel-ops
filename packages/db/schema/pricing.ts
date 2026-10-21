@@ -159,8 +159,7 @@ export const extraBedPolicy = pgTable('extra_bed_policy', {
 
 /**
  * Organization-wide booking settings (v7 §15); one row per organization, every column defaulted. A missing
- * row means "all defaults" (organizations created before or after this table): readers fall back to the
- * column defaults and the first write upserts the row.
+ * row means "all defaults": the first read creates it from the column defaults (BookingSettingRepository.ensure).
  */
 export const bookingSetting = pgTable('booking_setting', {
   organizationId: uuid('organization_id').notNull().references(() => organization.id, { onDelete: 'cascade' }),

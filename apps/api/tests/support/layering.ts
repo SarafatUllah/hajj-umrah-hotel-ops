@@ -161,7 +161,7 @@ function crossesModuleBoundary(ref: ImportRef, file: string): boolean {
     const internal = new RegExp(`^server/(services|domain|repositories)/${module}(/|$)`).test(ref.target) && ref.target !== `server/services/${module}`
     const factoryWiring = file === 'server/repositories/index.ts' && ref.target === `server/repositories/${module}`
     // server/security resolves principals (staff, agency, customer) itself, so it may use a module's factory.
-    const factoryCall = ref.target === 'server/repositories' && !file.startsWith('server/security/') && (ref.namespace || ref.names.includes(`${module}Repos`))
+    const factoryCall = ref.target === 'server/repositories' && !file.startsWith('server/security/') && (ref.namespace || ref.names.some(name => name.startsWith(module) && name.endsWith('Repos')))
     return (internal && !factoryWiring) || factoryCall
   })
 }

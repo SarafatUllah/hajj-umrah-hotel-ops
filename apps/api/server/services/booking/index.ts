@@ -4,3 +4,5 @@
  * tests/unit/architecture/layering.test.ts).
  */
 export { assertBookingsStillFit, type InventoryChange } from './inventoryGuard'
+export { createBookingRule, deleteBookingRule, listBookingRules, updateBookingRule, type BookingRuleDto } from './bookingRulesService'
+export { getBookingSettings, updateBookingSettings, type BookingSettingsDto } from './bookingSettingsService'

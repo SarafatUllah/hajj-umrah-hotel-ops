@@ -1,11 +1,11 @@
 import { and, eq, isNotNull, isNull } from 'drizzle-orm'
-import { agency, agencyUser, appUser, auditLog, customer, otpChallenge, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
+import { agency, agencyQuota, agencyUser, allocationRule, appUser, auditLog, bookingSetting, customer, extraBedPolicy, otpChallenge, rate, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
 import type { DbOrTx } from '@hajj/db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
 import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from '../../../server/repositories/accounts'
-import { BookingInventoryRepository } from '../../../server/repositories/booking'
+import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingSettingRepository, ExtraBedPolicyRepository, RateRepository } from '../../../server/repositories/booking'
 import { makeAgency, makeBooking, makeBookingRoom, makeCustomer, makeGuest, makeHotelWithRooms, makeStay } from '../../support/bookingFixtures'
 import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeHotelDocument, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
@@ -69,6 +69,40 @@ async function arrangeCustomerChallenge(db: DbOrTx, orgA: OrganizationScope) {
   const customerRow = await makeCustomer(db, orgA)
   const challenge = await new OtpChallengeRepository(db, orgA).insert({ phone: customerRow.phone, codeHash: 'a'.repeat(64), expiresAt: new Date(Date.now() + 300_000) })
   return { customerId: customerRow.id, phone: customerRow.phone, challengeId: challenge.id }
+}
+
+/**
+ * Phase 2a booking rules: one hotel-scoped rule row of org A per table, created through the same repository class.
+ * `values` builds the row from org A's fixtures.
+ */
+type RuleRepoClass = new (db: DbOrTx, scope: ReturnType<typeof trustedHotelScope>) => { list: () => Promise<unknown[]>, findById: (id: string) => Promise<unknown>, insert: (v: never) => Promise<{ id: string }>, update: (id: string, v: never) => Promise<unknown>, delete: (id: string) => Promise<boolean> }
+
+type RuleIds = { roomTypeId: string, agencyId: string }
+
+/** `values(ids, false)` = the arranged row; `values(ids, true)` = a second row that does not collide with it (insert case). */
+function ruleCases(name: string, Repo: RuleRepoClass, table: typeof rate | typeof agencyQuota | typeof allocationRule | typeof extraBedPolicy, values: (ids: RuleIds, second: boolean) => Record<string, unknown>, patch: Record<string, unknown>): Record<string, AnyCase> {
+  const arrange = async (db: DbOrTx, orgA: OrganizationScope) => {
+    const hotelRow = await makeHotel(db, orgA)
+    const [roomTypeRow, secondRoomType] = [await makeRoomType(db, orgA), await makeRoomType(db, orgA)]
+    const agencyRow = await makeAgency(db, orgA)
+    const scopeA = trustedHotelScope(orgA, hotelRow.id)
+    const row = await new Repo(db, scopeA).insert(values({ roomTypeId: roomTypeRow.id, agencyId: agencyRow.id }, false) as never)
+    return { hotelId: hotelRow.id, ruleId: row.id, roomTypeId: roomTypeRow.id, secondRoomTypeId: secondRoomType.id, agencyId: agencyRow.id }
+  }
+  return {
+    [`${name}.list`]: isolationCase({ arrange, act: (db, scope, ids) => new Repo(db, trustedHotelScope(scope, ids.hotelId)).list(), expect: 'empty' }),
+    [`${name}.findById`]: isolationCase({ arrange, act: (db, scope, ids) => new Repo(db, trustedHotelScope(scope, ids.hotelId)).findById(ids.ruleId), expect: 'null' }),
+    [`${name}.insert`]: isolationCase({
+      arrange,
+      act: async (db, scope, ids) => {
+        await new Repo(db, trustedHotelScope(scope, ids.hotelId)).insert({ ...values({ roomTypeId: ids.secondRoomTypeId, agencyId: ids.agencyId }, true), organizationId: (await db.select().from(table).where(eq(table.id, ids.ruleId)))[0]!.organizationId } as never).catch(() => null)
+        return (await db.select().from(table).where(eq(table.hotelId, ids.hotelId))).filter(r => r.id !== ids.ruleId)
+      },
+      expect: 'empty',
+    }),
+    [`${name}.update`]: isolationCase({ arrange, act: (db, scope, ids) => new Repo(db, trustedHotelScope(scope, ids.hotelId)).update(ids.ruleId, patch as never), expect: 'null' }),
+    [`${name}.delete`]: isolationCase({ arrange, act: async (db, scope, ids) => (await new Repo(db, trustedHotelScope(scope, ids.hotelId)).delete(ids.ruleId)) ? 1 : 0, expect: 'zero-affected' }),
+  }
 }
 
 async function assertNoRows(rows: unknown[], what: string) {
@@ -1548,6 +1582,29 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     arrange: arrangeCustomerChallenge,
     act: async (db, scope, ids) => (await new OtpChallengeRepository(db, scope).consume(ids.challengeId, new Date())) ? 1 : 0,
     expect: 'zero-affected',
+  }),
+  ...ruleCases('RateRepository', RateRepository, rate, (ids, second) => ({ roomTypeId: ids.roomTypeId, priceType: 'PUBLIC', unit: 'PER_PERSON_NIGHT', startDate: second ? '2027-02-01' : '2027-01-01', endDate: second ? '2027-02-28' : '2027-01-31', amountHalalas: 38000, vatIncluded: true }), { amountHalalas: 1 }),
+  ...ruleCases('AgencyQuotaRepository', AgencyQuotaRepository, agencyQuota, (ids, second) => ({ agencyId: ids.agencyId, startDate: second ? '2027-02-01' : '2027-01-01', endDate: second ? '2027-02-28' : '2027-01-31', maxPersons: 30 }), { maxPersons: 1 }),
+  ...ruleCases('AllocationRuleRepository', AllocationRuleRepository, allocationRule, (_ids, second) => ({ groupMin: second ? 11 : 1, groupMax: second ? 20 : 10, minSeats: 5, maxRooms: 1 }), { maxRooms: 9 }),
+  ...ruleCases('ExtraBedPolicyRepository', ExtraBedPolicyRepository, extraBedPolicy, ids => ({ roomTypeId: ids.roomTypeId, maxPerRoom: 1, maxPerBooking: 2, amountHalalas: 8000, vatIncluded: true, allowInOverrideSeason: false }), { maxPerRoom: 2 }),
+  // Booking settings (Organization scope): org B's ensure/update never see or change org A's row.
+  'BookingSettingRepository.ensure': isolationCase({
+    arrange: async (db, orgA) => { await db.insert(bookingSetting).values({ organizationId: orgA.organizationId, holdMinutes: 33 }); return {} },
+    act: async (db, scope) => [await new BookingSettingRepository(db, scope).ensure()].filter(row => row.holdMinutes === 33),
+    expect: 'empty',
+  }),
+  'BookingSettingRepository.ensureForUpdate': isolationCase({
+    arrange: async (db, orgA) => { await db.insert(bookingSetting).values({ organizationId: orgA.organizationId, holdMinutes: 33 }); return {} },
+    act: (db, scope) => db.transaction(async tx => [await new BookingSettingRepository(tx, scope).ensureForUpdate()].filter(row => row.holdMinutes === 33)),
+    expect: 'empty',
+  }),
+  'BookingSettingRepository.update': isolationCase({
+    arrange: async (db, orgA) => { await db.insert(bookingSetting).values({ organizationId: orgA.organizationId }); return { orgAId: orgA.organizationId } },
+    act: async (db, scope, ids) => {
+      await new BookingSettingRepository(db, scope).update({ holdMinutes: 77 }, '00000000-0000-4000-8000-000000000000', new Date())
+      return db.select().from(bookingSetting).where(and(eq(bookingSetting.organizationId, ids.orgAId), eq(bookingSetting.holdMinutes, 77)))
+    },
+    expect: 'empty',
   }),
   'HotelDocumentRepository.list': isolationCase({
     arrange: (db, orgA) => arrangeDocument(db, orgA, true),

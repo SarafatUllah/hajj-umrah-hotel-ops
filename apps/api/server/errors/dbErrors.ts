@@ -56,6 +56,11 @@ export const CONSTRAINT_MESSAGES: Record<string, { kind: 'conflict' | 'validatio
   // Phase 2a accounts: an agency's licence number and an agency user's e-mail are unique per organization.
   agency_org_license_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'An agency with this licence number is already registered' },
   agency_user_org_email_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'An agency user with this e-mail already exists' },
+  // Phase 2a booking rules (exclusion constraints 23P01 and a unique key 23505 -> 'conflict').
+  rate_no_overlap: { kind: 'conflict', code: 'RANGE_OVERLAP', message: 'Another rate of this room type, price type and unit covers some of these nights' },
+  agency_quota_no_overlap: { kind: 'conflict', code: 'RANGE_OVERLAP', message: 'Another quota for this agency (or the default) covers some of these nights' },
+  allocation_rule_no_overlap: { kind: 'conflict', code: 'RANGE_OVERLAP', message: 'Another room-mix rule covers some of these group sizes' },
+  extra_bed_policy_hotel_type_unique: { kind: 'conflict', code: 'ALREADY_EXISTS', message: 'This room type already has an extra-bed policy' },
   // Unique violation (23505) -> kind must be 'conflict' to agree with the SQLSTATE-derived generic
   // kind, or translateDbError rejects this entry outright (Task 5 rule). Code is the generic
   // ALREADY_EXISTS (Task 12 ruling PF-13-adjacent) rather than a bespoke HOTEL_CODE_TAKEN, so every
