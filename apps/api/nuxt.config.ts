@@ -14,7 +14,7 @@ export default defineNuxtConfig({
   // augmentation visible everywhere the server files are type-checked.
   typescript: {
     tsConfig: {
-      include: ['../server/**/*'],
+      include: ['../server/**/*', '../worker/**/*'],
     },
   },
   // Session lifetime (A2 — ruled in scope during Phase 0, implemented here in Task 7). Identity

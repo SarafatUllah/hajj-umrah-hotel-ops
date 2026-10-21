@@ -23,6 +23,11 @@ const envBase = z.object({
   ALLOW_DEMO_SEED: strictFlag('ALLOW_DEMO_SEED'),
   DEMO_ANCHOR_DATE: z.string().trim().refine(isValidDemoAnchorDate, { message: `DEMO_ANCHOR_DATE must be a real YYYY-MM-DD date between ${DEMO_ANCHOR_MIN} and ${DEMO_ANCHOR_MAX}` }).default(DEFAULT_DEMO_ANCHOR_DATE),
   DEMO_SIGN_IN_ENABLED: strictFlag('DEMO_SIGN_IN_ENABLED'),
+  // Phase 2 (jobs): which background queues this API process works. `light` (default) = everything
+  // except CPU-heavy jobs (passport OCR), which run in the separate worker process; `all` = a single-process
+  // deployment; `send` = enqueue only; `off` = no job runtime (enqueueing then fails loudly).
+  JOBS_POOL_MAX: z.coerce.number().int().min(1).max(20).default(3),
+  JOBS_MODE: z.enum(['off', 'send', 'light', 'all'], { errorMap: () => ({ message: 'JOBS_MODE must be off, send, light or all' }) }).default('light'),
 })
 
 /** APP_ENV values under which the demo sign-in endpoint may ever answer (the runtime gate below). */

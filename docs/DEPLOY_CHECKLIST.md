@@ -44,6 +44,14 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
       contain them; include the directory in the deployment's backup/restore plan, or accept that lost files make
       their documents fail to download (500 `DOCUMENT_FILE_MISSING`). Phase 1 ships no backup mechanism of its own.
 
+## Background jobs (Phase 2)
+
+- [ ] `JOBS_MODE` is set deliberately: `light` (default) in every API process **plus** at least one worker process
+      (`pnpm --filter @hajj/api worker`, which works only the CPU-heavy tier, e.g. passport OCR), or `all` in a
+      single-process deployment. `off`/`send` only where another process works the queues.
+- [ ] pg-boss creates and migrates its own `pgboss` schema on start: the database role must be allowed to create a
+      schema in the application database (or the schema is created once by an administrator).
+
 ## Verification after the deploy
 
 - [ ] `GET /api/health` → `200 {"status":"ok","db":"ok"}` (`503 {"status":"degraded","db":"down"}` means the database

@@ -24,7 +24,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 3 | Phase 2-0: `shared/` → `packages/contracts` (`@hajj/contracts`) | done (155deb8) |
 | 4 | Phase 2-0: `db/` (schema, migrations, client, migrate, drift) → `packages/db` (`@hajj/db`); seed + test reset stay in `apps/api` | done (b47c6f5) |
 | 5 | Docs: v7 PDF, open client questions, Phase 2a tickets, schema-per-module decision | done |
-| 6 | pg-boss transaction spike (Drizzle/postgres.js `tx.unsafe` adapter) + jobs foundation | |
+| 6 | pg-boss transaction spike (Drizzle/postgres.js `tx.unsafe` adapter) + jobs foundation | done |
 | 7 | 2a: security prerequisites (rate limit, CSRF origin check, principal kinds, staff 2FA, PII crypto) | |
 | 8 | 2a: booking-platform schema (agency, customer, pricing, pilgrim, booking*, guest_stay, view, constraints) | |
 | 9 | 2a: inventory ↔ booking conflict rules + Phase 1 lock gaps (floor deactivate, room reactivate, period delete) | |
@@ -61,3 +61,8 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
 - **D-P2-6 Push access.** `git push origin dev` is denied for the current GitHub account
   (pull-only on `SarafatUllah/hajj-umrah-hotel-ops`); every step is committed on local `dev` and the
   push is retried after each step.
+- **D-P2-7 (jobs) pg-boss inside the caller's transaction.** The spike works
+  (`docs/spikes/2026-10-21-pg-boss-transactional-send.md`): `enqueue(job, data, { tx })` writes the job
+  in the Drizzle transaction; no outbox table. Tiers: `light` jobs run in API processes
+  (`JOBS_MODE=light`, default), `heavy` jobs only in the worker process (`pnpm --filter @hajj/api worker`).
+  Dedupe is a queue policy (`short`/`singleton`/`stately`), not a bare `singletonKey`.

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.11.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "nuxt dev",
@@ -26,7 +26,8 @@
     "test:integration": "dotenv run -f .env.test -- pnpm --filter @hajj/db migrate && dotenv run -f .env.test -- vitest run --config vitest.integration.config.ts",
     "test:integration:fresh": "pnpm db:test:reset && pnpm test:integration",
     "test:http": "dotenv run -f .env.test -- pnpm --filter @hajj/db migrate && dotenv run -f .env.test -- vitest run --config vitest.http.config.ts",
-    "verify": "pnpm lint && pnpm typecheck && pnpm typecheck:types && pnpm db:check && pnpm db:drift && pnpm test:unit && pnpm test:integration && pnpm test:http"
+    "verify": "pnpm lint && pnpm typecheck && pnpm typecheck:types && pnpm db:check && pnpm db:drift && pnpm test:unit && pnpm test:integration && pnpm test:http",
+    "worker": "tsx worker/index.ts"
   },
   "dependencies": {
     "@hajj/contracts": "workspace:*",
@@ -36,6 +37,7 @@
     "h3": "1.15.11",
     "nuxt": "^4.5.2",
     "nuxt-auth-utils": "^0.5.30",
+    "pg-boss": "^12.38.0",
     "postgres": "^3.4.9",
     "vue": "^3.5.43",
     "zod": "^3.25.0"
