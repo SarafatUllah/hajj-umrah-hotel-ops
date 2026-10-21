@@ -5,7 +5,7 @@ import { trustedHotelScope, type OrganizationScope } from '../../../server/secur
 import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
 import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from '../../../server/repositories/accounts'
-import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, PriceQuoteRepository, RateRepository } from '../../../server/repositories/booking'
+import { AgencyQuotaRepository, AllocationRuleRepository, BookingExpiryRepository, BookingInventoryRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, PriceQuoteRepository, RateRepository } from '../../../server/repositories/booking'
 import { makeAgency, makeBooking, makeBookingRoom, makeCustomer, makeGuest, makeHotelWithRooms, makeStay } from '../../support/bookingFixtures'
 import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeHotelDocument, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
@@ -54,7 +54,23 @@ async function arrangeBookedRoom(db: DbOrTx, orgA: OrganizationScope) {
   const claim = await makeBookingRoom(db, orgA, b, rooms[0]!.id)
   const guest = await makeGuest(db, orgA, b.id, 1)
   await makeStay(db, orgA, b.id, guest.id, claim.id, b.checkIn, b.checkOut)
-  return { hotelId: hotel.id, roomId: rooms[0]!.id }
+  return { hotelId: hotel.id, roomId: rooms[0]!.id, agencyId: agencyRow.id }
+}
+
+/** Phase 2b: org A's agency HELD booking on one room whose hold already lapsed (the sweep's target). */
+async function arrangeLapsedHold(db: DbOrTx, orgA: OrganizationScope) {
+  const { hotel, rooms } = await makeHotelWithRooms(db, orgA, 1)
+  const agencyRow = await makeAgency(db, orgA)
+  const b = await makeBooking(db, orgA, hotel.id, { agencyId: agencyRow.id, status: 'HELD', holdExpiresAt: new Date(Date.now() - 1000) })
+  await makeBookingRoom(db, orgA, b, rooms[0]!.id)
+  return { hotelId: hotel.id, roomId: rooms[0]!.id, bookingId: b.id }
+}
+
+/** Phase 2b: a minimal HELD hold of org A's agency on org A's room (one pilgrim). */
+async function arrangeHoldInput(db: DbOrTx, orgA: OrganizationScope) {
+  const { hotel, rooms } = await makeHotelWithRooms(db, orgA, 1)
+  const agencyRow = await makeAgency(db, orgA)
+  return { hotelId: hotel.id, roomId: rooms[0]!.id, agencyId: agencyRow.id }
 }
 
 /** Phase 2a: org A's approved agency with one active user. */
@@ -1453,6 +1469,45 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
   'BookingInventoryRepository.seatsUsed': isolationCase({
     arrange: arrangeBookedRoom,
     act: (db, scope, ids) => new BookingInventoryRepository(db, trustedHotelScope(scope, ids.hotelId)).seatsUsed([ids.roomId], { from: '2027-01-01', to: '2027-12-31' }),
+    expect: 'empty',
+  }),
+  'BookingInventoryRepository.agencyPersonsByNight': isolationCase({
+    arrange: arrangeBookedRoom,
+    act: async (db, scope, ids) => [...(await new BookingInventoryRepository(db, trustedHotelScope(scope, ids.hotelId)).agencyPersonsByNight(ids.agencyId, { from: '2027-01-01', to: '2027-12-31' }))],
+    expect: 'empty',
+  }),
+  // The advisory lock key includes the organization and hotel; what it returns is the scoped person count.
+  'BookingInventoryRepository.lockAgencyQuota': isolationCase({
+    arrange: arrangeBookedRoom,
+    act: async (db, scope, ids) => [...(await new BookingInventoryRepository(db, trustedHotelScope(scope, ids.hotelId)).lockAgencyQuota(ids.agencyId, { from: '2027-01-01', to: '2027-12-31' }))],
+    expect: 'empty',
+  }),
+  'BookingInventoryRepository.lockRooms': isolationCase({
+    arrange: arrangeBookedRoom,
+    act: (db, scope, ids) => new BookingInventoryRepository(db, trustedHotelScope(scope, ids.hotelId)).lockRooms([ids.roomId]),
+    expect: 'empty',
+  }),
+  // Phase 2b holds (Hotel scope): org B can neither write a booking into org A's hotel nor expire org A's holds.
+  'BookingRepository.insertHold': isolationCase({
+    arrange: arrangeHoldInput,
+    act: (db, scope, ids) => new BookingRepository(db, trustedHotelScope(scope, ids.hotelId)).insertHold({
+      booking: { bookingNo: `B-T-${ids.roomId.slice(0, 8)}`, bookerType: 'AGENCY', agencyId: ids.agencyId, bookingType: 'GROUP', checkIn: '2027-06-01', checkOut: '2027-06-03', maleCount: 1, totalCount: 1, priceSource: 'PUBLIC', status: 'HELD', holdExpiresAt: new Date(Date.now() + 600_000) },
+      rooms: [{ roomId: ids.roomId, occupancy: 'MALE', extraBeds: 0, ownedByAgency: true }],
+      guests: [{ slotNo: 1, gender: 'MALE', ageGroup: 'ADULT', isExtraBed: false, roomId: ids.roomId }],
+      priceLines: [],
+      actor: { kind: 'system', id: null },
+    }),
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+  }),
+  'BookingRepository.expireLapsedHolds': isolationCase({
+    arrange: arrangeLapsedHold,
+    act: (db, scope, ids) => new BookingRepository(db, trustedHotelScope(scope, ids.hotelId)).expireLapsedHolds([ids.roomId], new Date()),
+    expect: 'empty',
+  }),
+  'BookingExpiryRepository.expireLapsed': isolationCase({
+    arrange: arrangeLapsedHold,
+    act: (db, scope) => new BookingExpiryRepository(db, scope).expireLapsed(new Date()),
     expect: 'empty',
   }),
   // Phase 2a accounts (Organization scope): org B can neither read nor change org A's agencies and agency users,

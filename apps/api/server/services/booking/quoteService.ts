@@ -16,6 +16,7 @@ import type { OrganizationScope } from '../../security/scope'
 import { findAgencyBrief } from '../accounts'
 import { recordAudit } from '../audit'
 import { loadBookingSettings } from './bookingSettingsService'
+import { sweepOrganizations } from './sweep'
 
 /** The database handle a repository accepts (a service may not import db/client itself). */
 type Db = Parameters<typeof bookingOrgRepos>[0]
@@ -201,17 +202,5 @@ export async function declineQuote(ctx: AuthContext, quoteId: string, input: Quo
  * One organization's failure is logged and does not stop the others; the job then fails (pg-boss retries it).
  */
 export async function expireOfferedQuotes(db: Db, organizationScopes: readonly OrganizationScope[], now: Date): Promise<number> {
-  let expired = 0
-  const failures: unknown[] = []
-  for (const scope of organizationScopes) {
-    try {
-      expired += await bookingOrgRepos(db, scope).quotes.expireOffered(now)
-    }
-    catch (error) {
-      console.error(`[quotes] expiry failed for organization ${scope.organizationId}:`, error)
-      failures.push(error)
-    }
-  }
-  if (failures.length > 0) throw new AggregateError(failures, `Quote expiry failed for ${failures.length} organization(s)`)
-  return expired
+  return sweepOrganizations('quotes', organizationScopes, scope => bookingOrgRepos(db, scope).quotes.expireOffered(now))
 }

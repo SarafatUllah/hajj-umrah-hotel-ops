@@ -1,5 +1,5 @@
 import type { JobDefinition } from './definition'
-import { quoteExpiryJob } from './bookingJobs'
+import { holdExpiryJob, quoteExpiryJob } from './bookingJobs'
 import { securityCleanupJob } from './securityJobs'
 
 /**
@@ -9,4 +9,5 @@ import { securityCleanupJob } from './securityJobs'
 export const JOBS: readonly JobDefinition<never>[] = [
   securityCleanupJob,
   quoteExpiryJob,
+  holdExpiryJob,
 ]

@@ -1,7 +1,7 @@
 import type { DbOrTx } from '@hajj/db/client'
 import type { HotelScope, OrganizationScope } from '../security/scope'
 import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from './accounts'
-import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, PriceQuoteRepository, RateRepository } from './booking'
+import { AgencyQuotaRepository, AllocationRuleRepository, BookingExpiryRepository, BookingInventoryRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, PriceQuoteRepository, RateRepository } from './booking'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from './hotel'
 import { PlatformOrganizationRepository } from './platform/organizationRepository'
 import { PlatformOtpChallengeRepository } from './platform/otpChallengeRepository'
@@ -82,6 +82,7 @@ export function accountsRepos(db: DbOrTx, scope: OrganizationScope) {
 export function bookingRepos(db: DbOrTx, scope: HotelScope) {
   return lazy({
     inventory: () => new BookingInventoryRepository(db, scope),
+    bookings: () => new BookingRepository(db, scope),
     rates: () => new RateRepository(db, scope),
     agencyQuotas: () => new AgencyQuotaRepository(db, scope),
     allocationRules: () => new AllocationRuleRepository(db, scope),
@@ -89,12 +90,13 @@ export function bookingRepos(db: DbOrTx, scope: HotelScope) {
   })
 }
 
-/** Booking-module repositories for organization-wide data (settings, quotes, reference numbers); used only inside server/services/booking. */
+/** Booking-module repositories for organization-wide data (settings, quotes, reference numbers, the hold sweep); used only inside server/services/booking. */
 export function bookingOrgRepos(db: DbOrTx, scope: OrganizationScope) {
   return lazy({
     settings: () => new BookingSettingRepository(db, scope),
     quotes: () => new PriceQuoteRepository(db, scope),
     sequences: () => new DocumentSequenceRepository(db, scope),
+    expiry: () => new BookingExpiryRepository(db, scope),
   })
 }
 

@@ -1,10 +1,10 @@
 import type { Permission } from '@hajj/contracts/constants/permissions'
 import { hasHotelAccess, orgCan } from '../domain/rbac/authorize'
-import { ConflictError, ForbiddenError, NotFoundError } from '../errors/domainError'
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../errors/domainError'
 import { tenantRepos } from '../repositories'
 import type { HotelRow } from '../repositories/tenant'
 import type { AuthContext } from './authContext'
-import { trustedHotelScope, type HotelScope } from './scope'
+import { trustedHotelScope, type HotelScope, type OrganizationScope } from './scope'
 
 /** Throws 403 unless the caller's org-level permissions include `permission`. */
 export function requireOrgPermission(ctx: AuthContext, permission: Permission): void {
@@ -50,4 +50,15 @@ export async function authorizeHotel(
 
   // 5. Mint the scope now that every check has passed.
   return { scope: trustedHotelScope(ctx.scope, hotel.id), hotel }
+}
+
+/**
+ * A hotel open for booking (v7 §6): agencies and the public book any ACTIVE hotel of the operator — there is no
+ * per-hotel grant for them. Unknown and inactive hotels get the same 422 `INVALID_REFERENCE` (as for quotes), so
+ * the answer never tells which. Mints the hotel scope the booking module works in.
+ */
+export async function bookableHotel(db: Parameters<typeof tenantRepos>[0], scope: OrganizationScope, hotelId: string): Promise<AuthorizedHotel> {
+  const hotel = await tenantRepos(db, scope).hotels.findById(hotelId)
+  if (!hotel || hotel.status !== 'ACTIVE') throw new ValidationError('INVALID_REFERENCE', 'hotelId does not reference an active hotel')
+  return { scope: trustedHotelScope(scope, hotel.id), hotel }
 }

@@ -23,6 +23,7 @@ Migrations live in `packages/db/migrations/` (SQL files plus Drizzle's
 | `0009_booking_platform.sql` | Phase 2a, booking schema | the booking-platform tables of `ARCHITECTURE.md` §6.2; hand-appended exclusion constraints (`booking_room_one_owner`, `booking_room_one_occupancy`, `booking_room_no_duplicate`, `guest_stay_one_bed_per_night`, `rate_no_overlap`, `agency_quota_no_overlap`, `allocation_rule_no_overlap`), the booking→claim status-sync and claim-status guard triggers, the deferred containment constraint triggers, the `forbid_row_update` trigger on `booking_change` / `pii_access_log`, the `room_night_occupancy(...)` seat-counting function; plus `role_permission_permission_idx` (an FK without a covering index, found by `schemaInvariants.test.ts`) |
 | `0010_customer_otp.sql` | Phase 2a, customers | `otp_challenge` (hashed SMS sign-in codes) |
 | `0011_document_sequence.sql` | Phase 2a, quotes | `document_sequence` (per-organization, per-year reference counters: `Q-2027-0001`, later `B-…`) |
+| `0012_booking_agency_live_index.sql` | Phase 2b, holds | `booking_agency_live_idx`: an agency's live bookings per hotel (the quota count under the hold's quota lock) |
 
 ## Committed migrations are immutable
 

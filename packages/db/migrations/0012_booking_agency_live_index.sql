@@ -1,0 +1,1 @@
+CREATE INDEX "booking_agency_live_idx" ON "booking" USING btree ("organization_id","agency_id","hotel_id","check_in") WHERE "booking"."status" in ('HELD', 'REQUESTED', 'CONFIRMED', 'IN_HOUSE');

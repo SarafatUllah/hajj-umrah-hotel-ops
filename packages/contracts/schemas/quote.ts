@@ -1,12 +1,11 @@
 import { z } from 'zod'
 import { BOOKING_TYPES } from '../constants/booking'
 import { PRICE_UNITS, QUOTE_STATUSES } from '../constants/pricing'
-import { isValidIsoDate, toEpochDay } from '../utils/dates'
 import { halalas } from './bookingRules'
 import { isoDate, pagination, safeText, uuid } from './common'
+import { addStayDateIssues } from './stay'
 
-/** The longest stay a quote or booking may cover (a Hajj/Umrah season is far shorter). */
-export const MAX_STAY_NIGHTS = 120
+export { MAX_STAY_NIGHTS } from './stay'
 
 const counts = z.number().int().min(0).max(10_000)
 
@@ -26,11 +25,7 @@ const quoteRequestFields = z.object({
 }).strict()
 
 function quoteRules(body: z.infer<typeof quoteRequestFields>, ctx: z.RefinementCtx): void {
-  if (isValidIsoDate(body.checkIn) && isValidIsoDate(body.checkOut)) {
-    const nights = toEpochDay(body.checkOut) - toEpochDay(body.checkIn)
-    if (nights < 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['checkOut'], message: '"checkOut" must be after "checkIn"' })
-    if (nights > MAX_STAY_NIGHTS) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['checkOut'], message: `A stay may not exceed ${MAX_STAY_NIGHTS} nights` })
-  }
+  addStayDateIssues(body, ctx)
   if (body.bookingType === 'GROUP' && body.maleCount + body.femaleCount !== body.totalCount) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['totalCount'], message: 'For a group, men + women must equal the total' })
   }

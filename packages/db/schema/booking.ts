@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { boolean, check, date, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
-import { AGE_GROUPS, BOOKER_TYPES, BOOKING_ROOM_STATUSES, BOOKING_STATUSES, BOOKING_TYPES, CHILD_SIDES, CONFIRMED_BOOKING_STATUSES, GENDERS, GUEST_STATUSES, HOTEL_TASK_KINDS, HOTEL_TASK_STATUSES, OCCUPANCIES, PENDING_BOOKING_STATUSES } from '@hajj/contracts/constants/booking'
+import { AGE_GROUPS, BOOKER_TYPES, BOOKING_ROOM_STATUSES, BOOKING_STATUSES, BOOKING_TYPES, CHILD_SIDES, CONFIRMED_BOOKING_STATUSES, GENDERS, GUEST_STATUSES, HOTEL_TASK_KINDS, HOTEL_TASK_STATUSES, OCCUPANCIES, PENDING_BOOKING_STATUSES, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
 import { PRICE_LINE_KINDS, PRICE_SOURCES } from '@hajj/contracts/constants/pricing'
 import { ACTOR_KINDS } from '@hajj/contracts/constants/principals'
 import { agency, agencyUser, customer } from './accounts'
@@ -70,6 +70,8 @@ export const booking = pgTable('booking', {
   foreignKey({ columns: [t.organizationId, t.agencyId, t.createdByAgencyUserId], foreignColumns: [agencyUser.organizationId, agencyUser.agencyId, agencyUser.id], name: 'booking_created_by_agency_user_fk' }),
   index('booking_hotel_stay_idx').on(t.organizationId, t.hotelId, t.checkIn, t.checkOut),
   index('booking_agency_idx').on(t.organizationId, t.agencyId),
+  // The quota count (v7 §10) reads one agency's live bookings in one hotel under the hold's quota lock.
+  index('booking_agency_live_idx').on(t.organizationId, t.agencyId, t.hotelId, t.checkIn).where(oneOf(t.status, SEAT_HOLDING_STATUSES)),
   index('booking_customer_idx').on(t.organizationId, t.customerId),
   // Covers booking_quote_fk (the partial unique index booking_quote_once cannot serve a foreign-key check).
   index('booking_quote_idx').on(t.organizationId, t.quoteId, t.agencyId, t.hotelId),

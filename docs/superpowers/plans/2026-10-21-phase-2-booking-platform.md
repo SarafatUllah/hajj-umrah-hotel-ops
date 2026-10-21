@@ -32,7 +32,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 10b | 2a: customers — phone OTP sign-up/sign-in (`CustomerScope`) | done |
 | 10c | 2a: booking settings, rates, quotas, room-mix rules, extra-bed policies (staff admin) | done |
 | 10d | 2a: WhatsApp quotes and price resolution (quote → agency default → public, per night) | done |
-| 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | |
+| 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | done |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | |
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | |
@@ -219,6 +219,57 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
 - **D-P2-31 (security) Organization-wide changes need every hotel.** Booking settings, agency approval and
   agency users serve every hotel, so (like Phase 1's organization-level writes) they also require `allHotels`
   besides the permission (an automated review caught the gap in the settings).
+- **D-P2-32 (booking) Allocation engine.** `domain/booking/allocation/roomOptions.ts` is v7 §9.4's dynamic programme
+  (state: seats, extra-bed space, capped rooms; a per-size knapsack for price and extra-bed space; capped sizes
+  first, then the cap dimension merged away) with four deliberate changes, all checked by a property test
+  against a brute force over every subset of the actual rooms (10,000 seeded cases; each room's own price and
+  extra-bed space, 6-seat rooms, the "5 or more seats" cap, an individual's room limit): options are distinct
+  room mixes; an option never contains a room nobody sleeps in; equal options prefer bigger rooms (§9.2 step 4e);
+  each state keeps its best three distinct mixes in place (no per-state list growth and sort).
+- **D-P2-33 (booking) Planner rules.** GROUP: children sit on the requested side (default the setting's, §23 Q16);
+  each side first fills the agency's own rooms — every live claim the same agency, the same gender and exactly the
+  same dates (§23 Q10) — with rooms that become completely full first (subset sum); then new rooms that are free for
+  the whole stay, the room-mix rule chosen and applied per side (§23 Q11). The side with more pilgrims left is
+  placed first; the other side is planned on the rooms left, so options never share a room. FAMILY: whole free rooms
+  only, no room-mix rule, an individual's room limit. Extra beds only in the booking's new rooms, slept in, within
+  each room type's per-booking limit. Concrete rooms (§9.2 step 6): around the median floor of the agency's rooms
+  for the stay, else around whichever floor keeps the rooms closest; then cheaper; then by room number. Infants
+  sleep in the first room of the children's side. The hold re-check (`stayPlanCheck.ts`) applies the same rules;
+  a property test proves every offered option passes it.
+- **D-P2-34 (booking) An extra-bed pilgrim pays the extra-bed price.** v7 §8's shown price is "seated pilgrims ×
+  the person price + extra beds": the pilgrim on an extra bed is charged the extra-bed price instead of a seat;
+  per-room pricing charges the rooms plus the extra beds.
+- **D-P2-35 (booking) The hold transaction.** One transaction, one lock order: the agency's advisory quota lock
+  (organization, hotel, agency) → the rooms `ORDER BY id FOR UPDATE` → lapsed pending bookings on those rooms become
+  EXPIRED → facts re-read after the locks (calendar options included) and the option, quota and price checked again
+  → the `BOOKING` sequence row (organization-wide, taken last, held only for the inserts) → the booking, claims
+  (each booking its own rows, agency-owned for an agency GROUP, booking-owned otherwise), slots, stays, frozen price
+  lines and the CREATED change. Agencies (and staff on their behalf) get HELD for `holdMinutes`, individuals
+  REQUESTED for `requestHours`. A room taken meanwhile is 409 `OPTION_UNAVAILABLE`; a request that breaks the rules
+  is 422 `INVALID_OPTION`; the exclusion constraints and `booking_quote_once` are the last line (409). A quote is
+  usable while OFFERED and matching (hotel, dates, type, each side's count); it stays OFFERED until the booking is
+  confirmed (step 12 marks it ACCEPTED). Booking numbers are `B-<hotel's year>-<n>`. The minute sweep
+  (`booking.hold-expiry`, light) expires lapsed holds per organization, logging a failing organization and going on.
+- **D-P2-36 (booking) Ticket 3: the allocator stays on the request path, measured.** On a 420-room hotel (Node 22,
+  development Mac) one side takes 1.9 / 13 / 38 ms median for 30 / 150 / 300 pilgrims (v7 measured 3 / 90 / 240), a
+  full GROUP search 3 / 31 / 101 ms for 50 / 270 / 580 pilgrims (p95 14 / 35 / 110). Bookings are capped at 600
+  seated pilgrims and 200 rooms. `planStay` is pure and serializable: if the search p95 in production passes
+  250 ms, it moves into a worker pool without other changes.
+- **D-P2-37 (booking, step 11 reviews) Holding exactly what is needed, without lock cycles.** The hold re-check
+  also enforces the planner's economy, so a hand-made option cannot claim more than it needs: with any new room on
+  a side, every own room of that side is used and full (409 `OWN_ROOMS_FIRST`: the agency's rooms changed since the
+  search); the new rooms leave fewer empty seats than the smallest of them (422 `IDLE_ROOMS`); extra beds only when
+  the new rooms are full (422 `EXTRA_BEDS_UNNEEDED`) and slept in (422 `EXTRA_BEDS_UNUSED`). Children need an adult
+  on their side (422 `CHILDREN_NEED_AN_ADULT`). The quote is re-read inside the transaction, and constraint errors
+  raised at COMMIT are translated too. Database review: the sweep skips booking rows another transaction holds
+  (`FOR UPDATE SKIP LOCKED`: the sweep never waits on a hold, so no lock cycle) and works in batches of 500; "lapsed"
+  is judged at the later of the application's clock and the database's (`clock_timestamp()`), so whatever the seat
+  count already treats as free is expired too — confirmation (step 12) must use the same rule and lock only the
+  booking row; rooms are locked `FOR NO KEY UPDATE` (still exclusive against holds and the inventory changes'
+  `FOR UPDATE`, without blocking unrelated inserts referencing a room); `booking_agency_live_idx` (0012) serves the
+  quota count. Rule for later steps: anything that changes an agency's persons in a hotel (adding pilgrims, date
+  changes) takes the same quota lock before its room locks. Accepted: the organization's `BOOKING` sequence row
+  serializes the last few statements of concurrent holds (taken last, so no deadlock).
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).
