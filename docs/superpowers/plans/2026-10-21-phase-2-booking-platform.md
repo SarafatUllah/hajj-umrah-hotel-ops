@@ -27,7 +27,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 6 | pg-boss transaction spike (Drizzle/postgres.js `tx.unsafe` adapter) + jobs foundation | done |
 | 7 | 2a: security prerequisites (rate limit, CSRF origin check, principal kinds, staff 2FA, PII crypto) | done |
 | 8 | 2a: booking-platform schema (agency, customer, pricing, pilgrim, booking*, guest_stay, view, constraints) | done |
-| 9 | 2a: inventory ↔ booking conflict rules + Phase 1 lock gaps (floor deactivate, room reactivate, period delete) | |
+| 9 | 2a: inventory ↔ booking conflict rules + Phase 1 lock gaps (floor deactivate, room reactivate, period delete) | done |
 | 10 | 2a: accounts (agency approval, agency users, customers + OTP), admin settings, pricing & quotes | |
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | |
@@ -134,6 +134,23 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
 - **D-P2-19 (schema) Schema invariants test.** `tests/integration/db/schemaInvariants.test.ts` asserts on the
   migrated catalog that every non-platform table has `organization_id NOT NULL` and every foreign key has a
   covering index (it found `role_permission`'s, fixed in 0009).
+
+- **D-P2-22 (inventory) Write, then verify against bookings.** Instead of modelling each inventory operation's
+  proposed state, the operation writes inside its transaction and then `assertBookingsStillFit` re-reads
+  the rooms' inventory as it now is (the same `loadRoomInputs` + calendar engine the calendar uses) and
+  compares it with the live claims and `room_night_occupancy(...)` seat counts; a misfit throws and the
+  transaction rolls back. One rule for every operation, no duplicated capacity logic. Freeing operations
+  (cancelling or ending a block early, raising capacity) skip the check. The hotel setting
+  `inventory.maintenanceBlocksSales` turning ON is guarded too (code review): it locks the rooms of every
+  running/future MAINTENANCE block and re-checks their nights. Consequence for step 11: a hold reads the
+  calendar options AFTER taking its room locks, so it always sees a committed setting change.
+- **D-P2-23 (inventory) Lock order floor → room.** Floor deactivation locks the floor, then its rooms; room
+  create / move / reactivation lock the target floor first (reactivation now also requires an active
+  floor, 409 `FLOOR_INACTIVE`). Period → rooms for every override change, including deletes. Cost: room
+  creates and moves on one floor serialize on that floor's row (admin operations; acceptable).
+- **D-P2-24 (architecture) Ticket 5 module boundary.** `BUSINESS_MODULES = ['booking']`: only a module's own
+  `server/{services,domain,repositories}/<module>/` files reach its internals; everything else imports
+  `server/services/<module>/index.ts`. Phase 1's flat services are not a module.
 
 ## Step 7 design (security prerequisites, v7 §21)
 

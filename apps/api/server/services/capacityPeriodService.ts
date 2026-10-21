@@ -8,7 +8,7 @@ import type {
   RemoveOverridesInput,
   UpdateCapacityPeriodInput,
 } from '@hajj/contracts/schemas/capacityPeriod'
-import { InvalidRangeError, type IsoDate, type NightRange, rangeLength, todayInTimezone } from '@hajj/contracts/utils/dates'
+import { InvalidRangeError, type IsoDate, maxIsoDate, minIsoDate, type NightRange, rangeLength, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { type BaseVersion, baseCapacityAt, type CapacitySegment, capacitySegments, effectiveCapacityAt } from '../domain/inventory/capacity'
 import { assertOverridesChangeable, assertPeriodDeletable, assertPeriodPatchAllowed, assertPeriodRange, computeOverrideValues, periodPhase, type PeriodPhase } from '../domain/inventory/capacityPeriodRules'
 import { InventoryRuleError } from '../domain/inventory/rules'
@@ -19,6 +19,7 @@ import type { CapacityPeriodPatch, CapacityPeriodRow, RoomBaseConfigRow, RoomCap
 import type { AuthContext } from '../security/authContext'
 import { authorizeHotel } from '../security/authorize'
 import { recordAudit } from './audit'
+import { assertBookingsStillFit } from './booking'
 import { type CapacityValues, type PeriodRef, toBaseVersion, toCapacityOverride } from './roomDto'
 
 /**
@@ -331,6 +332,12 @@ export async function updateCapacityPeriod(ctx: AuthContext, hotelId: string, pe
       const refetched = await hotelScoped.capacityPeriods.findById(current.id)
       if (!refetched) throw new ConflictError('CAPACITY_PERIOD_NOT_FOUND', 'Capacity period no longer exists')
       updatedRow = refetched
+      // Nights leaving the period fall back to the base capacity, nights joining it take the override: every
+      // live booking on the old and the new range must still fit (the overridden rooms are locked above).
+      if (changed.startDate !== undefined || changed.endDate !== undefined) {
+        const overridden = await hotelScoped.roomCapacityOverrides.findByPeriod(current.id)
+        await assertBookingsStillFit(tx, scope, { roomIds: overridden.map(o => o.roomId), from: minIsoDate(current.startDate, updatedRow.startDate), to: maxIsoDate(current.endDate, updatedRow.endDate) })
+      }
 
       await recordAudit(tenant.audit, ctx.identity.userId, {
         hotelId: hotel.id,
@@ -358,7 +365,8 @@ export async function deleteCapacityPeriod(ctx: AuthContext, hotelId: string, pe
   return ctx.db.transaction(async (tx) => {
     const hotelScoped = hotelRepos(tx, scope)
     const tenant = tenantRepos(tx, ctx.scope)
-    const current = await loadPeriodInScope(hotelScoped, periodId)
+    // Period row lock (as in apply/update): no override can be added between the count and the delete.
+    const current = await loadPeriodInScope(hotelScoped, periodId, { forUpdate: true })
     const today = todayInTimezone(hotel.timezone, ctx.now())
 
     const overrideCount = await hotelScoped.capacityPeriods.countOverrides(current.id)
@@ -544,6 +552,8 @@ export async function applyOverrides(ctx: AuthContext, hotelId: string, periodId
       catch (error) {
         throw translateOverrideWriteError(error)
       }
+      // A lower seasonal capacity may not strand pilgrims already booked in the period (the rooms are locked).
+      await assertBookingsStillFit(tx, scope, { roomIds: plan.applied.map(a => a.roomId), from: period.startDate, to: period.endDate })
     }
 
     await recordAudit(tenant.audit, ctx.identity.userId, {
@@ -640,11 +650,13 @@ export async function deleteOverride(ctx: AuthContext, hotelId: string, periodId
   return ctx.db.transaction(async (tx) => {
     const hotelScoped = hotelRepos(tx, scope)
     const tenant = tenantRepos(tx, ctx.scope)
-    const period = await loadPeriodInScope(hotelScoped, periodId)
+    // Lock order period → rooms (as apply/update): the removed capacity is re-checked against bookings under the room lock.
+    const period = await loadPeriodInScope(hotelScoped, periodId, { forUpdate: true })
     const today = todayInTimezone(hotel.timezone, ctx.now())
 
     const [existing] = await hotelScoped.roomCapacityOverrides.findByIdsInPeriod(period.id, [overrideId])
     if (!existing) throw new NotFoundError('OVERRIDE_NOT_FOUND')
+    await hotelScoped.rooms.lockByIds([existing.roomId])
 
     try {
       assertOverridesChangeable(period, today)
@@ -654,6 +666,8 @@ export async function deleteOverride(ctx: AuthContext, hotelId: string, periodId
     }
 
     await hotelScoped.roomCapacityOverrides.deleteById(existing.id)
+    // Back to the base capacity: every live booking in the period must still fit.
+    await assertBookingsStillFit(tx, scope, { roomIds: [existing.roomId], from: period.startDate, to: period.endDate })
 
     await recordAudit(tenant.audit, ctx.identity.userId, {
       hotelId: hotel.id,
@@ -679,7 +693,7 @@ export async function removeOverrides(ctx: AuthContext, hotelId: string, periodI
   return ctx.db.transaction(async (tx) => {
     const hotelScoped = hotelRepos(tx, scope)
     const tenant = tenantRepos(tx, ctx.scope)
-    const period = await loadPeriodInScope(hotelScoped, periodId)
+    const period = await loadPeriodInScope(hotelScoped, periodId, { forUpdate: true })
     const today = todayInTimezone(hotel.timezone, ctx.now())
 
     const matched = await hotelScoped.roomCapacityOverrides.findByIdsInPeriod(period.id, input.overrideIds)
@@ -694,7 +708,9 @@ export async function removeOverrides(ctx: AuthContext, hotelId: string, periodI
       rethrowAsDomainError(error)
     }
 
+    await hotelScoped.rooms.lockByIds(matched.map(m => m.roomId))
     await hotelScoped.roomCapacityOverrides.deleteByIds(matched.map(m => m.id))
+    await assertBookingsStillFit(tx, scope, { roomIds: matched.map(m => m.roomId), from: period.startDate, to: period.endDate })
 
     await recordAudit(tenant.audit, ctx.identity.userId, {
       hotelId: hotel.id,

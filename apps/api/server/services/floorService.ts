@@ -139,8 +139,8 @@ function diffFloorFields(row: FloorRow, patch: UpdateFloorInput): { before: Reco
  * indistinguishable 404s here, because `FloorRepository.findById` structurally cannot see rows
  * outside `scope.organizationId` AND `scope.hotelId`.
  */
-async function loadFloorInScope(repos: ReturnType<typeof hotelRepos>, floorId: string): Promise<FloorRow> {
-  const row = await repos.floors.findById(floorId)
+async function loadFloorInScope(repos: ReturnType<typeof hotelRepos>, floorId: string, options: { forUpdate?: boolean } = {}): Promise<FloorRow> {
+  const row = await repos.floors.findById(floorId, options)
   if (!row) throw new NotFoundError('FLOOR_NOT_FOUND')
   return row
 }
@@ -154,7 +154,9 @@ async function loadFloorInScope(repos: ReturnType<typeof hotelRepos>, floorId: s
  * per room): all rooms on the floor, then all of their base-config versions in one batched call.
  */
 async function assertFloorHasNoRoomsInInventory(repos: ReturnType<typeof hotelRepos>, floorId: string, today: IsoDate): Promise<void> {
-  const roomsOnFloor = await repos.rooms.listAllOnFloor(floorId)
+  // The caller holds the floor row lock; the rooms are locked too (ascending id, lock order floor → room)
+  // so a concurrent reactivation or base change of one of them cannot slip in between this read and the write.
+  const roomsOnFloor = (await repos.rooms.lockByIds((await repos.rooms.listAllOnFloor(floorId)).map(r => r.id))).filter(r => r.floorId === floorId)
   if (roomsOnFloor.length === 0) return
 
   const versions = await repos.roomBaseConfigs.versionsForRooms(roomsOnFloor.map(r => r.id))
@@ -213,7 +215,7 @@ export async function activateFloor(ctx: AuthContext, hotelId: string, floorId: 
   return ctx.db.transaction(async (tx) => {
     const hotelScoped = hotelRepos(tx, scope)
     const tenant = tenantRepos(tx, ctx.scope)
-    const current = await loadFloorInScope(hotelScoped, floorId)
+    const current = await loadFloorInScope(hotelScoped, floorId, { forUpdate: true })
     if (current.isActive) throw new ConflictError('FLOOR_ALREADY_ACTIVE')
 
     await hotelScoped.floors.setActive(current.id, true)
@@ -240,7 +242,7 @@ export async function deactivateFloor(ctx: AuthContext, hotelId: string, floorId
   return ctx.db.transaction(async (tx) => {
     const hotelScoped = hotelRepos(tx, scope)
     const tenant = tenantRepos(tx, ctx.scope)
-    const current = await loadFloorInScope(hotelScoped, floorId)
+    const current = await loadFloorInScope(hotelScoped, floorId, { forUpdate: true })
     if (!current.isActive) throw new ConflictError('FLOOR_ALREADY_INACTIVE')
 
     const today = todayInTimezone(hotel.timezone, ctx.now())

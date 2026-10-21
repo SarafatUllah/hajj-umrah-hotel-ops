@@ -48,6 +48,10 @@ export function addDays(date: IsoDate, n: number): IsoDate {
   return fromEpochDay(toEpochDay(date) + n)
 }
 
+/** The earlier / later of two valid ISO dates (`YYYY-MM-DD` strings order like their dates). */
+export const minIsoDate = (a: IsoDate, b: IsoDate): IsoDate => (a < b ? a : b)
+export const maxIsoDate = (a: IsoDate, b: IsoDate): IsoDate => (a > b ? a : b)
+
 /** Inclusive first and last NIGHT of a range (a night is identified by the date it starts). */
 export interface NightRange { from: IsoDate, to: IsoDate }
 

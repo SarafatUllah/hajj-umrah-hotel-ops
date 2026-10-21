@@ -69,6 +69,23 @@ describe('layering checker (meta-tests: the checker itself is tested)', () => {
     expect(rulesHit({ 'db/seed/x.ts': 'import { trustedOrganizationScope } from \'../../server/security/tenantResolver\'' })).toEqual([])
   })
 
+  it('ticket 5: other code reaches a business module only through server/services/<module>/index.ts', () => {
+    expect(rulesHit({ 'server/services/roomService.ts': 'import { assertBookingsStillFit } from \'./booking\'' })).toEqual([])
+    expect(rulesHit({ 'server/services/roomService.ts': 'import { assertBookingsStillFit } from \'./booking/index\'' })).toEqual([])
+    expect(rulesHit({ 'server/services/roomService.ts': 'import { assertBookingsStillFit } from \'./booking/inventoryGuard\'' })).toEqual(['module-public-api'])
+    expect(rulesHit({ 'server/services/x.ts': 'import { findBookingMisfits } from \'../domain/booking/inventoryFit\'' })).toEqual(['module-public-api'])
+    expect(rulesHit({ 'server/services/x.ts': 'import { BookingInventoryRepository } from \'../repositories/booking\'' })).toEqual(['module-public-api'])
+    expect(rulesHit({ 'server/services/x.ts': 'import { bookingRepos, hotelRepos } from \'../repositories\'' })).toEqual(['module-public-api'])
+    expect(rulesHit({ 'server/services/x.ts': 'import { hotelRepos } from \'../repositories\'' })).toEqual([])
+  })
+
+  it('ticket 5: a module\'s own files, and the repository factory, may reach its internals', () => {
+    expect(rulesHit({ 'server/services/booking/inventoryGuard.ts': 'import { findBookingMisfits } from \'../../domain/booking/inventoryFit\'\nimport { bookingRepos } from \'../../repositories\'' })).toEqual([])
+    expect(rulesHit({ 'server/repositories/index.ts': 'import { BookingInventoryRepository } from \'./booking\'' })).toEqual([])
+    expect(rulesHit({ 'server/repositories/index.ts': 'import { X } from \'./booking/bookingInventoryRepository\'' })).toEqual(['module-public-api'])
+    expect(rulesHit({ 'tests/x.test.ts': 'import { BookingInventoryRepository } from \'../server/repositories/booking\'' })).toEqual([])
+  })
+
   it('forbids seeds from importing db/schema, but not db/client', () => {
     expect(rulesHit({ 'db/seed/x.ts': 'import { appUser } from \'../schema\'' })).toEqual(['seed-through-repositories'])
     expect(rulesHit({ 'db/seed/demo/x.ts': 'import { room } from \'../../schema/inventory\'' })).toEqual(['seed-through-repositories'])
@@ -139,6 +156,10 @@ describe('layering of this repository', () => {
 
   it('(b) scopeFromIdentity is imported only inside server/security', () => {
     expect(violationsOf('identity-scope-minting')).toEqual([])
+  })
+
+  it('(e) business modules are reached only through their public service (ticket 5)', () => {
+    expect(violationsOf('module-public-api')).toEqual([])
   })
 
   it('(c) seeds do not import db/schema (they write through repositories)', () => {

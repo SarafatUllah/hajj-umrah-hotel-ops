@@ -1,10 +1,10 @@
-import { resolveSettings } from '@hajj/contracts/business-rules/hotelSettings'
 import { type BlockKind, CALENDAR_FILTER_STATUSES, type CalendarFilterStatus, type CapacityPeriodKind, DEFAULT_CALENDAR_PAGE_SIZE, MAX_CALENDAR_RESPONSE_BYTES, MAX_CALENDAR_ROOMS, MAX_ROOMS_PER_PAGE } from '@hajj/contracts/constants/inventory'
 import { calendarQueryIssues } from '@hajj/contracts/schemas/roomCalendar'
 import { type IsoDate, type NightRange, isValidIsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { buildRoomSegments, type CalendarOptions, type CalendarSegment, type DailySummary, matchesCapacityFilter, matchesStatusFilter, summarizeDaily } from '../domain/inventory/calendar'
 import { ValidationError } from '../errors/domainError'
 import { hotelRepos } from '../repositories'
+import { calendarOptionsFor } from './calendarOptions'
 import type { InventoryReadRepository, InventoryRefs, InventoryRoomInput, RoomCandidate, RoomCandidateFilter } from '../repositories/hotel'
 import type { AuthContext } from '../security/authContext'
 import { authorizeHotel } from '../security/authorize'
@@ -89,14 +89,6 @@ function assertValidCalendarInput(q: RoomCalendarQueryInput): void {
   if (q.status?.some(s => !(CALENDAR_FILTER_STATUSES as readonly string[]).includes(s))) throw new ValidationError('INVALID_STATUS', `status must be one of ${CALENDAR_FILTER_STATUSES.join(', ')}`)
 }
 
-/** The hotel's calendar options from `hotel_setting` (stored rows + registry defaults) — ONE statement, the same mechanism as Task 17's. */
-async function calendarOptions(ctx: AuthContext, scope: HotelScope): Promise<CalendarOptions> {
-  const rows = await hotelRepos(ctx.db, scope).settings.getAll()
-  const stored: Record<string, unknown> = {}
-  for (const row of rows) stored[row.key] = row.value
-  return { maintenanceBlocksSales: resolveSettings(stored)['inventory.maintenanceBlocksSales'] }
-}
-
 interface Derived {
   candidates: Map<string, RoomCandidate>
   rooms: InventoryRoomInput[]
@@ -156,7 +148,7 @@ async function derive(ctx: AuthContext, scope: HotelScope, range: NightRange, fi
     candidateRows = await relevantCandidates(inventory, range, structural)
   }
   const candidates = new Map(candidateRows.map(c => [c.id, c]))
-  if (candidateRows.length === 0) return { candidates, rooms: [], refs: { periods: new Map(), blocks: new Map() }, options: await calendarOptions(ctx, scope) }
+  if (candidateRows.length === 0) return { candidates, rooms: [], refs: { periods: new Map(), blocks: new Map() }, options: await calendarOptionsFor(hotelRepos(ctx.db, scope)) }
 
   // A structural filter narrows the range statements to the candidates in SQL; without one the
   // candidates ARE the hotel's rooms (or, without `includeOutOfInventory`, the rooms with a version in
@@ -170,7 +162,7 @@ async function derive(ctx: AuthContext, scope: HotelScope, range: NightRange, fi
     includeOutOfInventory: filter.includeOutOfInventory,
   }
   const [options, loaded] = await Promise.all([
-    calendarOptions(ctx, scope),
+    calendarOptionsFor(hotelRepos(ctx.db, scope)),
     filter.withRefs
       ? inventory.loadRoomInputs(range, { ...load, withRefs: true })
       : inventory.loadRoomInputs(range, load).then(rooms => ({ rooms, refs: { periods: new Map(), blocks: new Map() } as InventoryRefs })),

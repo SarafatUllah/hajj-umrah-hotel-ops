@@ -4,6 +4,8 @@ import type { DbOrTx } from '@hajj/db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
+import { BookingInventoryRepository } from '../../../server/repositories/booking'
+import { makeAgency, makeBooking, makeBookingRoom, makeGuest, makeHotelWithRooms, makeStay } from '../../support/bookingFixtures'
 import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeHotelDocument, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
 /**
@@ -42,6 +44,17 @@ function pgCode(error: unknown): string | undefined {
   return undefined
 }
 const foreignKeyViolation = (error: unknown) => pgCode(error) === '23503'
+
+/** Phase 2a: org A's confirmed agency booking holding one seat in a room on 2027-06-01..06-03. */
+async function arrangeBookedRoom(db: DbOrTx, orgA: OrganizationScope) {
+  const { hotel, rooms } = await makeHotelWithRooms(db, orgA, 1)
+  const agencyRow = await makeAgency(db, orgA)
+  const b = await makeBooking(db, orgA, hotel.id, { agencyId: agencyRow.id, checkIn: '2027-06-01', checkOut: '2027-06-03' })
+  const claim = await makeBookingRoom(db, orgA, b, rooms[0]!.id)
+  const guest = await makeGuest(db, orgA, b.id, 1)
+  await makeStay(db, orgA, b.id, guest.id, claim.id, b.checkIn, b.checkOut)
+  return { hotelId: hotel.id, roomId: rooms[0]!.id }
+}
 
 async function assertNoRows(rows: unknown[], what: string) {
   if (rows.length !== 0) throw new Error(`${what}: expected no rows, found ${rows.length}`)
@@ -1217,6 +1230,11 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: (db, scope, ids) => new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).findActiveForRoomsOn([ids.roomId], '2027-05-03'),
     expect: 'empty',
   }),
+  'OperationalBlockRepository.findActiveOfKindEndingOnOrAfter': isolationCase({
+    arrange: (db, orgA) => arrangeBlockRoom(db, orgA, true),
+    act: (db, scope, ids) => new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).findActiveOfKindEndingOnOrAfter('MAINTENANCE', '2027-01-01'),
+    expect: 'empty',
+  }),
   'OperationalBlockRepository.existsActiveEndingOnOrAfter': isolationCase({
     arrange: (db, orgA) => arrangeBlockRoom(db, orgA, true),
     act: async (db, scope, ids) => (await new OperationalBlockRepository(db, trustedHotelScope(scope, ids.hotelId)).existsActiveEndingOnOrAfter(ids.roomId, '2027-01-01')) ? 1 : 0,
@@ -1368,6 +1386,17 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
       expect: 'null',
     }),
   ],
+  // Phase 2a: BookingInventoryRepository (Hotel scope, read-only) — org B naming org A's hotel and room sees no claim and no seat.
+  'BookingInventoryRepository.liveClaims': isolationCase({
+    arrange: arrangeBookedRoom,
+    act: (db, scope, ids) => new BookingInventoryRepository(db, trustedHotelScope(scope, ids.hotelId)).liveClaims([ids.roomId], '2027-01-01', null),
+    expect: 'empty',
+  }),
+  'BookingInventoryRepository.seatsUsed': isolationCase({
+    arrange: arrangeBookedRoom,
+    act: (db, scope, ids) => new BookingInventoryRepository(db, trustedHotelScope(scope, ids.hotelId)).seatsUsed([ids.roomId], { from: '2027-01-01', to: '2027-12-31' }),
+    expect: 'empty',
+  }),
   'HotelDocumentRepository.list': isolationCase({
     arrange: (db, orgA) => arrangeDocument(db, orgA, true),
     act: async (db, scope, ids) => {

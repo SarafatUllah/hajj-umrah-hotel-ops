@@ -1,12 +1,12 @@
-import { resolveSettings } from '@hajj/contracts/business-rules/hotelSettings'
 import { MAX_ELIGIBLE_ROOM_IDS } from '@hajj/contracts/constants/inventory'
 import { averageWindowIssues } from '@hajj/contracts/schemas/capacityAverages'
 import { type IsoDate, type NightRange, isValidIsoDate, rangeFromStay, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { type AverageResult, baseHotelAverage, combineAverages, dateEffectiveHotelAverage, rangeEffectiveAverage } from '../domain/inventory/averages'
-import { availableStayAverage, type CalendarOptions } from '../domain/inventory/calendar'
+import { availableStayAverage } from '../domain/inventory/calendar'
 import { hasHotelAccess } from '../domain/rbac/authorize'
 import { ValidationError } from '../errors/domainError'
 import { hotelRepos, tenantRepos } from '../repositories'
+import { calendarOptionsFor } from './calendarOptions'
 import type { HotelRow } from '../repositories/tenant'
 import type { AuthContext } from '../security/authContext'
 import { authorizeHotel, requireOrgPermission } from '../security/authorize'
@@ -93,12 +93,6 @@ function assertValidInput(q: HotelAveragesInput): void {
   if (issue) throw new ValidationError(issue.code, issue.message, { path: issue.path })
 }
 
-async function calendarOptions(scope: HotelScope, ctx: AuthContext): Promise<CalendarOptions> {
-  const rows = await hotelRepos(ctx.db, scope).settings.getAll()
-  const stored: Record<string, unknown> = {}
-  for (const row of rows) stored[row.key] = row.value
-  return { maintenanceBlocksSales: resolveSettings(stored)['inventory.maintenanceBlocksSales'] }
-}
 
 /**
  * `room.view` on one hotel (inactive hotels are readable). `base`/`dateEffective` on `date` (default:
@@ -124,7 +118,7 @@ export async function getHotelAverages(ctx: AuthContext, hotelId: string, q: Hot
 
   const [rooms, options] = await Promise.all([
     hotelRepos(ctx.db, scope).inventoryRead.loadRoomInputs(windows, { includeBlocks: stay !== null }),
-    stay ? calendarOptions(scope, ctx) : Promise.resolve(null),
+    stay ? calendarOptionsFor(hotelRepos(ctx.db, scope)) : Promise.resolve(null),
   ])
 
   let availableStay: AvailableStayDto | null = null

@@ -11,6 +11,7 @@ import type { RoomBaseConfigRow, RoomOperationalBlockRow, RoomOperationalBlockVi
 import type { AuthContext } from '../security/authContext'
 import { authorizeHotel } from '../security/authorize'
 import { recordAudit } from './audit'
+import { assertBookingsStillFit } from './booking'
 import { type BlockListItem, toBlockListItem } from './blockDto'
 import { toBaseVersion } from './roomDto'
 
@@ -178,7 +179,6 @@ export async function createRoomBlock(ctx: AuthContext, hotelId: string, roomId:
 
     // Friendly pre-check. Concurrent creates on this room are serialized by the room lock above; the
     // exclusion constraint stays the database backstop for any writer that does not take it.
-    // (Phase 2: the booking/hold conflict check joins here.)
     const overlapping = await hotelScoped.operationalBlocks.findActiveOverlapping([roomRow.id], range, [kind])
     if (overlapping.length > 0) {
       throw new ConflictError('BLOCK_OVERLAP', `Room ${roomRow.roomNumber} already has an active block of this kind on one or more of these nights`)
@@ -191,6 +191,8 @@ export async function createRoomBlock(ctx: AuthContext, hotelId: string, roomId:
     catch (error) {
       throw translateBlockWriteError(error)
     }
+    // v7 §10: a sale-blocking block may not cover a night a live booking holds the room (rolls back, 409).
+    await assertBookingsStillFit(tx, scope, { roomIds: [roomRow.id], from: range.from, to: range.to })
 
     await recordAudit(tenant.audit, ctx.identity.userId, {
       hotelId: hotel.id,
@@ -282,7 +284,6 @@ export async function bulkCreateRoomBlocks(ctx: AuthContext, hotelId: string, in
         conflicts.push({ roomId: r.id, roomNumber: r.roomNumber, reason: 'ROOM_NOT_IN_INVENTORY_FOR_BLOCK' })
       }
     }
-    // (Phase 2: the booking/hold conflict check joins here.)
     const overlapping = new Set((await hotelScoped.operationalBlocks.findActiveOverlapping(rooms.map(r => r.id), range, [kind])).map(b => b.roomId))
     for (const r of rooms) {
       if (overlapping.has(r.id) && !notCovered.has(r.id)) conflicts.push({ roomId: r.id, roomNumber: r.roomNumber, reason: 'BLOCK_OVERLAP' })
@@ -298,6 +299,7 @@ export async function bulkCreateRoomBlocks(ctx: AuthContext, hotelId: string, in
     catch (error) {
       throw translateBlockWriteError(error)
     }
+    await assertBookingsStillFit(tx, scope, { roomIds: rooms.map(r => r.id), from: range.from, to: range.to })
 
     for (const row of created) {
       await recordAudit(tenant.audit, ctx.identity.userId, {

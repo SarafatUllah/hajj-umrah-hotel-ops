@@ -28,8 +28,13 @@ export class FloorRepository {
     return this.q.insertMany(floor, valuesList).returning()
   }
 
-  async findById(id: string): Promise<FloorRow | null> {
-    const [row] = await this.q.select(floor, eq(floor.id, id), { limit: 1 })
+  /**
+   * `forUpdate` (inside a transaction only) row-locks the floor. Lock order everywhere: the floor row
+   * BEFORE any room row — floor deactivation locks the floor and then its rooms; room create, move and
+   * reactivation lock the (target) floor before touching the room.
+   */
+  async findById(id: string, options: { forUpdate?: boolean } = {}): Promise<FloorRow | null> {
+    const [row] = await this.q.select(floor, eq(floor.id, id), { limit: 1, forUpdate: options.forUpdate })
     return row ?? null
   }
 

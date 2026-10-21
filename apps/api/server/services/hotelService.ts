@@ -1,14 +1,16 @@
 import { resolveSettings, type ResolvedSettings, type UpdateSettingsInput } from '@hajj/contracts/business-rules/hotelSettings'
 import { encodeAuditCursor, type CreateHotelInput, type ListHotelAuditQuery, type UpdateHotelInput } from '@hajj/contracts/schemas/hotel'
-import { todayInTimezone } from '@hajj/contracts/utils/dates'
+import { type IsoDate, maxIsoDate, minIsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { orgCan, hasHotelAccess } from '../domain/rbac/authorize'
 import { translateDbError } from '../errors/dbErrors'
 import { ConflictError } from '../errors/domainError'
 import { hotelRepos, tenantRepos } from '../repositories'
 import type { HotelPatch, HotelRow } from '../repositories/tenant'
 import type { AuthContext } from '../security/authContext'
+import type { HotelScope } from '../security/scope'
 import { authorizeHotel, requireAllHotels, requireOrgPermission } from '../security/authorize'
 import { recordAudit } from './audit'
+import { assertBookingsStillFit } from './booking'
 import { toHotelDetail, toHotelSummary, type HotelDetail, type HotelDtoExtras, type HotelSummary } from './hotelDto'
 
 /**
@@ -226,6 +228,16 @@ export async function getSettings(ctx: AuthContext, hotelId: string): Promise<Re
   return resolved
 }
 
+/** Locks the rooms of every running or future MAINTENANCE block, then checks their nights against live bookings. */
+async function assertMaintenanceNightsFreeOfBookings(tx: Parameters<typeof hotelRepos>[0], hotelScoped: ReturnType<typeof hotelRepos>, scope: HotelScope, today: IsoDate): Promise<void> {
+  const blocks = await hotelScoped.operationalBlocks.findActiveOfKindEndingOnOrAfter('MAINTENANCE', today)
+  if (blocks.length === 0) return
+  const roomIds = (await hotelScoped.rooms.lockByIds(blocks.map(b => b.roomId))).map(r => r.id)
+  const from = blocks.reduce((first, b) => minIsoDate(first, b.startDate), blocks[0]!.startDate)
+  const to = blocks.reduce((last, b) => maxIsoDate(last, b.endDate), blocks[0]!.endDate)
+  await assertBookingsStillFit(tx, scope, { roomIds, from: maxIsoDate(from, today), to })
+}
+
 export async function updateSettings(ctx: AuthContext, hotelId: string, patch: UpdateSettingsInput): Promise<ResolvedSettings> {
   const { hotel, scope } = await authorizeHotel(ctx, 'hotel.manage', hotelId, { allowInactive: true })
 
@@ -251,6 +263,10 @@ export async function updateSettings(ctx: AuthContext, hotelId: string, patch: U
 
     for (const [key, value] of Object.entries(after)) {
       await hotelScoped.settings.upsert(key, value)
+    }
+    // Maintenance starts blocking sales: no live booking may sit on a maintenance night (rolls back, 409).
+    if (before['inventory.maintenanceBlocksSales'] === false && after['inventory.maintenanceBlocksSales'] === true) {
+      await assertMaintenanceNightsFreeOfBookings(tx, hotelScoped, scope, todayInTimezone(hotel.timezone, ctx.now()))
     }
 
     await recordAudit(tenant.audit, ctx.identity.userId, {

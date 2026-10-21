@@ -147,6 +147,11 @@ export class OperationalBlockRepository {
     return this.q.select(roomOperationalBlock, and(inArray(roomOperationalBlock.roomId, roomIds as string[]), active(), intersects({ from: date, to: date })))
   }
 
+  /** Every active block of `kind` in this hotel still ending on or after `date` — what a sales-rule change re-checks against bookings. */
+  async findActiveOfKindEndingOnOrAfter(kind: BlockKind, date: IsoDate): Promise<RoomOperationalBlockRow[]> {
+    return this.q.select(roomOperationalBlock, and(eq(roomOperationalBlock.kind, kind), active(), gte(roomOperationalBlock.endDate, date)))
+  }
+
   /** True if the room has an active block ending on or after `date` — the retire guard (409 ROOM_HAS_ACTIVE_BLOCKS). */
   async existsActiveEndingOnOrAfter(roomId: string, date: IsoDate): Promise<boolean> {
     const rows = await this.q.select(roomOperationalBlock, and(eq(roomOperationalBlock.roomId, roomId), active(), gte(roomOperationalBlock.endDate, date)), { limit: 1 })

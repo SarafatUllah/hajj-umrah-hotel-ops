@@ -20,7 +20,8 @@ export interface LayeringRule {
   id: string
   message: string
   appliesTo: (file: string) => boolean
-  forbids: (ref: ImportRef) => boolean
+  /** `file` is the importing file (repo-logical path). */
+  forbids: (ref: ImportRef, file: string) => boolean
 }
 
 export interface Violation { file: string, line: number, rule: string, specifier: string, message: string }
@@ -126,7 +127,7 @@ export function findViolations(sources: Record<string, string>, rules: readonly 
     if (applicable.length === 0) continue
     for (const ref of parseImports(file, source)) {
       for (const rule of applicable) {
-        if (rule.forbids(ref)) violations.push({ file, line: ref.line, rule: rule.id, specifier: ref.specifier, message: rule.message })
+        if (rule.forbids(ref, file)) violations.push({ file, line: ref.line, rule: rule.id, specifier: ref.specifier, message: rule.message })
       }
     }
   }
@@ -144,6 +145,25 @@ const isSecurityModule = (t: string) => t === 'server/security' || t.startsWith(
 export const QUERY_RESTRICTED_DIRS = ['server/services/', 'server/api/', 'server/domain/', 'server/utils/', 'shared/'] as const
 export const QUERY_RESTRICTION_EXEMPT = ['server/utils/db.ts'] as const
 export const SCOPE_MINTING_ALLOWED = ['server/security/', 'db/seed/', 'tests/'] as const
+
+/**
+ * Phase 2 business modules (ticket 5): each owns `server/{services,domain,repositories}/<module>/`. Only its
+ * own files reach those internals; every other file uses its public service `server/services/<module>/index.ts`.
+ * The repository factory (`server/repositories/index.ts`) wires `<module>Repos`, which only the module itself
+ * may call.
+ */
+export const BUSINESS_MODULES = ['booking'] as const
+
+function crossesModuleBoundary(ref: ImportRef, file: string): boolean {
+  return BUSINESS_MODULES.some((module) => {
+    const insideModule = ['services', 'domain', 'repositories'].some(layer => file.startsWith(`server/${layer}/${module}/`))
+    if (insideModule) return false
+    const internal = new RegExp(`^server/(services|domain|repositories)/${module}(/|$)`).test(ref.target) && ref.target !== `server/services/${module}`
+    const factoryWiring = file === 'server/repositories/index.ts' && ref.target === `server/repositories/${module}`
+    const factoryCall = ref.target === 'server/repositories' && (ref.namespace || ref.names.includes(`${module}Repos`))
+    return (internal && !factoryWiring) || factoryCall
+  })
+}
 
 export const LAYERING_RULES: readonly LayeringRule[] = [
   {
@@ -163,6 +183,12 @@ export const LAYERING_RULES: readonly LayeringRule[] = [
     message: 'scopeFromIdentity is used only inside server/security (auth context); everything else receives a scope.',
     appliesTo: file => !file.startsWith('server/security/'),
     forbids: ref => isSecurityModule(ref.target) && (ref.namespace || ref.names.includes('scopeFromIdentity')),
+  },
+  {
+    id: 'module-public-api',
+    message: 'Another business module is reached only through its public service, server/services/<module>/index.ts (ticket 5).',
+    appliesTo: file => file.startsWith('server/'),
+    forbids: crossesModuleBoundary,
   },
   {
     id: 'seed-through-repositories',

@@ -1,4 +1,3 @@
-import { resolveSettings } from '@hajj/contracts/business-rules/hotelSettings'
 import type { BaseConfigOrigin, CapacityPeriodKind } from '@hajj/contracts/constants/inventory'
 import { MAX_BULK_ROOMS, MAX_CALENDAR_DAYS } from '@hajj/contracts/constants/inventory'
 import type {
@@ -13,7 +12,7 @@ import type {
 import { addDays, type IsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { normalizeRoomNumber } from '@hajj/contracts/utils/roomNumber'
 import { type BaseVersionRow, planBaseChange, planReactivate, planRetire } from '../domain/inventory/baseVersions'
-import type { BlockInput, CalendarOptions } from '../domain/inventory/calendar'
+import type { BlockInput } from '../domain/inventory/calendar'
 import type { CapacityOverride } from '../domain/inventory/capacity'
 import { InventoryRuleError } from '../domain/inventory/rules'
 import { translateDbError } from '../errors/dbErrors'
@@ -24,6 +23,8 @@ import type { HotelRow, RoomTypeRow } from '../repositories/tenant'
 import type { AuthContext } from '../security/authContext'
 import { authorizeHotel } from '../security/authorize'
 import { recordAudit } from './audit'
+import { assertBookingsStillFit } from './booking'
+import { calendarOptionsFor } from './calendarOptions'
 import { type PeriodRef, type RoomDetail, type RoomListItem, toBaseVersion, toBlockInput, toCapacityOverride, toRoomDetail, toRoomListItem } from './roomDto'
 
 export interface RoomListPage {
@@ -57,19 +58,6 @@ async function periodRefsFor(hotelScoped: ReturnType<typeof hotelRepos>, overrid
   return new Map(periods.map(p => [p.id, toPeriodRef(p)]))
 }
 
-/**
- * Task 16 (S5): the hotel's calendar options, read through the same `hotel_setting` mechanism as
- * `hotelService`'s settings (stored rows + registry defaults via `resolveSettings`) — ONE query.
- * `maintenanceBlocksSales` only changes whether a MAINTENANCE night is SELLABLE, never the displayed
- * `status`, and never what is stored.
- */
-async function calendarOptionsFor(hotelScoped: ReturnType<typeof hotelRepos>): Promise<CalendarOptions> {
-  const rows = await hotelScoped.settings.getAll()
-  const stored: Record<string, unknown> = {}
-  for (const row of rows) stored[row.key] = row.value
-  return { maintenanceBlocksSales: resolveSettings(stored)['inventory.maintenanceBlocksSales'] }
-}
-
 /** Task 16 (S5): every ACTIVE block of `roomIds` covering `date`, grouped by room — ONE query for the whole page, never one per room. */
 async function blocksByRoomOn(hotelScoped: ReturnType<typeof hotelRepos>, roomIds: readonly string[], date: IsoDate): Promise<Map<string, BlockInput[]>> {
   const rows = await hotelScoped.operationalBlocks.findActiveForRoomsOn(roomIds, date)
@@ -89,9 +77,13 @@ async function loadRoomInScope(hotelScoped: ReturnType<typeof hotelRepos>, roomI
   return row
 }
 
-/** An active floor of THIS hotel, or the generic body-reference 422 (never leaks whether a foreign floorId exists). */
+/**
+ * An active floor of THIS hotel, or the generic body-reference 422 (never leaks whether a foreign floorId
+ * exists). Row-locked (callers run inside a transaction): a concurrent floor deactivation either committed
+ * before (and this sees the inactive floor) or waits until the room write commits (and then sees the room).
+ */
 async function loadActiveFloorRef(hotelScoped: ReturnType<typeof hotelRepos>, floorId: string) {
-  const row = await hotelScoped.floors.findById(floorId)
+  const row = await hotelScoped.floors.findById(floorId, { forUpdate: true })
   if (!row) throw new ValidationError('INVALID_REFERENCE', 'floorId does not reference a floor of this hotel')
   if (!row.isActive) throw new ConflictError('FLOOR_INACTIVE')
   return row
@@ -414,6 +406,9 @@ export async function changeBaseConfig(ctx: AuthContext, hotelId: string, roomId
       throw translated ?? error
     }
 
+    // v7 §10: a lower capacity may not strand pilgrims already booked on these nights (rolls back, 409).
+    await assertBookingsStillFit(tx, scope, { roomIds: [current.id], from: input.effectiveFrom, to: null })
+
     await recordAudit(tenant.audit, ctx.identity.userId, {
       hotelId: hotel.id,
       entityType: 'room',
@@ -481,6 +476,9 @@ export async function retireRoom(ctx: AuthContext, hotelId: string, roomId: stri
       throw translated ?? error
     }
 
+    // v7 §10: no live booking may hold the room on a night it leaves inventory (rolls back, 409).
+    await assertBookingsStillFit(tx, scope, { roomIds: [current.id], from: input.effectiveFrom, to: null })
+
     await recordAudit(tenant.audit, ctx.identity.userId, {
       hotelId: hotel.id,
       entityType: 'room',
@@ -502,7 +500,12 @@ export async function reactivateRoom(ctx: AuthContext, hotelId: string, roomId: 
   return ctx.db.transaction(async (tx) => {
     const hotelScoped = hotelRepos(tx, scope)
     const tenant = tenantRepos(tx, ctx.scope)
-    const current = await loadRoomInScope(hotelScoped, roomId)
+    // Lock order floor → room (as floor deactivation): the room's floor must be active and stays so until
+    // this commits, and the room row lock serializes with retirement and base changes of the same room.
+    const unlocked = await loadRoomInScope(hotelScoped, roomId)
+    await loadActiveFloorRef(hotelScoped, unlocked.floorId)
+    const current = await loadRoomInScope(hotelScoped, roomId, { forUpdate: true })
+    if (current.floorId !== unlocked.floorId) throw new ConflictError('ROOM_CHANGED', 'The room was moved to another floor meanwhile; try again')
     const versionRows = await hotelScoped.roomBaseConfigs.versionsForRoom(current.id)
     const today = todayInTimezone(hotel.timezone, ctx.now())
 
