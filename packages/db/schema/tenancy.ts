@@ -60,6 +60,8 @@ export const rolePermission = pgTable('role_permission', {
   permissionKey: text('permission_key').notNull().references(() => permission.key, { onDelete: 'cascade' }),
 }, table => [
   primaryKey({ columns: [table.roleId, table.permissionKey] }),
+  // Covers the permission FK (the primary key leads with role_id), found by the schema-invariant test.
+  index('role_permission_permission_idx').on(table.permissionKey),
 ])
 
 // organization_id is part of both foreign keys, so the database itself

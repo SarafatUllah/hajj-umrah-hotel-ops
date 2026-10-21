@@ -88,6 +88,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@hajj/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       dotenv:
         specifier: ^18.0.3
         version: 18.0.3

@@ -1,13 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { boolean, check, date, foreignKey, index, integer, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import { organizationColumn as orgCol, timestampColumns as stamps } from './columns'
 import { hotel } from './hotel'
-import { organization } from './tenancy'
-
-const orgCol = () => uuid('organization_id').notNull().references(() => organization.id, { onDelete: 'cascade' })
-const stamps = () => ({
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-})
 
 export const floor = pgTable('floor', {
   id: uuid('id').primaryKey().defaultRandom(),

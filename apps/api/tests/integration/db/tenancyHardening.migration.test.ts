@@ -39,7 +39,9 @@ async function insertTwoOrgs(sql: postgres.Sql): Promise<TwoOrgs> {
   return { orgA, orgB, userA, userB, roleA, roleB }
 }
 
-describe('migration 0001 (tenancy hardening)', () => {
+// Each case creates a scratch database and replays the migrations: under a full-suite run PostgreSQL's
+// CREATE DATABASE (copying template1) can take several seconds, well past the 5 s default.
+describe('migration 0001 (tenancy hardening)', { timeout: 30_000 }, () => {
   it('creates btree_gist itself on a fresh database', async () => {
     await withScratchDatabase(SCRATCH_DB, async (url) => {
       await migrateAll(url)

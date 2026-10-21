@@ -26,7 +26,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 5 | Docs: v7 PDF, open client questions, Phase 2a tickets, schema-per-module decision | done |
 | 6 | pg-boss transaction spike (Drizzle/postgres.js `tx.unsafe` adapter) + jobs foundation | done |
 | 7 | 2a: security prerequisites (rate limit, CSRF origin check, principal kinds, staff 2FA, PII crypto) | done |
-| 8 | 2a: booking-platform schema (agency, customer, pricing, pilgrim, booking*, guest_stay, view, constraints) | |
+| 8 | 2a: booking-platform schema (agency, customer, pricing, pilgrim, booking*, guest_stay, view, constraints) | done |
 | 9 | 2a: inventory ↔ booking conflict rules + Phase 1 lock gaps (floor deactivate, room reactivate, period delete) | |
 | 10 | 2a: accounts (agency approval, agency users, customers + OTP), admin settings, pricing & quotes | |
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | |
@@ -96,6 +96,44 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   usual step-up trade-off; the attempt limits apply). Logout clears only the browser's sealed cookie (stateless
   sessions, 8 h); the session version covers the 2FA events. No security-event log stream yet besides the
   audit rows (planned with observability).
+
+- **D-P2-13 (schema) Dates.** Stays are `check_in`/`check_out` date columns (`[check_in, check_out)`), and
+  constraints build `daterange(check_in, check_out, '[)')` — the same date-column style as Phase 1, so Drizzle
+  and the app keep plain `YYYY-MM-DD` strings. Seasons (rates, quotas) are inclusive night ranges like
+  `capacity_period`.
+- **D-P2-14 (schema) Quote use lives on the booking.** No `price_quote.used_by_booking_id`: `booking.quote_id`
+  with the partial unique index `booking_quote_once` (`status <> 'EXPIRED'`) — an expired hold gives the quote
+  back for a retry within its validity, a cancelled booking keeps it used (v7 §12).
+- **D-P2-15 (schema) What is encrypted.** Passport numbers, the booker's free-form extras (address, place of
+  birth, issue data, phone), extracted scan fields and passport images are encrypted. Name, gender,
+  nationality, date of birth and passport expiry stay in clear text in the access-controlled tables: the
+  calendar, check-in, age-group and expiry rules need them. Logs (`audit_log`, `booking_change`,
+  `pii_access_log`) carry ids only.
+- **D-P2-16 (schema) Owner integrity.** Besides the v7 checks, `booking_room (org, booking_id,
+  owner_agency_id)` references `booking (org, id, agency_id)`, so a claim's owner agency is always its
+  booking's agency.
+- **D-P2-17 (schema) Settings and receipts.** `booking_setting` is one row per organization (hotel-level
+  overrides if ever needed); a missing row means all defaults (readers fall back, the first write upserts).
+  v7's `receipt_no` is the booking number; the QR carries the random `receipt_token`.
+- **D-P2-18 (schema) Shared value lists.** `@hajj/db` depends on `@hajj/contracts` for every status/kind list,
+  so the CHECK constraints, index predicates and the API validate the same values, and changing a list
+  without a migration fails `db:drift`. The hand-written SQL (exclusion constraints, the seat function) is
+  outside Drizzle, so `schemaInvariants.test.ts` compares it with the constants. `booking_change.kind`
+  deliberately has no CHECK (like `audit_log.action`).
+- **D-P2-20 (schema, database review) Seat counting is a function, not a view.** v7's `room_night_occupancy`
+  view expands every stay of the hotel's whole history (a LATERAL `generate_series` cannot be filtered
+  first); `room_night_occupancy(org, hotel, from, to, rooms)` applies the night range before expanding and
+  uses date arithmetic (no time-zone dependence). Infants are identified by `booking_guest.age_group`, so
+  `guest_stay.occupies_seat` was dropped (a separate flag could disagree with the age group).
+- **D-P2-21 (schema, database review) Status and containment in the database.** `booking_room.status` is
+  denormalized for the exclusion constraints, so triggers keep it equal to the booking's status (except a
+  RELEASED claim). Deferred constraint triggers (checked at COMMIT, so a date change may reorder its
+  statements) keep stays within claims and claims within the booking. Capacity per room-night is NOT a
+  constraint: the hold and inventory transactions lock the rooms (`ORDER BY id FOR UPDATE`) before counting.
+  One bed per pilgrim SLOT (the same person in two bookers' bookings is a staff warning, v7 §13).
+- **D-P2-19 (schema) Schema invariants test.** `tests/integration/db/schemaInvariants.test.ts` asserts on the
+  migrated catalog that every non-platform table has `organization_id NOT NULL` and every foreign key has a
+  covering index (it found `role_permission`'s, fixed in 0009).
 
 ## Step 7 design (security prerequisites, v7 §21)
 

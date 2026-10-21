@@ -19,7 +19,8 @@ Migrations live in `packages/db/migrations/` (SQL files plus Drizzle's
 | `0005_capacity_periods.sql` | Task 15 | `capacity_period`, `room_capacity_override` + exclusion constraint `room_override_no_overlap` + the dates-sync composite FK (`ON UPDATE CASCADE`) |
 | `0006_room_blocks.sql` | Task 16 | `room_operational_block` (incl. the ended-early columns) + partial exclusion constraint `room_block_no_overlap` |
 | `0007_documents.sql` | Task 19 | `document_asset`, `hotel_document` |
-| `0008_security_prerequisites.sql` | Phase 2a, security prerequisites | `rate_limit_bucket`; `app_user.totp_*` (+ check `app_user_totp_consistency`); `role.requires_two_factor` |
+| `0008_security_prerequisites.sql` | Phase 2a, security prerequisites | `rate_limit_bucket`; `app_user.totp_*` and `session_version` (+ check `app_user_totp_consistency`); `role.requires_two_factor` (backfilled for SUPER_ADMIN / HOTEL_MANAGER) |
+| `0009_booking_platform.sql` | Phase 2a, booking schema | the booking-platform tables of `ARCHITECTURE.md` §6.2; hand-appended exclusion constraints (`booking_room_one_owner`, `booking_room_one_occupancy`, `booking_room_no_duplicate`, `guest_stay_one_bed_per_night`, `rate_no_overlap`, `agency_quota_no_overlap`, `allocation_rule_no_overlap`), the booking→claim status-sync and claim-status guard triggers, the deferred containment constraint triggers, the `forbid_row_update` trigger on `booking_change` / `pii_access_log`, the `room_night_occupancy(...)` seat-counting function; plus `role_permission_permission_idx` (an FK without a covering index, found by `schemaInvariants.test.ts`) |
 
 ## Committed migrations are immutable
 
@@ -86,11 +87,11 @@ applies from zero.
 
 ## The `btree_gist` extension
 
-The three exclusion constraints combine an equality column (`room_id`, and
-`kind` for blocks) with a `daterange` overlap, which needs the `btree_gist`
+The exclusion constraints combine equality columns (`room_id`, `kind`,
+`owner_key`, …) with a range overlap, which needs the `btree_gist`
 extension. Migration `0001_tenancy_hardening` creates it as its first
 statement (`CREATE EXTENSION IF NOT EXISTS btree_gist`), and `0004`, `0005`
-and `0006` repeat the same idempotent statement before their constraints, so
+and `0006` and `0009` repeat the same idempotent statement before their constraints, so
 applying the chain from an empty database creates it automatically.
 
 Consequences for operators:

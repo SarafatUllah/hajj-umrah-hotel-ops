@@ -6,3 +6,8 @@
 export const PRINCIPAL_KINDS = ['staff', 'agency', 'customer'] as const
 
 export type PrincipalKind = typeof PRINCIPAL_KINDS[number]
+
+/** Who did something, in logs and change records: a principal, or the system itself (jobs, sweeps). */
+export const ACTOR_KINDS = [...PRINCIPAL_KINDS, 'system'] as const
+
+export type ActorKind = typeof ACTOR_KINDS[number]

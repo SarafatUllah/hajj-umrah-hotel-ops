@@ -100,13 +100,23 @@ There is **no session table**: sessions are sealed cookies (§8). There is **no 
 
 Every hotel-owned table carries `organization_id` **and** `hotel_id` and references its parents through **composite foreign keys that include `organization_id`** (and `hotel_id` where the parent is hotel-owned), so a row can never point at another tenant's (or another hotel's) row. `btree_gist` is required for the three exclusion constraints (see `docs/MIGRATIONS.md`).
 
-### 6.2 Planned tables (later phases — not shipped)
+### 6.2 Booking platform tables (Phase 2a, migration `0009`; design v7 §16)
+
+The booking design of `docs/design/Hajj_Booking_Platform_Architecture_v7.pdf` replaces the earlier Booking/Commercial sketch. Every table is tenant-scoped with composite foreign keys, like §6.1.
+
+- **Accounts:** `agency` (approval status), `agency_user` (agency portal sign-in), `customer` (public site, verified phone).
+- **Pricing and rules:** `rate` (PUBLIC / AGENCY_DEFAULT, per person-night or room-night, per season), `price_quote` (WhatsApp quote; never holds rooms), `agency_quota` (persons per night per season; `agency_id` NULL = default), `allocation_rule` (room-mix caps by group size), `extra_bed_policy`, `booking_setting` (organization-wide settings of v7 §15). Money is integer halalas.
+- **Bookings:** `booking` (booker, type, counts, frozen price source, status, hold expiry, receipt token), `booking_room` (a booking's claim on a room: owner = agency or the booking itself, generated `owner_key`, occupancy), `booking_guest` (one slot per pilgrim, incl. infants), `guest_stay` (which slot sleeps in which claimed room on which nights), `booking_price_line` (frozen per-night price), `booking_change` (append-only, PII-free), `hotel_task` (extra-bed work).
+- **Pilgrim data:** `pilgrim` (staff-only master, unique blind index `passport_lookup`), `booking_guest_detail` (each booker's own encrypted copy), `passport_scan` (encrypted image + extracted fields; references the booker's copy, never the master), `pii_access_log` (append-only).
+- **Database-enforced rules:** exclusion constraints `booking_room_one_owner`, `booking_room_one_occupancy`, `booking_room_no_duplicate` (seat-holding claims only), `guest_stay_one_bed_per_night`, no-overlap of rates, quotas and room-mix rules; composite FKs keep a stay, its slot and its room claim in one booking, a claim's owner agency equal to the booking's agency, a booking's quote that agency's quote for that hotel, a passport scan's copy that scan's slot, and agency-user attribution within the agency; triggers copy every booking status to its unreleased claims (and refuse a mismatch) and check at commit that stays lie within their claim and claims within their booking; a pending booking always has an expiry and a confirmed one never. Seats are counted only by the `room_night_occupancy(org, hotel, from, to, rooms)` function (infants and removed slots never count, expired holds drop out at once, a NULL expiry never silently frees seats; the night range is applied before stays are expanded).
+
+Stays are `[check_in, check_out)` date pairs; seasons are inclusive night ranges like `capacity_period`.
+
+### 6.3 Planned tables (later phases — not shipped)
 
 The names below are the direction for later phases and do not exist yet.
 
-**Booking:** `customer`, `agent`, `booking`, `booking_room_requirement`, `booking_room_allocation` (system-suggested + final, versioned), `booking_room_assignment` (physical room ↔ booking ↔ date range), `hold`, `hold_reminder_log`, `pilgrim` (optional roster), `room_transfer`, `itinerary` (optional package grouping)
-
-**Commercial:** `rate_plan`, `rate_plan_night` (date-effective nightly rate), `booking_rate_snapshot` (immutable pricing captured at confirmation), `invoice`, `invoice_line`, `invoice_correction` (credit note), `payment`, `receipt`
+**Commercial:** `invoice`, `invoice_line`, `invoice_correction` (credit note), `payment`, `receipt` (Phase 3; VAT and the cancellation policy)
 
 **HR/Compliance:** `employee`, `employee_hotel_assignment`, `salary_component`, `payroll_run`, `payroll_line`, `compliance_document_type`, `compliance_document` (versioned, never overwritten — see §21), `document_reminder_policy`
 

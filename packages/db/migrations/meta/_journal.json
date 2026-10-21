@@ -64,6 +64,13 @@
       "when": 1792548638272,
       "tag": "0008_security_prerequisites",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792549923399,
+      "tag": "0009_booking_platform",
+      "breakpoints": true
     }
   ]
 }
