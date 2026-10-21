@@ -35,12 +35,12 @@ watch(quote, (chosen) => {
 const request = () => ({ ...searchRequestOf(form.value), ...(quote.value ? { quoteId: quote.value.id } : {}) })
 const validate = validateWith(staySearchSchema, key => t(key), () => request())
 
-const { result, chosen, option, found, failed } = useStayOptions([form, quoteId])
+const { result, chosen, option, found, failed, question } = useStayOptions([form, quoteId])
 const search = useMutation({
-  mutationFn: () => api<StaySearchResult>('/agency/stays/search', { method: 'POST', body: request() }),
-  onSuccess: (answer) => {
+  mutationFn: (_asked: number) => api<StaySearchResult>('/agency/stays/search', { method: 'POST', body: request() }),
+  onSuccess: (answer, asked) => {
     hold.reset()
-    found(answer)
+    found(answer, null, asked)
   },
 })
 const hold = useMutation({
@@ -58,7 +58,7 @@ const hold = useMutation({
     <PageHeader :title="t('book.title')" />
     <ErrorState v-if="hotels.error.value" :error="hotels.error.value" @retry="hotels.refetch()" />
 
-    <UForm :state="form" :validate="validate" class="surface-panel flex flex-col gap-4 p-6" @submit="search.mutate()">
+    <UForm :state="form" :validate="validate" class="surface-panel flex flex-col gap-4 p-6" @submit="search.mutate(question())">
       <UFormField :label="t('book.quote')" :help="t('book.quoteHelp')" name="quoteId">
         <USelect v-model="quoteId" :items="quoteItems" class="w-full" />
       </UFormField>

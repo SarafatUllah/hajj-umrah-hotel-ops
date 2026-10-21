@@ -3,6 +3,7 @@ import { useQueries } from '@tanstack/vue-query'
 import type { HotelSummary } from '@hajj/contracts/types/hotel'
 import type { CapacityPeriodDto, DailySummary, DailySummaryDto, HotelAveragesDto, OrganizationAveragesDto } from '@hajj/contracts/types/inventory'
 import { addDays } from '@hajj/contracts/utils/dates'
+import { homeOf } from '../utils/nav'
 
 /**
  * The Overview (§21.2): a truthful status of inventory for the scope — all hotels, or one (`?hotel=`). Tonight's
@@ -16,7 +17,7 @@ const access = useAccess()
 const format = useFormat()
 const { hotels, current } = useHotelScope()
 useSeoMeta({ title: () => t('nav.overview') })
-if (!access.value.can('room.view')) await navigateTo('/hotels', { replace: true })
+if (!access.value.can('room.view')) await navigateTo(homeOf(access.value), { replace: true })
 
 const scope = computed<HotelSummary[]>(() => (current.value ? [current.value] : hotels.items.value.filter(h => h.status === 'ACTIVE')))
 const RANGES = [30, 90] as const

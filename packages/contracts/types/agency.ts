@@ -30,3 +30,9 @@ export interface AgencyUserDto {
 
 /** The signed-in agency user and their agency (never the staff's internal `statusReason`). */
 export interface AgencyMe { user: Omit<AgencyUserDto, 'isActive' | 'lastLoginAt' | 'createdAt' | 'phone'>, agency: Pick<AgencyDto, 'id' | 'name' | 'status'> }
+
+/** `GET /api/agencies` (staff): newest first. */
+export interface AgencyListPage { items: AgencyDto[], total: number, page: number, pageSize: number }
+
+/** `GET /api/agencies/:agencyId` (staff): the agency and its users. */
+export interface AgencyDetail extends AgencyDto { users: AgencyUserDto[] }

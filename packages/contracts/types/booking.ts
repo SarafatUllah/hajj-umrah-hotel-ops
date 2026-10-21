@@ -25,6 +25,8 @@ export interface BookingDto {
   hotelId: string
   bookerType: string
   agencyId: string | null
+  /** The agency's name (null for an individual booker): staff, at the desk, read who booked without an agency list. */
+  agencyName: string | null
   customerId: string | null
   bookingType: string
   checkIn: string

@@ -18,7 +18,7 @@ import { bookingConfirmedEvent } from './bookingEvents'
 import { planExtraBedTasks } from './hotelTaskService'
 import { consumeRateLimit, RATE_LIMITS } from '../../security/rateLimit'
 import type { OrganizationScope } from '../../security/scope'
-import { findAgencyBrief } from '../accounts'
+import { findAgencyBrief, findAgencyNames } from '../accounts'
 import { type HeldBooking, placeHold, searchStay } from './holdService'
 import type { StaySearchResult } from './stayChecks'
 import type { Booker } from './stayFacts'
@@ -34,13 +34,14 @@ const WITH_DETAILS = ['READY', 'CHECKED_IN', 'CHECKED_OUT']
 /** 24 random bytes: the receipt's QR content, never the booking id or personal data (v7 §21). */
 const newReceiptToken = () => randomBytes(24).toString('base64url')
 
-function toBookingDto(row: BookingRow, totalHalalas: number, now: Date): BookingDto {
+function toBookingDto(row: BookingRow, totalHalalas: number, now: Date, agencyNames: ReadonlyMap<string, string>): BookingDto {
   return {
     id: row.id,
     bookingNo: row.bookingNo,
     hotelId: row.hotelId,
     bookerType: row.bookerType,
     agencyId: row.agencyId,
+    agencyName: row.agencyId ? agencyNames.get(row.agencyId) ?? null : null,
     customerId: row.customerId,
     bookingType: row.bookingType,
     checkIn: row.checkIn,
@@ -61,16 +62,22 @@ function toBookingDto(row: BookingRow, totalHalalas: number, now: Date): Booking
   }
 }
 
-export const toPage = (result: { rows: BookingListRow[], total: number }, query: Pick<ListBookingsQuery, 'page' | 'pageSize'>, now: Date): BookingPage =>
-  ({ items: result.rows.map(r => toBookingDto(r, r.totalHalalas, now)), total: result.total, page: query.page, pageSize: query.pageSize })
+/** The agencies of these bookings by name, in one lookup (the accounts module's, not its tables). */
+const agencyNamesOf = (db: Db, scope: OrganizationScope, rows: readonly BookingRow[]) =>
+  findAgencyNames(db, scope, [...new Set(rows.flatMap(r => (r.agencyId ? [r.agencyId] : [])))])
+
+export async function toPage(db: Db, scope: OrganizationScope, result: { rows: BookingListRow[], total: number }, query: Pick<ListBookingsQuery, 'page' | 'pageSize'>, now: Date): Promise<BookingPage> {
+  const names = await agencyNamesOf(db, scope, result.rows)
+  return { items: result.rows.map(r => toBookingDto(r, r.totalHalalas, now, names)), total: result.total, page: query.page, pageSize: query.pageSize }
+}
 
 /** A booking as its detail endpoints answer it (used by the module's other services after a change). */
 export async function bookingDetail(db: Db, scope: OrganizationScope, row: BookingRow, now: Date): Promise<BookingDetailDto> {
-  const details = await bookingOrgRepos(db, scope).records.details(row.id)
+  const [details, names] = await Promise.all([bookingOrgRepos(db, scope).records.details(row.id), agencyNamesOf(db, scope, [row])])
   const count = (statuses: readonly string[]) => statuses.reduce((sum, s) => sum + (details.guestStatuses[s] ?? 0), 0)
   const total = Object.entries(details.guestStatuses).reduce((sum, [status, n]) => sum + (status === 'REMOVED' ? 0 : n), 0)
   return {
-    ...toBookingDto(row, details.priceLines.reduce((sum, l) => sum + l.amountHalalas, 0), now),
+    ...toBookingDto(row, details.priceLines.reduce((sum, l) => sum + l.amountHalalas, 0), now, names),
     rooms: details.rooms,
     guests: { total, withDetails: count(WITH_DETAILS), checkedIn: count(['CHECKED_IN']) },
     priceLines: details.priceLines.map(l => ({ night: l.night, kind: l.kind as PriceLineKind, roomTypeId: l.roomTypeId, quantity: l.quantity, unitAmountHalalas: l.unitAmountHalalas, amountHalalas: l.amountHalalas, vatIncluded: l.vatIncluded })),
@@ -154,7 +161,7 @@ export async function holdAgencyStay(ctx: AgencyContext, input: HoldRequestInput
 }
 
 export async function listAgencyBookings(ctx: AgencyContext, query: ListBookingsQuery): Promise<BookingPage> {
-  return toPage(await bookingOrgRepos(ctx.db, ctx.scope).records.list({ ...query, agencyId: ctx.scope.agencyId, now: ctx.now() }), query, ctx.now())
+  return toPage(ctx.db, ctx.scope, await bookingOrgRepos(ctx.db, ctx.scope).records.list({ ...query, agencyId: ctx.scope.agencyId, now: ctx.now() }), query, ctx.now())
 }
 
 export async function getAgencyBooking(ctx: AgencyContext, bookingId: string): Promise<BookingDetailDto> {
@@ -190,7 +197,7 @@ export async function holdStayForAgency(ctx: AuthContext, input: StaffHoldReques
 export async function listBookings(ctx: AuthContext, query: ListBookingsQuery): Promise<BookingPage> {
   requireOrgPermission(ctx, 'booking.view')
   const hotelIds = ctx.authz.allHotels ? undefined : [...ctx.authz.hotelIds]
-  return toPage(await bookingOrgRepos(ctx.db, ctx.scope).records.list({ ...query, hotelIds, now: ctx.now() }), query, ctx.now())
+  return toPage(ctx.db, ctx.scope, await bookingOrgRepos(ctx.db, ctx.scope).records.list({ ...query, hotelIds, now: ctx.now() }), query, ctx.now())
 }
 
 export async function getBooking(ctx: AuthContext, bookingId: string): Promise<BookingDetailDto> {

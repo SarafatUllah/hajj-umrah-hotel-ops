@@ -18,7 +18,10 @@ export interface DemoPersona {
   roleKey: string
   /** `'all'` = the user holds `all_hotels`; otherwise an explicit list of hotel codes (user_hotel_access rows). */
   hotelCodes: 'all' | readonly string[]
-  /** Presentation only (D13): whether Phase 1 has screens for this persona. Never disables an account or alters RBAC. */
+  /**
+   * Presentation only (D13): whether the console already has screens for this persona (the Accountant reads bookings
+   * since Phase 2; HR's modules come later). Never disables an account or alters RBAC. The name stays for the wire.
+   */
   phase1Available: boolean
 }
 
@@ -29,7 +32,7 @@ export const DEMO_PERSONAS: readonly DemoPersona[] = [
   { key: 'manager.grand', email: email('manager.grand'), fullName: 'Nora Al-Qahtani', roleKey: 'HOTEL_MANAGER', hotelCodes: ['MKK-GRAND'], phase1Available: true },
   { key: 'manager.madinah', email: email('manager.madinah'), fullName: 'Omar Siddiqui', roleKey: 'HOTEL_MANAGER', hotelCodes: ['MED-CENT', 'MED-QUBA'], phase1Available: true },
   { key: 'reservations', email: email('reservations'), fullName: 'Aisha Rahman', roleKey: 'RESERVATION_MANAGER', hotelCodes: ['MKK-GRAND', 'MKK-AJYAD', 'MKK-AZIZ'], phase1Available: true },
-  { key: 'accountant', email: email('accountant'), fullName: 'Khalid Al-Harbi', roleKey: 'ACCOUNTANT', hotelCodes: 'all', phase1Available: false },
+  { key: 'accountant', email: email('accountant'), fullName: 'Khalid Al-Harbi', roleKey: 'ACCOUNTANT', hotelCodes: 'all', phase1Available: true },
   { key: 'hr', email: email('hr'), fullName: 'Maryam Yusuf', roleKey: 'HR_MANAGER', hotelCodes: ['MKK-GRAND', 'MKK-AJYAD', 'MED-CENT'], phase1Available: false },
   { key: 'reception.grand', email: email('reception.grand'), fullName: 'Ahmed Hassan', roleKey: 'RECEPTION', hotelCodes: ['MKK-GRAND'], phase1Available: true },
   { key: 'reception.ajyad', email: email('reception.ajyad'), fullName: 'Imran Chowdhury', roleKey: 'RECEPTION', hotelCodes: ['MKK-AJYAD'], phase1Available: true },

@@ -104,7 +104,7 @@ describe('demo personas data', () => {
     expect(DEMO_PERSONAS[0]!.email).toBe(DEMO_ADMIN_EMAIL)
     expect(DEMO_ADMIN_EMAIL).toBe('admin@demo.alsafahotels.test')
     expect(new Set(DEMO_PERSONAS.map(p => p.email)).size).toBe(9)
-    expect(DEMO_PERSONAS.filter(p => !p.phase1Available).map(p => p.key)).toEqual(['accountant', 'hr'])
+    expect(DEMO_PERSONAS.filter(p => !p.phase1Available).map(p => p.key)).toEqual(['hr'])
     expect(DEMO_PASSWORD.length).toBeGreaterThanOrEqual(12)
   })
   it('only names hotels that exist in the catalogue', () => {

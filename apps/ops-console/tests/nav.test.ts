@@ -6,10 +6,12 @@ const accessWith = (...permissions: Permission[]) => ({ can: (p: Permission) => 
 
 describe('the navigation (§2.2, §6.2)', () => {
   it('shows an item only with its read permission, a group only with an item, demo data only in the demo', () => {
-    const accountant = visibleNavigation(NAVIGATION, accessWith('hotel.view'), false)
-    expect(accountant.flatMap(g => g.items.map(i => i.key))).toEqual(['hotels'])
-    const reception = visibleNavigation(NAVIGATION, accessWith('hotel.view', 'room.view'), true)
-    expect(reception.flatMap(g => g.items.map(i => i.key))).toEqual(['overview', 'hotels', 'calendar', 'rooms', 'seasons', 'blocks', 'roomTypes'])
+    const hr = visibleNavigation(NAVIGATION, accessWith('hotel.view'), false)
+    expect(hr.flatMap(g => g.items.map(i => i.key))).toEqual(['hotels'])
+    const accountant = visibleNavigation(NAVIGATION, accessWith('hotel.view', 'booking.view'), false)
+    expect(accountant.flatMap(g => g.items.map(i => i.key))).toEqual(['hotels', 'bookings'])
+    const reception = visibleNavigation(NAVIGATION, accessWith('hotel.view', 'room.view', 'booking.view'), true)
+    expect(reception.flatMap(g => g.items.map(i => i.key))).toEqual(['overview', 'hotels', 'calendar', 'rooms', 'seasons', 'blocks', 'roomTypes', 'bookings'])
 
     const admin = visibleNavigation(NAVIGATION, accessWith('hotel.view', 'room.view', 'organization.resetDemo'), true)
     expect(admin.map(g => g.key)).toContain('admin')
@@ -24,8 +26,9 @@ describe('the navigation (§2.2, §6.2)', () => {
     expect(linkOf(hotels, 'MKK-GRAND')).toBe('/hotels')
   })
 
-  it('a staff member starts on the Overview when they see inventory, else on the hotels list', () => {
-    expect(homeOf(accessWith('hotel.view', 'room.view'))).toBe('/overview')
+  it('a staff member starts on the Overview when they see inventory, else on the bookings, else on the hotels list', () => {
+    expect(homeOf(accessWith('hotel.view', 'room.view', 'booking.view'))).toBe('/overview')
+    expect(homeOf(accessWith('hotel.view', 'booking.view'))).toBe('/bookings')
     expect(homeOf(accessWith('hotel.view'))).toBe('/hotels')
   })
 })

@@ -1,5 +1,6 @@
 import type { HotelTaskKind, HotelTaskStatus } from '@hajj/contracts/constants/booking'
 import type { HotelTaskQuery } from '@hajj/contracts/schemas/booking'
+import type { HotelTaskDto } from '@hajj/contracts/types/frontDesk'
 import { extraBedTasks } from '../../domain/booking/hotelTasks'
 import { ConflictError, NotFoundError } from '../../errors/domainError'
 import { bookingOrgRepos } from '../../repositories'
@@ -10,18 +11,7 @@ import type { OrganizationScope } from '../../security/scope'
 
 type Db = Parameters<typeof bookingOrgRepos>[0]
 
-/** A housekeeping task as the hotel panel lists it. */
-export interface HotelTaskDto {
-  id: string
-  kind: HotelTaskKind
-  status: HotelTaskStatus
-  roomId: string
-  roomNumber: string
-  bookingId: string | null
-  quantity: number
-  dueDate: string
-  doneAt: string | null
-}
+export type { HotelTaskDto }
 
 /** The most tasks one list returns (a busy hotel's open work fits many times over). */
 const TASK_LIST_LIMIT = 500

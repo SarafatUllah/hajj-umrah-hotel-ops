@@ -22,6 +22,18 @@ describe('the options of a stay search', () => {
     expect(options.option.value).toBeUndefined()
   })
 
+  it('an answer to an earlier question (the form changed while it was asked) is dropped', async () => {
+    const asked = ref({ totalCount: 2 })
+    const options = useStayOptions(asked)
+    const question = options.question()
+    asked.value = { totalCount: 3 }
+    await nextTick()
+    options.found(found, null, question)
+    expect(options.result.value).toBeNull()
+    options.found(found, null, options.question())
+    expect(options.result.value).toEqual(found)
+  })
+
   it('a conflict when acting on the option (the rooms went meanwhile) forgets it; any other failure keeps it', () => {
     const options = useStayOptions(ref(0))
     options.found(found, 0)

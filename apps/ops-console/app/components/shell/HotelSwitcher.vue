@@ -25,7 +25,8 @@ async function choose(code: string | undefined): Promise<void> {
     return
   }
   if (isPortfolio.value) {
-    const { hotel: _dropped, ...rest } = route.query
+    // Another hotel is another list: it starts again on its first page.
+    const { hotel: _dropped, page: _page, ...rest } = route.query
     await navigateTo({ path: route.path, query: code === ALL ? rest : { ...rest, hotel: code } })
     return
   }

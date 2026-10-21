@@ -60,7 +60,7 @@ export async function requestCustomerStay(ctx: CustomerContext, input: CustomerR
 /** Public site: the customer's own bookings, newest first. */
 export async function listCustomerBookings(ctx: CustomerContext, query: ListBookingsQuery): Promise<BookingPage> {
   const now = ctx.now()
-  return toPage(await bookingOrgRepos(ctx.db, ctx.scope).records.list({ ...query, agencyId: undefined, customerId: ctx.scope.customerId, now }), query, now)
+  return toPage(ctx.db, ctx.scope, await bookingOrgRepos(ctx.db, ctx.scope).records.list({ ...query, agencyId: undefined, customerId: ctx.scope.customerId, now }), query, now)
 }
 
 /** Public site: one of the customer's own bookings (anyone else's is 404). */

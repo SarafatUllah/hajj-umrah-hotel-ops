@@ -37,7 +37,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
-| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done |
+| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done |
 | 17 | Final review (code, security, database, architecture) and docs | |
 
 ## Local environment note
@@ -689,6 +689,38 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   URL state, search boxes that follow the URL, and the debounce are one composable each (`useUrlQuery`,
   `useDebounced`). Layer: after a language switch the names of labelled checkboxes, radios and switches are copied
   again (Reka copies a label's text once, at mount) — remounting the page instead would lose a half-filled form.
+- **D-P2-57 (frontends) The ops console, front office: bookings (step 16e, v7 §6–§7, §12–§13, UI-UX §36).** Bookings
+  (a portfolio page: the switcher's hotel or every visible one) newest first — number, hotel, who booked (by name),
+  the stay, pilgrims, status, price; status, agency and number filters in the URL. One booking: who booked, stay,
+  pilgrims (details and arrivals), price, booked at, notes; its rooms (released ones marked); confirm a hold or an
+  individual's request (with the time left: minutes, hours or days, a warning within the last day), cancel with a
+  reason (tier 2), change the dates (search, choose, all or nothing), add pilgrims, passport photos, the receipt.
+  Pilgrim by pilgrim at the desk: check in (details first), check out (early leaves free the rest, asked first),
+  did not come and remove (tier 2; never the last pilgrim), move to another room (same side, found by number, from a
+  night of the stay); passport numbers shown in full only on request with `pilgrim.viewSensitive` (logged). What is
+  offered follows the booking's and pilgrim's status, the hotel's date and the user's permissions in that hotel
+  (`utils/booking.ts`, tested) — the API decides; an inactive hotel takes only a cancellation. A new booking on an
+  agency's behalf: the agency (approved), its price or one of its offered quotes, the search, a hold, then confirm on
+  its page. Shared with the agency portal through the layer: the pilgrims panel (now with room, warnings, column
+  headers and per-pilgrim names on its buttons; staff add their actions in a slot and may correct arrived pilgrims),
+  passport photos and adding pilgrims, all addressed by the booking's API path. API: `BookingDto.agencyName` (the
+  accounts module's `findAgencyNames`, one lookup per page) so the desk reads who booked without the agency list;
+  the front-desk and agency list/detail types moved to `@hajj/contracts`; the Accountant persona has screens now
+  (bookings) and starts there. Verified in a browser against the built API and the demo: a booking held for
+  Al-Noor and confirmed, details added, checked in, moved, checked out early, a no-show completing it; another moved
+  to new dates, a pilgrim removed, cancelled with a reason; the list and its filters; Reception's view (no agency
+  filter, no new booking, masked passports); Arabic RTL; the agency portal's booking page with the shared panels.
+  Review outcomes: the passport photos (their fields are full passport data) only with `pilgrim.viewSensitive`, and
+  read only by their own panel (no refetch on focus or after a desk action — each read is logged and counted); a
+  pilgrim's details read with a masked number are not offered for correction (the mask would be sent or the number
+  dropped; `isMaskedPassport` beside `maskPassport` in `@hajj/contracts`), show the numbers first; numbers shown in
+  full are discarded once hidden (showing them again is a new, logged read) and hidden on another booking; the
+  pilgrims panel kept while toggling; at an inactive hotel only the booking's cancellation is offered (not a
+  pilgrim's removal), decided in the tested helper; a stay search answered after the form changed is dropped
+  (`useStayOptions().question()`, all five searches); the date change waits for the pilgrims list; one desk move
+  at a time; another hotel in the switcher starts a list on its first page; the new booking's hotel defaults to the
+  switcher's only where the user may book; Arabic guest statuses read "arrived" and "left" (they read like the check-in
+  button). Known limit: the agency filter and picker list the first 100 agencies (an organization works with fewer).
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on

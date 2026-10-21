@@ -4,10 +4,11 @@ import { addGuestsSchema, guestAdditionSearchSchema } from '@hajj/contracts/sche
 import type { BookingDetailDto, StaySearchResult } from '@hajj/contracts/types/booking'
 
 /**
- * v7 §12 "add a pilgrim" (the agency itself): who joins, then where they sleep — the booking's own free places first,
- * at its price — then add them. Infants alone join the booking's rooms.
+ * v7 §12 "add a pilgrim" (the agency itself, or the hotel's staff): who joins, then where they sleep — the booking's
+ * own free places first, at its price — then add them. Infants alone join the booking's rooms. `base` is the booking's
+ * path in the API as the caller reaches it (`/agency/bookings/:id` or `/bookings/:id`).
  */
-const props = defineProps<{ bookingId: string, bookingType: string }>()
+const props = defineProps<{ base: string, bookingType: string }>()
 const emit = defineEmits<{ added: [] }>()
 const { t } = useI18n()
 const api = useApi()
@@ -20,17 +21,17 @@ const isGroup = computed(() => props.bookingType === 'GROUP')
 const request = () => (isGroup.value ? { ...counts.value, totalCount: counts.value.maleCount + counts.value.femaleCount + counts.value.childCount } : { infantCount: counts.value.infantCount, totalCount: counts.value.totalCount })
 const validate = validateWith(guestAdditionSearchSchema, key => t(key), () => request())
 
-const { result, chosen, option, found, failed } = useStayOptions(counts)
+const { result, chosen, option, found, failed, question } = useStayOptions(counts)
 const search = useMutation({
-  mutationFn: () => api<StaySearchResult>(`/agency/bookings/${props.bookingId}/guests/search`, { method: 'POST', body: request() }),
-  onSuccess: (answer) => {
+  mutationFn: (_asked: number) => api<StaySearchResult>(`${props.base}/guests/search`, { method: 'POST', body: request() }),
+  onSuccess: (answer, asked) => {
     add.reset()
     // Infants alone have one answer, the booking's own rooms: chosen already.
-    found(answer, answer.options.length === 1 && answer.options[0]!.rooms.length === 0 ? 0 : null)
+    found(answer, answer.options.length === 1 && answer.options[0]!.rooms.length === 0 ? 0 : null, asked)
   },
 })
 const add = useMutation({
-  mutationFn: () => api<BookingDetailDto>(`/agency/bookings/${props.bookingId}/guests`, { method: 'POST', body: addGuestsSchema.parse({ ...request(), rooms: chosenRoomsOf(option.value!) }) }),
+  mutationFn: () => api<BookingDetailDto>(`${props.base}/guests`, { method: 'POST', body: addGuestsSchema.parse({ ...request(), rooms: chosenRoomsOf(option.value!) }) }),
   onSuccess: () => {
     toast.add({ title: t('additions.added'), color: 'success', icon: 'i-lucide-circle-check' })
     counts.value = { maleCount: 0, femaleCount: 0, childCount: 0, infantCount: 0, totalCount: 0 }
@@ -43,7 +44,7 @@ const add = useMutation({
 <template>
   <div class="flex flex-col gap-4">
     <p class="text-(--fg-muted)">{{ t('additions.help') }}</p>
-    <UForm :state="counts" :validate="validate" class="flex flex-col gap-4" @submit="search.mutate()">
+    <UForm :state="counts" :validate="validate" class="flex flex-col gap-4" @submit="search.mutate(question())">
       <div class="grid gap-4 sm:grid-cols-4">
         <template v-if="isGroup">
           <UFormField :label="t('stay.men')" name="maleCount"><UInputNumber v-model="counts.maleCount" :min="0" :max="600" class="w-full" /></UFormField>

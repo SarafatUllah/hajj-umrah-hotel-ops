@@ -138,8 +138,10 @@ describe('staff bookings (v7 §6: on an agency\'s behalf)', () => {
     const held = await holdStayForAgency(env.manager, staffHoldRequestSchema.parse({ ...body, rooms: chosen(options[0]!) }))
     expect((await db.select().from(booking).where(eq(booking.id, held.id)))[0]).toMatchObject({ agencyId: env.agencyId, createdByUserId: env.manager.identity.userId, status: 'HELD' })
 
+    // Staff read the agency by name (Reception has no agency list of its own).
+    expect((await listBookings(env.manager, page)).items.map(b => b.agencyName)).toEqual(['Al-Noor Travels'])
     const confirmed = await confirmBooking(env.manager, held.id)
-    expect(confirmed.status).toBe('CONFIRMED')
+    expect(confirmed).toMatchObject({ status: 'CONFIRMED', agencyName: 'Al-Noor Travels' })
     expect((await db.select().from(booking).where(eq(booking.id, held.id)))[0]!.confirmedBy).toBe(env.manager.identity.userId)
     expect((await bookingReceipt(env.manager, held.id)).qrToken).toBe(confirmed.receiptToken)
     // The agency sees the booking made on its behalf.
@@ -154,6 +156,7 @@ describe('staff bookings (v7 §6: on an agency\'s behalf)', () => {
     const search = staySearchSchema.parse({ hotelId: env.hotel.id, bookingType: 'FAMILY', checkIn: '2027-06-01', checkOut: '2027-06-04', totalCount: 3 })
     const requested = await placeHold(db, env.scope, { kind: 'INDIVIDUAL', customerId: customer.id }, holdRequestSchema.parse({ ...search, rooms: [{ roomId: env.rooms['102'], occupancy: 'FAMILY', seats: 3 }] }), NOW)
     expect(requested.status).toBe('REQUESTED')
+    expect((await getBooking(env.manager, requested.id)).agencyName).toBeNull()
     const individual = { kind: 'INDIVIDUAL' as const, customerId: customer.id }
     const next = holdRequestSchema.parse({ ...search, rooms: [{ roomId: env.rooms['103'], occupancy: 'FAMILY', seats: 3 }] })
     await expect(placeHold(db, env.scope, individual, next, NOW)).rejects.toMatchObject({ code: 'TOO_MANY_OPEN_REQUESTS' })

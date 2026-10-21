@@ -197,11 +197,18 @@
     "addDetails": "Add details",
     "editDetails": "Edit details",
     "saved": "Details saved.",
-    "editHelp": "Enter the details exactly as they are in the passport."
+    "editHelp": "Enter the details exactly as they are in the passport.",
+    "slot": "Place",
+    "room": "Room",
+    "status": "Status",
+    "addDetailsFor": "Add details: {place}",
+    "editDetailsFor": "Edit the details of {name}"
   },
   "hold": {
     "minutesLeft": "{count} minute left to confirm | {count} minutes left to confirm",
-    "ended": "The hold has ended: its rooms are no longer kept for you."
+    "ended": "The hold has ended: its rooms are no longer kept.",
+    "hoursLeft": "{count} hour left to confirm | {count} hours left to confirm",
+    "daysLeft": "{count} day left to confirm | {count} days left to confirm"
   },
   "receipt": {
     "title": "Receipt",
@@ -395,5 +402,32 @@
       "USER_NOT_FOUND": "This user doesn't exist, or you can't see them.",
       "VALIDATION_FAILED": "Some fields need attention."
     }
+  },
+  "scans": {
+    "title": "Passport photos",
+    "help": "Add photos of the passport pages: each is read, then you check it and save it to a place.",
+    "add": "Add passport photos",
+    "uploaded": "{count} photo added. | {count} photos added.",
+    "none": "No passport photos.",
+    "review": "Review",
+    "reviewTitle": "Check the passport",
+    "attention": "Check these fields",
+    "place": "Save to",
+    "save": "Save to this place",
+    "saved": "Passport saved.",
+    "discard": "Discard photo",
+    "discarded": "Photo discarded.",
+    "imageAlt": "Passport photo",
+    "failed": "This photo could not be read. Enter the details by hand.",
+    "uploadedSome": "{sent} of {total} photos added.",
+    "noPlace": "No place can take these details now: every pilgrim has arrived or left.",
+    "reviewHelp": "Compare what was read with the photo, correct it, then save it to a place."
+  },
+  "additions": {
+    "title": "Add pilgrims",
+    "help": "Joining pilgrims sleep in the booking's free places first, at its price.",
+    "search": "See where they sleep",
+    "add": "Add them",
+    "added": "Pilgrims added."
   }
 }

@@ -35,6 +35,9 @@ export const NAVIGATION: NavGroup[] = [
     { key: 'blocks', icon: 'i-lucide-lock', scope: 'hotel', path: 'blocks', permission: 'room.view' },
     { key: 'roomTypes', icon: 'i-lucide-bed-double', scope: 'organization', path: '/room-types', permission: 'room.view' },
   ] },
+  { key: 'frontOffice', items: [
+    { key: 'bookings', icon: 'i-lucide-notebook-tabs', scope: 'portfolio', path: '/bookings', permission: 'booking.view' },
+  ] },
   { key: 'admin', items: [
     { key: 'demo', icon: 'i-lucide-flask-conical', scope: 'organization', path: '/admin/demo', permission: 'organization.resetDemo', demoOnly: true },
   ] },
@@ -48,11 +51,12 @@ export function visibleNavigation(groups: NavGroup[], access: { can: (permission
 }
 
 /**
- * Where a staff member starts (§35.2): the Overview for anyone who sees inventory, else the hotels list (Accountant,
- * HR: their modules come in later phases).
+ * Where a staff member starts (§35.2): the Overview for anyone who sees inventory, else the bookings (the Accountant),
+ * else the hotels list (HR: its modules come in later phases).
  */
 export function homeOf(access: { can: (permission: Permission) => boolean }): string {
-  return access.can('room.view') ? '/overview' : '/hotels'
+  if (access.can('room.view')) return '/overview'
+  return access.can('booking.view') ? '/bookings' : '/hotels'
 }
 
 /** An item's link: a hotel page opens for the last hotel used, else the hotel chooser asks which (§6.2). */

@@ -12,6 +12,8 @@ const errorMessage = useErrorMessage()
 const queryClient = useQueryClient()
 const hotels = useHotels()
 const id = computed(() => String(route.params.id))
+/** The booking's path in the API, as the shared pilgrim panels reach it. */
+const base = computed(() => `/agency/bookings/${id.value}`)
 
 const booking = useApiQuery(() => ['agency-booking', id.value], () => api<BookingDetailDto>(`/agency/bookings/${id.value}`))
 const guests = useApiQuery(() => ['agency-guests', id.value], () => api<GuestSlotDto[]>(`/agency/bookings/${id.value}/guests`))
@@ -110,18 +112,18 @@ const printReceipt = () => window.print()
           <span class="text-(--fg-muted)">{{ t('bookings.detailsProgress', { done: booking.data.value.guests.withDetails, total: booking.data.value.guests.total }) }}</span>
         </div>
         <ErrorState v-if="guests.error.value" :error="guests.error.value" @retry="guests.refetch()" />
-        <PilgrimsPanel v-else-if="guests.data.value" :booking-id="id" :guests="guests.data.value" :editable="openForDetails" @changed="refresh" />
+        <PilgrimsPanel v-else-if="guests.data.value" :base="base" :guests="guests.data.value" :editable="openForDetails" @changed="refresh" />
         <USkeleton v-else class="h-40" />
       </section>
 
       <section v-if="guests.data.value && openForDetails" aria-labelledby="scans-heading" class="flex flex-col gap-3">
         <h2 id="scans-heading" class="text-section">{{ t('scans.title') }}</h2>
-        <PassportScans :booking-id="id" :guests="guests.data.value" @changed="refresh" />
+        <PassportScans :base="base" :guests="guests.data.value" @changed="refresh" />
       </section>
 
       <section v-if="canAdd" aria-labelledby="add-heading" class="flex flex-col gap-3">
         <h2 id="add-heading" class="text-section">{{ t('additions.title') }}</h2>
-        <AddPilgrims :booking-id="id" :booking-type="booking.data.value.bookingType" @added="refresh" />
+        <AddPilgrims :base="base" :booking-type="booking.data.value.bookingType" @added="refresh" />
       </section>
 
       <ConfirmDialog

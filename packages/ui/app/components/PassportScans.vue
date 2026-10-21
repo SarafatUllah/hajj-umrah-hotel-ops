@@ -6,9 +6,10 @@ import type { GuestSlotDto, PassportScanDto } from '@hajj/contracts/types/bookin
 
 /**
  * Passport photos (v7 §13): drop them here, each is read in the background; then check what was read beside the
- * photo, correct it, and save it to a place — nothing becomes a pilgrim's details before that.
+ * photo, correct it, and save it to a place — nothing becomes a pilgrim's details before that. The same screen for an
+ * agency and the hotel's staff (v7 §13): `base` is the booking's path in the API as the caller reaches it.
  */
-const props = defineProps<{ bookingId: string, guests: GuestSlotDto[] }>()
+const props = defineProps<{ base: string, guests: GuestSlotDto[] }>()
 const emit = defineEmits<{ changed: [] }>()
 const { t } = useI18n()
 const api = useApi()
@@ -30,10 +31,12 @@ function pollInterval(data: PassportScanDto[] | undefined): number | false {
   const newest = Math.max(...reading.map(s => Date.parse(s.createdAt)))
   return Date.now() - newest < READING_PATIENCE_MS ? POLL_MS : SLOW_POLL_MS
 }
-const scans = useApiQuery(() => ['agency-scans', props.bookingId], () => api<PassportScanDto[]>(`/agency/bookings/${props.bookingId}/passport-scans`), {
+const scans = useApiQuery(() => ['passport-scans', props.base], () => api<PassportScanDto[]>(`${props.base}/passport-scans`), {
   refetchInterval: (query: { state: { data?: unknown } }) => pollInterval(query.state.data as PassportScanDto[] | undefined),
+  // Every read of the photos' fields is logged (and counted for staff): not asked again just for coming back to the tab.
+  refetchOnWindowFocus: false,
 })
-const refresh = () => queryClient.invalidateQueries({ queryKey: ['agency-scans', props.bookingId] })
+const refresh = () => queryClient.invalidateQueries({ queryKey: ['passport-scans', props.base] })
 
 interface UploadOutcome { sent: number, refused: Array<{ name: string, message: string }> }
 /** One photo after the other; each failure is noted and the rest still go — unless the booking takes no more (409). */
@@ -48,7 +51,7 @@ async function uploadAll(files: File[]): Promise<UploadOutcome> {
     try {
       const body = new FormData()
       body.append('file', file)
-      await api(`/agency/bookings/${props.bookingId}/passport-scans`, { method: 'POST', body })
+      await api(`${props.base}/passport-scans`, { method: 'POST', body })
       outcome.sent += 1
     }
     catch (error) {
@@ -99,7 +102,7 @@ function review(scan: PassportScanDto) {
 }
 const validate = validateWith(guestDetailsSchema, key => t(key))
 const confirm = useMutation({
-  mutationFn: () => api(`/agency/bookings/${props.bookingId}/passport-scans/${reviewing.value!.id}/confirm`, { method: 'POST', body: { guestId: guestId.value, details: guestDetailsSchema.parse(details.value) } }),
+  mutationFn: () => api(`${props.base}/passport-scans/${reviewing.value!.id}/confirm`, { method: 'POST', body: { guestId: guestId.value, details: guestDetailsSchema.parse(details.value) } }),
   onSuccess: async () => {
     reviewing.value = null
     toast.add({ title: t('scans.saved'), color: 'success', icon: 'i-lucide-circle-check' })
@@ -108,7 +111,7 @@ const confirm = useMutation({
   },
 })
 const discard = useMutation({
-  mutationFn: (scanId: string) => api(`/agency/bookings/${props.bookingId}/passport-scans/${scanId}/discard`, { method: 'POST' }),
+  mutationFn: (scanId: string) => api(`${props.base}/passport-scans/${scanId}/discard`, { method: 'POST' }),
   onSuccess: async () => {
     reviewing.value = null
     toast.add({ title: t('scans.discarded'), color: 'success', icon: 'i-lucide-circle-check' })
@@ -116,7 +119,7 @@ const discard = useMutation({
   },
   onError: error => toast.add({ title: errorMessage(error), color: 'error', icon: 'i-lucide-triangle-alert' }),
 })
-const imageUrl = (scan: PassportScanDto) => `/api/agency/bookings/${props.bookingId}/passport-scans/${scan.id}/image`
+const imageUrl = (scan: PassportScanDto) => `/api${props.base}/passport-scans/${scan.id}/image`
 </script>
 
 <template>

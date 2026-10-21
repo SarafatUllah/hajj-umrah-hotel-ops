@@ -10,10 +10,10 @@ import { requireAllHotels, requireOrgPermission } from '../../security/authorize
 import { hashPassword } from '../../utils/password'
 import { canChangeAgencyStatus, normalizeLicenseNo } from '../../domain/accounts/agencyRules'
 import { recordAudit } from '../audit'
-import { type AgencyDto, type AgencyUserDto, toAgencyDto, toAgencyUserDto } from './agencyDto'
+import type { AgencyDetail, AgencyDto, AgencyListPage, AgencyUserDto } from '@hajj/contracts/types/agency'
+import { toAgencyDto, toAgencyUserDto } from './agencyDto'
 
-export interface AgencyListPage { items: AgencyDto[], total: number, page: number, pageSize: number }
-export interface AgencyDetail extends AgencyDto { users: AgencyUserDto[] }
+export type { AgencyDetail, AgencyListPage }
 
 /** The database handle a repository accepts (a service may not import db/client itself). */
 type Db = Parameters<typeof accountsRepos>[0]

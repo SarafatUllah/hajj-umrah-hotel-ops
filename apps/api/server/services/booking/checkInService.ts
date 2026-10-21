@@ -1,5 +1,6 @@
 import type { BookingStatus, GuestStatus } from '@hajj/contracts/constants/booking'
 import type { CheckInLookupInput } from '@hajj/contracts/schemas/booking'
+import type { CheckInLookupDto, GuestMoveDto } from '@hajj/contracts/types/frontDesk'
 import { addDays, type IsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { bookingStatusAfter, GUEST_MOVES, type GuestMove, type MoveRefusal, refuseMove } from '../../domain/booking/guestMoves'
 import { ConflictError, NotFoundError, ValidationError } from '../../errors/domainError'
@@ -9,18 +10,7 @@ import type { AuthContext } from '../../security/authContext'
 import { authorizeStaffBooking, loadForStaff } from './bookingAccess'
 import { loadBookingSettings } from './bookingSettingsService'
 
-/** What the desk sees after scanning a receipt's QR code: which booking it is, to open it. */
-export interface CheckInLookupDto { bookingId: string, bookingNo: string, hotelId: string, status: string, checkIn: string, checkOut: string }
-
-/** One pilgrim after a move at the desk, and the booking's status that follows from it. */
-export interface GuestMoveDto {
-  guestId: string
-  slotNo: number
-  status: GuestStatus
-  checkedInAt: string | null
-  checkedOutAt: string | null
-  bookingStatus: BookingStatus
-}
+export type { CheckInLookupDto, GuestMoveDto }
 
 /** Pilgrims are checked in and out of bookings that are confirmed or already in the house. */
 const AT_THE_HOTEL: readonly string[] = ['CONFIRMED', 'IN_HOUSE']

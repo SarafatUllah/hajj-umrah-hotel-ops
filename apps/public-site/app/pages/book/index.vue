@@ -36,12 +36,12 @@ watch(hotels, (list) => {
 const validateStay = validateWith(customerStaySearchSchema, key => t(key), searchRequestOf)
 
 // Step 2: the options for exactly this form; any change of the form asks again.
-const { result, chosen, option, found, failed } = useStayOptions(form)
+const { result, chosen, option, found, failed, question } = useStayOptions(form)
 const search = useMutation({
-  mutationFn: () => api<StaySearchResult>('/customer/stays/search', { method: 'POST', body: searchRequestOf(form.value) }),
-  onSuccess: (answer) => {
+  mutationFn: (_asked: number) => api<StaySearchResult>('/customer/stays/search', { method: 'POST', body: searchRequestOf(form.value) }),
+  onSuccess: (answer, asked) => {
     request.reset()
-    found(answer)
+    found(answer, null, asked)
   },
 })
 
@@ -67,7 +67,7 @@ const request = useMutation({
     <PageHeader :title="t('book.title')" />
     <ErrorState v-if="hotelsError" :error="hotelsError" @retry="refetchHotels()" />
 
-    <UForm :state="form" :validate="validateStay" class="surface-panel flex flex-col gap-4 p-6" @submit="search.mutate()">
+    <UForm :state="form" :validate="validateStay" class="surface-panel flex flex-col gap-4 p-6" @submit="search.mutate(question())">
       <StayFormFields v-model="form" :hotels="hotelItems" />
       <UAlert v-if="search.error.value" color="error" variant="soft" icon="i-lucide-triangle-alert" :title="errorMessage(search.error.value)" role="alert" />
       <UAlert v-if="request.error.value && !result" color="error" variant="soft" icon="i-lucide-triangle-alert" :title="errorMessage(request.error.value)" role="alert" />

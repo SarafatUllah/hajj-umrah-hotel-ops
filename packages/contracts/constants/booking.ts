@@ -41,6 +41,8 @@ export type ChildSide = typeof CHILD_SIDES[number]
 /** Per-pilgrim slot lifecycle (v7 §7). */
 export const GUEST_STATUSES = ['PENDING_DETAILS', 'READY', 'CHECKED_IN', 'CHECKED_OUT', 'NO_SHOW', 'REMOVED'] as const
 export type GuestStatus = typeof GUEST_STATUSES[number]
+/** Pilgrims still to come (details may be missing): the ones whose details anyone may enter, who may be removed or not come. */
+export const GUEST_TO_COME_STATUSES = ['PENDING_DETAILS', 'READY'] as const satisfies readonly GuestStatus[]
 
 /** What `booking_change` records (v7 §12). Deliberately no DB enum: later phases add kinds without a migration. */
 export const BOOKING_CHANGE_KINDS = [

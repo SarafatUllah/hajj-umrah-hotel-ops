@@ -75,8 +75,8 @@ export function checkGuest(slot: SlotFacts, details: GuestFacts, settings: AgeLi
   return { ageGroup, issues }
 }
 
-/** What lists and the calendar show of a passport number: its last three characters only (two of a short one). */
-export const maskPassport = (passportNo: string): string => `•••${passportNo.slice(passportNo.length >= 8 ? -3 : -2)}`
+// What lists and the calendar show of a passport number: shared with the frontends (they must know a masked one).
+export { maskPassport } from '@hajj/contracts/utils/passport'
 
 /** The blind-index input of a passport (`passport_lookup`): nationality and number, so two countries' numbers never collide. */
 export const passportLookupInput = (nationality: string, passportNo: string): string => `${nationality}|${passportNo}`

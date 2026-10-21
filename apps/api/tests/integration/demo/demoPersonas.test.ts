@@ -136,7 +136,7 @@ describe('demo personas: resolved authorization sets are exact', () => {
       expect(ctx(key).authz.permissions.has('room.view'), key).toBe(false)
       expect(ctx(key).authz.permissions.has('room.block'), key).toBe(false)
     }
-    expect(DEMO_PERSONAS.filter(p => !p.phase1Available).map(p => p.key)).toEqual(['accountant', 'hr'])
+    expect(DEMO_PERSONAS.filter(p => !p.phase1Available).map(p => p.key)).toEqual(['hr'])
   })
 
   it('allHotels flags and resolved hotel ids match the table', () => {
