@@ -1,6 +1,7 @@
 import { type AgeGroup, type BookingType, type Gender, type Occupancy, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { GuestDetailsInput, ListGuestsQuery } from '@hajj/contracts/schemas/guest'
+import type { GuestDetailsDto, GuestSlotDto, GuestWarning } from '@hajj/contracts/types/booking'
 import { checkGuest, isComplete, maskPassport, PASSPORT_LOOKUP_CONTEXT, passportLookupInput, type SlotFacts } from '../../domain/booking/guestRules'
 import { orgCan } from '../../domain/rbac/authorize'
 import { rethrowDbError } from '../../errors/dbErrors'
@@ -22,42 +23,7 @@ type Db = Parameters<typeof bookingOrgRepos>[0]
 type Repos = ReturnType<typeof bookingOrgRepos>
 type Settings = Awaited<ReturnType<typeof loadBookingSettings>>
 
-export interface GuestDetailsDto {
-  fullName: string
-  gender: Gender | null
-  nationality: string | null
-  dateOfBirth: string | null
-  /** Masked (`•••789`) unless the caller may see the full number — and then the read is logged. */
-  passportNo: string | null
-  passportExpiry: string | null
-  /** The printed-page extras (address, place of birth …): only with the full view. */
-  extras: Record<string, string> | null
-  /** Everything check-in needs is there (v7 §7 READY). */
-  complete: boolean
-}
-
-export type GuestWarning =
-  | { code: 'PASSPORT_EXPIRES_SOON' }
-  /** The retention sweep erased this copy (ticket 4): the slot keeps its history, not its personal data. */
-  | { code: 'DETAILS_ERASED' }
-  /** Staff only: the same passport in another live booking on overlapping nights (in a hotel the viewer can see). */
-  | { code: 'DUPLICATE_PASSPORT', bookingNo: string }
-  /** Staff only, on save: the staff master of this passport says something else (it is not overwritten). */
-  | { code: 'MASTER_DIFFERS' }
-  /** The stored details could not be decrypted (wrong key ring): shown empty, logged for the operators. */
-  | { code: 'DETAILS_UNREADABLE' }
-
-export interface GuestSlotDto {
-  id: string
-  slotNo: number
-  gender: Gender | null
-  ageGroup: AgeGroup
-  isExtraBed: boolean
-  status: string
-  roomNumber: string | null
-  details: GuestDetailsDto | null
-  warnings: GuestWarning[]
-}
+export type { GuestDetailsDto, GuestSlotDto, GuestWarning }
 
 type Actor = { kind: ActorKind, id: string | null }
 

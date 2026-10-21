@@ -30,6 +30,8 @@ A pnpm workspace driven by Turborepo; every command below runs from the reposito
 | `apps/api` | `@hajj/api` | The Nuxt 4 / Nitro API (modular monolith): `server/`, the demo seed, all test suites. |
 | `packages/contracts` | `@hajj/contracts` | Zod schemas, constants, business-rule registries and pure utilities shared by the API and the frontends. |
 | `packages/db` | `@hajj/db` | Drizzle schema, migrations, the database client factory, migrate and drift CLIs. |
+| `packages/ui` | `@hajj/ui` | The shared Nuxt layer of the frontends: design tokens (light/dark), English and Arabic (RTL), the API client, TanStack Query, formatting, the status registry and the shared components. |
+| `apps/public-site` | `@hajj/public-site` | The public site (Nuxt, server-rendered): hotels, phone sign-in, a family's or group's request at the public price, its bookings, receipt and account. |
 
 The Phase 2 design is `docs/design/Hajj_Booking_Platform_Architecture_v7.pdf`; its open client questions are tracked in
 `docs/phase-2-open-questions.md` and the build plan in `docs/superpowers/plans/2026-10-21-phase-2-booking-platform.md`.
@@ -124,6 +126,12 @@ the same data and a reset recreates the **same ids** (sessions and bookmarks sta
 | `reception.ajyad` | Imran Chowdhury | Reception | MKK-AJYAD | yes (read-only inventory) |
 | `management` | Sarah Al-Mutairi | Read-only Management | all | yes (read-only) |
 
+The booking platform's demo data comes with it: every hotel's rates for its room types from the anchor date over
+540 days (public per person and per room, the agency default about 8 % lower; a hotel's own price level), and one
+approved agency, **Al-Noor Travels**, whose portal user `bookings@alnoor-travels.demo` signs in with the same demo
+password. The public site books at the public prices for customers who sign in by phone (`SMS_DRIVER=log` in
+development writes the code to the API's log).
+
 The full email is the login plus the domain, e.g. `manager.grand@demo.alsafahotels.test`. Hotel codes: MKK-GRAND
 (Al Safa Grand Makkah), MKK-AJYAD (Al Safa Ajyad Towers), MKK-AZIZ (Al Safa Aziziyah Residence), MED-CENT (Al Safa
 Madinah Central), MED-QUBA (Al Safa Quba Suites). "Phase 1" is presentation only: every account can sign in and every
@@ -158,6 +166,22 @@ recreates the demo organization in **one transaction** (all or nothing; concurre
 same ids, then records a `DEMO_RESET` audit entry. No other organization is touched. Stored document files are not
 cleaned up by a reset (the demo has none). `pnpm db:seed` does the same without the audit entry: re-running it returns
 the demo organization to its baseline.
+
+## Frontends
+
+Each frontend is a Nuxt app that extends the shared layer `@hajj/ui`. The layer forwards the app's own `/api/**` to the
+API — only the path prefixes that app uses (the public site: `/api/public/`, `/api/customer/`; anything else is 404 on
+its origin), with the visitor's address in `X-Forwarded-For` — so sessions are first-party cookies; the API lists each
+frontend's origin in `ALLOWED_ORIGINS` and runs with `TRUST_PROXY=true` behind them.
+
+| App | Dev port | Run |
+|---|---|---|
+| Public site (`apps/public-site`) | 3001 | `pnpm --filter @hajj/public-site dev` (API on `NUXT_API_PROXY_TARGET`, default `http://localhost:3000`) |
+
+Runtime variables of a frontend: `NUXT_API_PROXY_TARGET` (the API's internal origin), `NUXT_API_PROXY_TRUST_PROXY`
+(`true` only when the frontend itself sits behind one proxy that sets `X-Forwarded-For`) and, for the public site,
+`NUXT_PUBLIC_ORGANIZATION_SLUG` (the organization whose hotels it sells; default `demo`). Lint, typecheck and
+unit tests of every package run with the root `pnpm lint`, `pnpm typecheck` and `pnpm test:unit`.
 
 ## Environment and deployment
 

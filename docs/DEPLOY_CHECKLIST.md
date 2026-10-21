@@ -39,6 +39,12 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
       a proxy with `false`, every client shares one address and the per-address login limit applies to all of them.
 - [ ] `ALLOWED_ORIGINS` lists the exact origins of the separate frontends (ops console, agency portal, public site)
       when they are not served from the API host; unset = same host only.
+- [ ] Each frontend runs with `NUXT_API_PROXY_TARGET` = the API's internal origin (its allowed `/api/**` prefixes are
+      forwarded there, so the session cookie stays first-party) and `NUXT_API_PROXY_TRUST_PROXY=true` only behind one
+      proxy that sets `X-Forwarded-For`; the public site with `NUXT_PUBLIC_ORGANIZATION_SLUG` = the organization it
+      sells for. The frontends set `X-Forwarded-For` to the visitor's address themselves, so the API runs with
+      `TRUST_PROXY=true` and is reachable only through them (otherwise every visitor shares one address for the
+      per-address limits).
 
 - [ ] Customer sign-in (public site) needs an SMS gateway: `SMS_DRIVER=webhook` with an `https` `SMS_WEBHOOK_URL`
       (and `SMS_WEBHOOK_TOKEN`); until then `disabled` makes the code request answer 503. `log` is refused outside

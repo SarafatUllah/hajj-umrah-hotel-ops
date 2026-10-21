@@ -7,6 +7,7 @@ import { normalizeEmail } from '@hajj/contracts/utils/email'
 import type { IsoDate } from '@hajj/contracts/utils/dates'
 import { demoIds } from './ids'
 import { buildDemoPlan, type DemoPlan, type HotelPlan } from './inventory'
+import { seedDemoPricing } from './pricing'
 
 /** Repository bulk writes are chunked so one statement never carries more than this many rows. */
 export const SEED_CHUNK_SIZE = 500
@@ -29,6 +30,8 @@ export interface DemoSeedSummary {
   blocks: number
   users: number
   hotelAccessRows: number
+  rates: number
+  agencies: number
 }
 
 async function writeHotel(tx: DbOrTx, scope: OrganizationScope, plan: HotelPlan): Promise<void> {
@@ -105,6 +108,7 @@ export async function seedDemoDataset(
   }
 
   for (const hotel of plan.hotels) await writeBlocks(tx, scope, hotel)
+  const pricing = await seedDemoPricing(tx, scope, { anchorDate: plan.anchorDate, passwordHash: input.passwordHash, approvedBy: adminId })
 
   return {
     anchorDate: plan.anchorDate,
@@ -118,5 +122,7 @@ export async function seedDemoDataset(
     blocks: plan.hotels.reduce((n, h) => n + h.blocks.length, 0),
     users: DEMO_PERSONAS.length,
     hotelAccessRows,
+    rates: pricing.rates,
+    agencies: pricing.agencies,
   }
 }

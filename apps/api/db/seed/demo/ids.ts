@@ -47,4 +47,7 @@ export const demoIds = {
   period: (hotelCode: string, periodKey: string) => deterministicId('capacity-period', hotelCode, periodKey),
   override: (hotelCode: string, periodKey: string, roomNumber: string) => deterministicId('capacity-override', hotelCode, periodKey, roomNumber),
   block: (hotelCode: string, blockKey: string) => deterministicId('block', hotelCode, blockKey),
+  rate: (hotelCode: string, typeCode: string, priceType: string, unit: string) => deterministicId('rate', hotelCode, typeCode, priceType, unit),
+  agency: (key: string) => deterministicId('agency', key),
+  agencyUser: (key: string) => deterministicId('agency-user', key),
 }

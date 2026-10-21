@@ -3,6 +3,7 @@ import type { DbOrTx } from '@hajj/db/client'
 import { booking, bookingChange, bookingGuest, bookingPriceLine, bookingRoom, floor, guestStay, room } from '@hajj/db/schema'
 import { type AgeGroup, type BookingChangeKind, type BookingStatus, type Gender, type Occupancy, PENDING_BOOKING_STATUSES, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { PriceSource } from '@hajj/contracts/constants/pricing'
+import type { BookingRoomLine } from '@hajj/contracts/types/booking'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { IsoDate } from '@hajj/contracts/utils/dates'
 import type { HotelScope, OrganizationScope } from '../../security/scope'
@@ -31,18 +32,7 @@ export interface BookingListFilter {
   pageSize: number
 }
 
-/** A booking's room claim as shown to people: the room's number and floor. */
-export interface BookingRoomLine {
-  roomId: string
-  roomNumber: string
-  floorLevel: number
-  roomTypeId: string
-  occupancy: Occupancy
-  extraBeds: number
-  status: string
-  checkIn: string
-  checkOut: string
-}
+export type { BookingRoomLine }
 
 export interface BookingDetails {
   rooms: BookingRoomLine[]

@@ -1,0 +1,33 @@
+{
+  "name": "@hajj/public-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The public site (v7 §6): hotels, phone sign-in, a family's or group's request at the public price, its bookings and receipts.",
+  "scripts": {
+    "dev": "nuxt dev --port 3001",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "typecheck": "nuxt typecheck",
+    "test:unit": "vitest run"
+  },
+  "dependencies": {
+    "@hajj/contracts": "workspace:^",
+    "@hajj/ui": "workspace:^",
+    "@tanstack/vue-query": "^5.104.5",
+    "nuxt": "^4.5.2",
+    "qrcode": "^1.5.4",
+    "vue": "^3.5.43",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@nuxt/eslint-config": "1.17.0",
+    "@types/qrcode": "^1.5.5",
+    "eslint": "^10.11.0",
+    "typescript": "^6.0.0",
+    "vitest": "^5.0.1",
+    "vue-tsc": "^3.3.11"
+  }
+}

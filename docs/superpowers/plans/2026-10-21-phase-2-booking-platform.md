@@ -37,7 +37,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
-| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | |
+| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done |
 | 17 | Final review (code, security, database, architecture) and docs | |
 
 ## Local environment note
@@ -530,6 +530,47 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   with it creates a new account without history. A request waiting behind the closure on the request lock checks
   the account under that lock (409 `ACCOUNT_CLOSED`), so none slips in; closing twice is 409 `ACCOUNT_CLOSED`.
   Left to their own expiry: the phone's sign-in challenges (purged daily) and rate-limit buckets (minutes to a day).
+- **D-P2-52 (frontends) Shared layer and the public site (step 16a, UI-UX-MASTER-DIRECTION).** One Nuxt layer,
+  `packages/ui` (`extends: ['@hajj/ui']`), carries what every frontend shares: Nuxt UI on Tailwind with the §8–§12
+  tokens mapped onto Nuxt UI's variables (no library-default look; light/dark/system kept in a cookie, no flash),
+  IBM Plex Sans + Arabic self-hosted (@fontsource), Lucide icons bundled locally; @nuxtjs/i18n with English and
+  Arabic (RTL, six plural forms, `no_prefix`, the choice kept in a cookie — set explicitly, since `setLocale` alone
+  does not persist it without a URL prefix); formatting with Gregorian dates and Western digits in both languages
+  (`ar-SA-u-nu-latn-ca-gregory`), hotel dates as UTC calendar dates; TanStack Query for all server data
+  (`useApiQuery` also fetches during server rendering) — deviation from D3: session presentation is Nuxt `useState`,
+  not Pinia (no other client state yet; YAGNI); the API client (`useApi`: same-origin `/api`, cookies forwarded while
+  rendering, every failure an `ApiError` with `status`, `code`, `details`); messages by error code, never server
+  text — every code the API throws has an English and an Arabic message (a test scans the API's source, so a new
+  code fails the build until translated); client validation with the API's own Zod schemas and localized messages
+  (an empty value is "required"); the status registry (§19); EmptyState, ErrorState, PageHeader, MoneyText,
+  StayDates, LocaleSwitch, ConfirmDialog (tiers 1–2). The response shapes the frontends read moved to
+  `@hajj/contracts/types` (the API imports and re-exports them: one definition). Each app proxies `/api/**` to the
+  API, so sessions are first-party cookies and the API's `ALLOWED_ORIGINS` lists the app — by a server handler of the
+  layer (`server/api/[...path].ts`), not a route rule (review): only the prefixes the app uses (`apiProxy.allow`;
+  everything else, staff and agency endpoints included, is 404 on its origin; `..`, encoded dots, backslashes and
+  control characters refused), the visitor's address set in `X-Forwarded-For` by the app (the connection's, or the
+  nearest hop behind one trusted proxy — never the visitor's own header) so the API's per-address limits see each
+  visitor (the API runs with `TRUST_PROXY=true`), and the target a runtime setting (`NUXT_API_PROXY_TARGET`).
+  The public site (`apps/public-site`, server-rendered hotels list; signed-in pages rendered in the browser and not
+  indexed): phone sign-in (one component for sign-in and the closure step-up), the stay form → the options → the
+  lead pilgrim's passport → the request, my bookings (status, stay, rooms, price, pilgrims with masked passports,
+  completing a pilgrim's details, withdraw, receipt with the QR drawn in the browser), account (sign out everywhere,
+  close with the step-up). Verified end to end in a browser against the built API and a seeded database: sign-up
+  with a texted code (name asked once), search, request, details, withdraw, closure, in English and Arabic, light
+  and dark; review fixes from that run: the main navigation's label, "required" for empty fields, the language
+  cookie, numbers isolated (LRI/PDI) inside Arabic help text. Code review outcomes: a call answered "session over"
+  (401 UNAUTHENTICATED / SESSION_INVALID — never OTP_INVALID) raises `hajj:session-ended`, and the app signs the
+  visitor out, clears every cached answer and sends them to sign in (verified in the browser); errors of sign out
+  everywhere and of a resent code are shown; on the server, no retries and no garbage-collection timers (one query
+  client per request), and a disabled query is not prefetched; the hotels list's error is shown on the booking page
+  and an unknown `?hotel=` is not pre-chosen; GuestFields writes a new value instead of changing its prop, and the
+  nationality is upper-cased; focus moves to the code field; the step-up can be cancelled; a signed-in visitor
+  skips the sign-in page; the cache is cleared on every sign-in; the redirect after sign-in also refuses control
+  characters; the chosen option is marked for assistive technology; the QR falls back to the token as text.
+- **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
+  types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
+  per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on
+  every seed, removed with the demo organization on a reset (cascade).
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

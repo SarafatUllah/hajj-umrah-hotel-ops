@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { OTP_MAX_ATTEMPTS, OTP_TTL_SECONDS } from '@hajj/contracts/constants/accounts'
 import type { OtpRequestInput, OtpVerifyInput } from '@hajj/contracts/schemas/customer'
+import type { CustomerMe, OtpChallengeIssued } from '@hajj/contracts/types/customer'
 import { rethrowDbError } from '../../errors/dbErrors'
 import { ConflictError, ForbiddenError, UnauthenticatedError, ValidationError } from '../../errors/domainError'
 import { useSmsSender } from '../../notifications/sms'
@@ -15,12 +16,11 @@ import { resolveTenantBySlug } from '../../security/tenantResolver'
 import { useDb } from '../../utils/db'
 import { getEnv } from '../../utils/env'
 
-export interface OtpChallengeIssued { challengeId: string, expiresInSeconds: number }
+export type { CustomerMe, OtpChallengeIssued }
 
 /** What a customer session carries (identity only). */
 export interface CustomerSessionUser { id: string, organizationId: string, phone: string, fullName: string, sessionVersion: number, isNew: boolean }
 
-export interface CustomerMe { id: string, phone: string, fullName: string }
 
 /** The database handle a repository accepts (a service may not import db/client itself). */
 type Db = Parameters<typeof accountsRepos>[0]

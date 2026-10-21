@@ -3,12 +3,13 @@ import { type BookingStatus, CONFIRMED_BOOKING_STATUSES, PENDING_BOOKING_STATUSE
 import type { PriceLineKind, PriceSource } from '@hajj/contracts/constants/pricing'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { HoldRequestInput, ListBookingsQuery, StaffHoldRequestInput, StaffStaySearchInput, StaySearchInput } from '@hajj/contracts/schemas/booking'
+import type { BookingDetailDto, BookingDto, BookingPage, ReceiptDto } from '@hajj/contracts/types/booking'
 import { toEpochDay } from '@hajj/contracts/utils/dates'
-import { effectiveBookingStatus, type ReceiptLine, receiptLines } from '../../domain/booking/bookingView'
+import { effectiveBookingStatus, receiptLines } from '../../domain/booking/bookingView'
 import { ConflictError } from '../../errors/domainError'
 import { publishEvent } from '../../events/bus'
 import { bookingOrgRepos, tenantRepos } from '../../repositories'
-import type { BookingListRow, BookingRoomLine, BookingRow } from '../../repositories/booking'
+import type { BookingListRow, BookingRow } from '../../repositories/booking'
 import type { AgencyContext } from '../../security/agencyContext'
 import type { AuthContext } from '../../security/authContext'
 import { authorizeHotel, requireOrgPermission } from '../../security/authorize'
@@ -24,61 +25,7 @@ import type { Booker } from './stayFacts'
 
 type Db = Parameters<typeof bookingOrgRepos>[0]
 
-export interface BookingDto {
-  id: string
-  bookingNo: string
-  hotelId: string
-  bookerType: string
-  agencyId: string | null
-  customerId: string | null
-  bookingType: string
-  checkIn: string
-  checkOut: string
-  maleCount: number
-  femaleCount: number
-  childCount: number
-  infantCount: number
-  totalCount: number
-  childSide: string | null
-  /** Effective: a pending booking past its hold expiry reads EXPIRED. */
-  status: BookingStatus
-  holdExpiresAt: string | null
-  confirmedAt: string | null
-  priceSource: PriceSource
-  quoteId: string | null
-  totalHalalas: number
-  createdAt: string
-}
-
-export interface BookingPage { items: BookingDto[], total: number, page: number, pageSize: number }
-
-export interface BookingDetailDto extends BookingDto {
-  rooms: BookingRoomLine[]
-  /** v7 §7 "pilgrim details 12/30": slots with full details (READY or further) out of all slots. */
-  guests: { total: number, withDetails: number, checkedIn: number }
-  priceLines: Array<{ night: string, kind: PriceLineKind, roomTypeId: string | null, quantity: number, unitAmountHalalas: number, amountHalalas: number, vatIncluded: boolean }>
-  /** The random token the receipt's QR carries (v7 §21); only once confirmed. */
-  receiptToken: string | null
-  notes: string | null
-}
-
-/** The receipt (v7 §7): booking number, hotel, stay, rooms, the price with extra beds on their own lines, and the QR token. */
-export interface ReceiptDto {
-  bookingNo: string
-  status: BookingStatus
-  hotel: { name: string, code: string, city: string, address: string | null }
-  agencyName: string | null
-  bookingType: string
-  checkIn: string
-  checkOut: string
-  nights: number
-  counts: { men: number, women: number, children: number, infants: number, total: number }
-  rooms: Array<{ roomNumber: string, floorLevel: number, occupancy: string, extraBeds: number }>
-  lines: Array<ReceiptLine & { roomTypeName: string | null }>
-  totalHalalas: number
-  confirmedAt: string
-  qrToken: string
-}
+export type { BookingDetailDto, BookingDto, BookingPage, ReceiptDto }
 
 const PENDING: readonly string[] = PENDING_BOOKING_STATUSES
 const CONFIRMED: readonly string[] = CONFIRMED_BOOKING_STATUSES

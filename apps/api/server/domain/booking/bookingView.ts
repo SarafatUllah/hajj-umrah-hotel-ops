@@ -1,5 +1,6 @@
 import { type BookingStatus, PENDING_BOOKING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { PriceLineKind } from '@hajj/contracts/constants/pricing'
+import type { ReceiptLine } from '@hajj/contracts/types/booking'
 
 /** What the status really is now: a pending booking past its hold expiry is EXPIRED even before the minute sweep. */
 export function effectiveBookingStatus(booking: { status: BookingStatus, holdExpiresAt: Date | null }, now: Date): BookingStatus {
@@ -9,8 +10,7 @@ export function effectiveBookingStatus(booking: { status: BookingStatus, holdExp
 
 export interface NightPriceLine { night: string, kind: PriceLineKind, roomTypeId: string | null, quantity: number, unitAmountHalalas: number, amountHalalas: number, vatIncluded: boolean }
 
-/** A receipt line (v7 §11: extra beds on their own line): the same kind, room type, quantity and price over its nights. */
-export interface ReceiptLine { kind: PriceLineKind, roomTypeId: string | null, quantity: number, unitAmountHalalas: number, nights: number, amountHalalas: number, vatIncluded: boolean }
+export type { ReceiptLine }
 
 /** The frozen nightly lines summed into receipt lines: one per kind, room type, quantity and unit price (a season change starts a new line). */
 export function receiptLines(lines: readonly NightPriceLine[]): ReceiptLine[] {

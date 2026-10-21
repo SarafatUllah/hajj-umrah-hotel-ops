@@ -1,5 +1,6 @@
 import { resolveSettings, type ResolvedSettings, type UpdateSettingsInput } from '@hajj/contracts/business-rules/hotelSettings'
 import { encodeAuditCursor, type CreateHotelInput, type ListHotelAuditQuery, type UpdateHotelInput } from '@hajj/contracts/schemas/hotel'
+import type { PublicHotel } from '@hajj/contracts/types/hotel'
 import { type IsoDate, maxIsoDate, minIsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
 import { orgCan, hasHotelAccess } from '../domain/rbac/authorize'
 import { translateDbError } from '../errors/dbErrors'
@@ -81,8 +82,7 @@ export async function listHotels(ctx: AuthContext): Promise<HotelSummary[]> {
     .sort(byName)
 }
 
-/** What the public site shows of a hotel (nothing internal: no code, settings, counts or contact data). */
-export interface PublicHotel { id: string, name: string, city: string, country: string, address: string | null }
+export type { PublicHotel }
 
 /**
  * Public site (v7 §6, unauthenticated): the organization's active hotels by name, to choose where to stay. Rate

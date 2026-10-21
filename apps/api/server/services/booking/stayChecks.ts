@@ -1,6 +1,7 @@
-import type { BookingType, Occupancy } from '@hajj/contracts/constants/booking'
-import type { PriceSource, PriceUnit, QuoteStatus } from '@hajj/contracts/constants/pricing'
+import type { BookingType } from '@hajj/contracts/constants/booking'
+import type { PriceUnit, QuoteStatus } from '@hajj/contracts/constants/pricing'
 import type { StaySearchInput } from '@hajj/contracts/schemas/booking'
+import type { StayOption, StayOptionRoom, StaySearchResult } from '@hajj/contracts/types/booking'
 import { eachDate } from '@hajj/contracts/utils/dates'
 import type { PlannerInput, StayHeadcount, StayPlan } from '../../domain/booking/allocation/planner'
 import { quotaHeadroom } from '../../domain/booking/allocation/quota'
@@ -16,16 +17,7 @@ import type { Booker, StayFacts } from './stayFacts'
 
 type Db = Parameters<typeof bookingRepos>[0]
 
-export interface StayOptionRoom { roomId: string, roomNumber: string, floorLevel: number, roomTypeId: string, occupancy: Occupancy, seats: number, extraBeds: number, existing: boolean }
-
-/** One complete option (v7 §9.2 step 7), priced on its actual rooms (empty seats never charged). */
-export interface StayOption { rooms: StayOptionRoom[], newRooms: number, emptySeats: number, extraBeds: number, totalHalalas: number, priceSource: PriceSource }
-
-export interface StaySearchResult {
-  options: StayOption[]
-  /** How many more persons the agency may still hold on every night of the stay (v7 §10); null = no quota. */
-  quotaHeadroom: number | null
-}
+export type { StayOption, StayOptionRoom, StaySearchResult }
 
 /** Problems that depend on what happened since the search ("someone was faster": search again). The rest mean the request itself is wrong. */
 const UNAVAILABLE: ReadonlySet<PlanProblemCode> = new Set(['ROOM_NOT_SELLABLE', 'ROOM_TAKEN', 'SEATS', 'EXTRA_BEDS', 'OWN_ROOMS_FIRST'])
