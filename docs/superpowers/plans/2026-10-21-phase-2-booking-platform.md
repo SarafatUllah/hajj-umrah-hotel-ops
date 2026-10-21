@@ -373,6 +373,24 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   together). Measured without a cache: a 300-room hotel booked solid for a year (14,400 stays) — year view 0.47 s,
   day view 25 ms. Trigger for a cache or a summary table: a year view over 1 s. Deferred to the frontends: the day
   list's PDF/Excel export.
+- **D-P2-43 (platform) Domain events (ticket 7).** Payloads live in `@hajj/contracts/events/domainEvents` as
+  versioned envelopes (type, version, event id, time, organization, payload; a version never loses or changes a
+  field). A service publishes with `publishEvent(tx, event)` inside the change's transaction; the jobs module wires
+  the sink as soon as the runtime is started (API and worker; `enqueue` waits for the boot, so nothing is lost while
+  it boots) and turns each event into one pg-boss job per handler (`event.<type>.<handler>`, light tier, 5 retries),
+  so jobs commit or roll back with the change. A handler runs through `handleEventOnce`: it claims `event_receipt
+  (organization, event, handler)` (migration 0015) in the transaction of its own database effects — the receipt,
+  not a queue key, is the guarantee: a duplicate delivery changes nothing, a failure gives the claim back for the
+  retry; an outside effect (a text message) is at least once. Without a running runtime (`JOBS_MODE=off`, a failed
+  boot, a process stopping) an event is logged and dropped — a side effect never blocks the change. First event:
+  `booking.confirmed` v1 → `notify-booker` texts the booker when staff confirmed for them (a customer's request,
+  an agency booking made on its behalf). Receipts are pruned daily after 30 days (`events.receipt-prune`). Adding a
+  second event type: type the handler table per event and check `version` in the handlers.
+- **D-P2-44 (booking) Public read API (ticket 8).** `readBookingSlots(db, scope, bookingId, now)` — dates, head
+  counts, effective status and per-slot gender, age group and status of the slots still on it, no personal data —
+  and `readAgencyGuests(agencyCtx, bookingId)` — the agency's own copies (name, gender, nationality, date of birth;
+  never the staff master, never passport data; another agency's booking is 404; rate limited like its guest list). Future modules (transport) use these
+  through `server/services/booking/index.ts` only (the module-public-api rule).
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

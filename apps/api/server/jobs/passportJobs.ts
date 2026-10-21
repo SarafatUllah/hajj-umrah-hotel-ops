@@ -1,7 +1,8 @@
 import { allOrganizationScopes } from '../security/organizations'
 import { purgeExpiredPassportImages, readPassportScan, setPassportReadQueue } from '../services/booking'
+import { ConflictError } from '../errors/domainError'
 import { defineJob } from './definition'
-import { enqueue } from './runtime'
+import { enqueue, JobRuntimeUnavailableError } from './runtime'
 
 /**
  * Reads one uploaded passport image (v7 §13): OCR and the MRZ are CPU-heavy, so the job runs only in the worker
@@ -29,5 +30,7 @@ export const passportRetentionJob = defineJob<Record<string, never>>({
 
 /** Called once the job runtime is up (any mode that can enqueue): uploads then enqueue their reading in their own transaction. */
 export function wirePassportReading(): void {
-  setPassportReadQueue((tx, data) => enqueue(passportReadJob, data, { tx }))
+  setPassportReadQueue((tx, data) => enqueue(passportReadJob, data, { tx }).catch((error: unknown) => {
+    throw error instanceof JobRuntimeUnavailableError ? new ConflictError('PASSPORT_READING_UNAVAILABLE', 'Passport reading is not running') : error
+  }))
 }

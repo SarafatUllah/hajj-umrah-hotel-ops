@@ -1,8 +1,9 @@
+import { randomUUID } from 'node:crypto'
 import { and, eq, isNotNull, isNull } from 'drizzle-orm'
-import { agency, agencyQuota, agencyUser, allocationRule, appUser, auditLog, booking, bookingGuestDetail, bookingPriceLine, passportScan, bookingSetting, hotelTask, piiAccessLog, pilgrim, customer, documentSequence, extraBedPolicy, otpChallenge, priceQuote, rate, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
+import { agency, agencyQuota, agencyUser, allocationRule, appUser, auditLog, booking, bookingGuestDetail, bookingPriceLine, passportScan, bookingSetting, eventReceipt, hotelTask, piiAccessLog, pilgrim, customer, documentSequence, extraBedPolicy, otpChallenge, priceQuote, rate, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
 import type { DbOrTx } from '@hajj/db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
-import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
+import { AuditRepository, EventReceiptRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
 import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from '../../../server/repositories/accounts'
 import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingRecordRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, GuestRepository, HotelTaskRepository, OccupancyReadRepository, PassportScanRepository, PiiAccessLogRepository, PilgrimRepository, PriceQuoteRepository, RateRepository } from '../../../server/repositories/booking'
@@ -1696,6 +1697,23 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
       return db.select().from(agency).where(and(eq(agency.organizationId, ids.orgAId), eq(agency.licenseNo, 'PLANTED')))
     },
     expect: 'empty',
+  }),
+  // Ticket 7: a claim always lands in the caller's organization, so it can never block another's handler.
+  'EventReceiptRepository.claim': isolationCase({
+    arrange: async (_db, orgA) => ({ eventId: randomUUID(), organizationId: orgA.organizationId }),
+    act: async (db, scope, ids) => {
+      await new EventReceiptRepository(db, scope).claim(ids.eventId, 'test:handler')
+      return db.select().from(eventReceipt).where(and(eq(eventReceipt.organizationId, ids.organizationId), eq(eventReceipt.eventId, ids.eventId)))
+    },
+    expect: 'empty',
+  }),
+  'EventReceiptRepository.deleteProcessedBefore': isolationCase({
+    arrange: async (db, orgA) => {
+      await db.insert(eventReceipt).values({ organizationId: orgA.organizationId, eventId: randomUUID(), handler: 'test:handler', processedAt: new Date('2020-01-01T00:00:00Z') })
+      return {}
+    },
+    act: (db, scope) => new EventReceiptRepository(db, scope).deleteProcessedBefore(new Date()),
+    expect: 'zero-affected',
   }),
   'AgencyRepository.findByIds': isolationCase({ arrange: arrangeAgencyUser, act: (db, scope, ids) => new AgencyRepository(db, scope).findByIds([ids.agencyId]), expect: 'empty' }),
   'AgencyRepository.findById': isolationCase({

@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import { createDbWithClient } from '@hajj/db/client'
 import { JOBS } from '../server/jobs'
+import { wireDomainEvents } from '../server/jobs/eventJobs'
 import { startJobRuntime, stopJobRuntime } from '../server/jobs/runtime'
 import { getEnv } from '../server/utils/env'
 
@@ -14,6 +15,8 @@ async function main(): Promise<void> {
   const { db, close } = createDbWithClient(env.DATABASE_URL, { max: env.DATABASE_POOL_MAX })
   try {
     await startJobRuntime({ connectionString: env.DATABASE_URL, db, jobs: JOBS, workTiers: ['heavy'], poolMax: env.JOBS_POOL_MAX })
+    // Heavy jobs may publish domain events too: their handlers' jobs are enqueued from here.
+    wireDomainEvents()
   }
   catch (error) {
     await close()

@@ -1,5 +1,6 @@
 import { JOBS } from '../jobs'
 import { workTiersFor } from '../jobs/definition'
+import { wireDomainEvents } from '../jobs/eventJobs'
 import { wirePassportReading } from '../jobs/passportJobs'
 import { startJobRuntime, stopJobRuntime } from '../jobs/runtime'
 import { useDb } from '../utils/db'
@@ -12,7 +13,9 @@ export default defineNitroPlugin((nitro) => {
   const workTiers = workTiersFor(env.JOBS_MODE)
   if (workTiers === null) return
   startJobRuntime({ connectionString: env.DATABASE_URL, db: useDb(), jobs: JOBS, workTiers, poolMax: env.JOBS_POOL_MAX })
-    .then(wirePassportReading)
     .catch(error => console.error('[jobs] runtime failed to start', error))
+  // Wired at once: `enqueue` waits for the boot, so a request served while it boots loses nothing.
+  wirePassportReading()
+  wireDomainEvents()
   nitro.hooks.hook('close', stopJobRuntime)
 })

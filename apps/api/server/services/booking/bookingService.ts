@@ -6,12 +6,14 @@ import type { HoldRequestInput, ListBookingsQuery, StaffHoldRequestInput, StaffS
 import { toEpochDay } from '@hajj/contracts/utils/dates'
 import { effectiveBookingStatus, type ReceiptLine, receiptLines } from '../../domain/booking/bookingView'
 import { ConflictError } from '../../errors/domainError'
+import { publishEvent } from '../../events/bus'
 import { bookingOrgRepos, tenantRepos } from '../../repositories'
 import type { BookingListRow, BookingRoomLine, BookingRow } from '../../repositories/booking'
 import type { AgencyContext } from '../../security/agencyContext'
 import type { AuthContext } from '../../security/authContext'
 import { authorizeHotel, requireOrgPermission } from '../../security/authorize'
 import { loadForAgency, loadForStaff } from './bookingAccess'
+import { bookingConfirmedEvent } from './bookingEvents'
 import { planExtraBedTasks } from './hotelTaskService'
 import { consumeRateLimit, RATE_LIMITS } from '../../security/rateLimit'
 import type { OrganizationScope } from '../../security/scope'
@@ -151,6 +153,7 @@ async function confirm(db: Db, scope: OrganizationScope, row: BookingRow, actor:
     if (updated.quoteId) await repos.quotes.markAccepted(updated.quoteId, now)
     await planExtraBedTasks(tx, scope, updated)
     await repos.records.recordChange({ bookingId: updated.id, kind: 'CONFIRMED', before: { status: row.status }, after: { status: updated.status }, actor })
+    await publishEvent(tx, bookingConfirmedEvent(updated, actor.kind, now))
     return updated
   })
   return detailOf(db, scope, confirmed, now)

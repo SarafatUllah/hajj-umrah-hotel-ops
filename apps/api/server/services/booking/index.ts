@@ -18,3 +18,5 @@ export { checkInGuest, checkOutGuest, lookupReceipt, markGuestNoShow, type Check
 export { completeHotelTask, listHotelTasks, type HotelTaskDto } from './hotelTaskService'
 export { sendDetailsReminders } from './detailsReminder'
 export { getOccupancy, getOccupancyDay, type OccupancyDayViewDto, type OccupancyRangeDto } from './occupancyService'
+export { notifyBookingConfirmed } from './bookingEvents'
+export { readAgencyGuests, readBookingSlots, type AgencyGuestView, type BookingSlotsView } from './publicRead'

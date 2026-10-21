@@ -7,7 +7,7 @@ import { PlatformOrganizationRepository } from './platform/organizationRepositor
 import { PlatformOtpChallengeRepository } from './platform/otpChallengeRepository'
 import { PlatformPermissionCatalogRepository } from './platform/permissionCatalogRepository'
 import { PlatformRateLimitRepository } from './platform/rateLimitRepository'
-import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from './tenant'
+import { AuditRepository, DocumentAssetRepository, EventReceiptRepository, HotelRepository, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from './tenant'
 
 export type * from './tenant'
 export type * from './hotel'
@@ -50,6 +50,7 @@ export function tenantRepos(db: DbOrTx, scope: OrganizationScope) {
     organization: () => new TenantOrganizationRepository(db, scope),
     roomTypes: () => new RoomTypeRepository(db, scope),
     documentAssets: () => new DocumentAssetRepository(db, scope),
+    eventReceipts: () => new EventReceiptRepository(db, scope),
   })
 }
 

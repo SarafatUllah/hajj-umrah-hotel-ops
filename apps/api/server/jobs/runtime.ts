@@ -26,6 +26,14 @@ export interface EnqueueOptions {
   singletonKey?: string
 }
 
+/** The job runtime is not running in this process (not started, failed to start, or stopping). */
+export class JobRuntimeUnavailableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'JobRuntimeUnavailableError'
+  }
+}
+
 /** How long a stop waits for in-flight handlers before abandoning them (below a typical 30 s kill grace). */
 const STOP_TIMEOUT_MS = 20_000
 
@@ -101,7 +109,7 @@ export async function stopJobRuntime(): Promise<void> {
 export async function enqueue<T extends object>(job: JobDefinition<T>, data: T, options: EnqueueOptions = {}): Promise<string | null> {
   if (!running) {
     const cause = lastBootError ? `: it failed to start (${String(lastBootError)})` : ' (JOBS_MODE=off?)'
-    throw new Error(`Job runtime is not running${cause}; cannot enqueue ${job.name}`)
+    throw new JobRuntimeUnavailableError(`Job runtime is not running${cause}; cannot enqueue ${job.name}`)
   }
   const { boss, registered } = await running
   if (!registered.has(job.name)) throw new Error(`Job ${job.name} is not registered with the job runtime`)
