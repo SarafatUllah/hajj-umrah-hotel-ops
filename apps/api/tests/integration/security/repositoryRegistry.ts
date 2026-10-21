@@ -1,12 +1,12 @@
 import { and, eq, isNotNull, isNull } from 'drizzle-orm'
-import { agency, agencyUser, appUser, auditLog, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
+import { agency, agencyUser, appUser, auditLog, customer, otpChallenge, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
 import type { DbOrTx } from '@hajj/db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
-import { AgencyRepository, AgencyUserRepository } from '../../../server/repositories/accounts'
+import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from '../../../server/repositories/accounts'
 import { BookingInventoryRepository } from '../../../server/repositories/booking'
-import { makeAgency, makeBooking, makeBookingRoom, makeGuest, makeHotelWithRooms, makeStay } from '../../support/bookingFixtures'
+import { makeAgency, makeBooking, makeBookingRoom, makeCustomer, makeGuest, makeHotelWithRooms, makeStay } from '../../support/bookingFixtures'
 import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeHotelDocument, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
 /**
@@ -62,6 +62,13 @@ async function arrangeAgencyUser(db: DbOrTx, orgA: OrganizationScope) {
   const agencyRow = await makeAgency(db, orgA)
   const user = await new AgencyUserRepository(db, orgA).insert({ agencyId: agencyRow.id, email: `agent-${agencyRow.id}@example.test`, passwordHash: 'h', fullName: 'Agent' })
   return { agencyId: agencyRow.id, userId: user.id, email: user.email }
+}
+
+/** Phase 2a: org A's customer and an open sign-in challenge. */
+async function arrangeCustomerChallenge(db: DbOrTx, orgA: OrganizationScope) {
+  const customerRow = await makeCustomer(db, orgA)
+  const challenge = await new OtpChallengeRepository(db, orgA).insert({ phone: customerRow.phone, codeHash: 'a'.repeat(64), expiresAt: new Date(Date.now() + 300_000) })
+  return { customerId: customerRow.id, phone: customerRow.phone, challengeId: challenge.id }
 }
 
 async function assertNoRows(rows: unknown[], what: string) {
@@ -1481,6 +1488,66 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
       return db.select().from(agencyUser).where(and(eq(agencyUser.id, ids.userId), isNotNull(agencyUser.lastLoginAt)))
     },
     expect: 'empty',
+  }),
+  'CustomerRepository.insert': isolationCase({
+    arrange: async (_db, orgA) => ({ orgAId: orgA.organizationId }),
+    act: async (db, scope, ids) => {
+      await new CustomerRepository(db, scope).insert({ organizationId: ids.orgAId, fullName: 'Planted', phone: '+966599999999' } as never)
+      return db.select().from(customer).where(and(eq(customer.organizationId, ids.orgAId), eq(customer.phone, '+966599999999')))
+    },
+    expect: 'empty',
+  }),
+  'CustomerRepository.findById': isolationCase({
+    arrange: arrangeCustomerChallenge,
+    act: (db, scope, ids) => new CustomerRepository(db, scope).findById(ids.customerId),
+    expect: 'null',
+  }),
+  'CustomerRepository.findByPhone': isolationCase({
+    arrange: arrangeCustomerChallenge,
+    act: (db, scope, ids) => new CustomerRepository(db, scope).findByPhone(ids.phone),
+    expect: 'null',
+  }),
+  'CustomerRepository.recordLogin': isolationCase({
+    arrange: arrangeCustomerChallenge,
+    act: async (db, scope, ids) => {
+      await new CustomerRepository(db, scope).recordLogin(ids.customerId, new Date())
+      return db.select().from(customer).where(and(eq(customer.id, ids.customerId), isNotNull(customer.lastLoginAt)))
+    },
+    expect: 'empty',
+  }),
+  'OtpChallengeRepository.insert': isolationCase({
+    arrange: async (_db, orgA) => ({ orgAId: orgA.organizationId }),
+    act: async (db, scope, ids) => {
+      await new OtpChallengeRepository(db, scope).insert({ organizationId: ids.orgAId, phone: '+966599999998', codeHash: 'b'.repeat(64), expiresAt: new Date() } as never)
+      return db.select().from(otpChallenge).where(and(eq(otpChallenge.organizationId, ids.orgAId), eq(otpChallenge.phone, '+966599999998')))
+    },
+    expect: 'empty',
+  }),
+  'OtpChallengeRepository.registerAttempt': isolationCase({
+    arrange: arrangeCustomerChallenge,
+    act: (db, scope, ids) => new OtpChallengeRepository(db, scope).registerAttempt(ids.challengeId, new Date(), 5),
+    expect: 'null',
+  }),
+  'OtpChallengeRepository.closeOpenForPhone': isolationCase({
+    arrange: arrangeCustomerChallenge,
+    act: async (db, scope, ids) => {
+      await new OtpChallengeRepository(db, scope).closeOpenForPhone(ids.phone, new Date())
+      return db.select().from(otpChallenge).where(and(eq(otpChallenge.id, ids.challengeId), isNotNull(otpChallenge.consumedAt)))
+    },
+    expect: 'empty',
+  }),
+  'CustomerRepository.bumpSessionVersion': isolationCase({
+    arrange: arrangeCustomerChallenge,
+    act: async (db, scope, ids) => {
+      await new CustomerRepository(db, scope).bumpSessionVersion(ids.customerId)
+      return db.select().from(customer).where(and(eq(customer.id, ids.customerId), eq(customer.sessionVersion, 2)))
+    },
+    expect: 'empty',
+  }),
+  'OtpChallengeRepository.consume': isolationCase({
+    arrange: arrangeCustomerChallenge,
+    act: async (db, scope, ids) => (await new OtpChallengeRepository(db, scope).consume(ids.challengeId, new Date())) ? 1 : 0,
+    expect: 'zero-affected',
   }),
   'HotelDocumentRepository.list': isolationCase({
     arrange: (db, orgA) => arrangeDocument(db, orgA, true),

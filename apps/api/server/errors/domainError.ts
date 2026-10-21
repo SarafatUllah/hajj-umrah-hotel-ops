@@ -68,3 +68,11 @@ export class TooManyRequestsError extends DomainError {
     this.name = 'TooManyRequestsError'
   }
 }
+
+/** 503 — a service the request depends on is not configured or not reachable (e.g. SMS for sign-in codes). */
+export class ServiceUnavailableError extends DomainError {
+  constructor(code: string, message: string = code) {
+    super(code, message, 503)
+    this.name = 'ServiceUnavailableError'
+  }
+}

@@ -4,7 +4,8 @@ declare module '#auth-utils' {
   interface User {
     id: string
     organizationId: string
-    email: string
+    /** Absent for customers (they sign in with a phone). Never read back for authorization. */
+    email?: string
     fullName: string
     /** Absent on sessions created before Phase 2 — those are staff sessions. */
     kind?: PrincipalKind

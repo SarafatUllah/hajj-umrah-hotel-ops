@@ -61,6 +61,24 @@ const envBase = z.object({
   ALLOWED_ORIGINS: originList,
   // Staff 2FA: `required-roles` makes users holding a role with requires_two_factor enrol TOTP before using the API.
   STAFF_2FA_ENFORCEMENT: z.enum(['off', 'required-roles'], { errorMap: () => ({ message: 'STAFF_2FA_ENFORCEMENT must be off or required-roles' }) }).default('off'),
+  // Phase 2a: customer sign-in codes by SMS. `disabled` (default) = customer sign-in answers 503 until a gateway is
+  // configured; `log` = development only (writes the code to the server log; refused in production); `webhook` =
+  // POST { to, text } to SMS_WEBHOOK_URL (https), with SMS_WEBHOOK_TOKEN as a bearer token when set.
+  SMS_DRIVER: z.enum(['disabled', 'log', 'webhook'], { errorMap: () => ({ message: 'SMS_DRIVER must be disabled, log or webhook' }) }).default('disabled'),
+  SMS_WEBHOOK_URL: z.string().url('SMS_WEBHOOK_URL must be a URL').optional(),
+  SMS_WEBHOOK_TOKEN: z.string().min(1).optional(),
+  // Only these country calling codes may receive sign-in codes (SMS-pumping / toll-fraud guard), e.g. "966,880,92,62".
+  SMS_ALLOWED_CALLING_CODES: z.string().default('966').transform((value, ctx) => {
+    const codes = value.split(',').map(part => part.trim()).filter(Boolean)
+    if (codes.length === 0 || codes.some(code => !/^[1-9]\d{0,3}$/.test(code))) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'SMS_ALLOWED_CALLING_CODES must be comma-separated calling codes like 966,880' })
+    return codes
+  }),
+  // SMS budget per organization (all phones): a flood cannot run up the bill or lock everyone out for long.
+  SMS_HOURLY_LIMIT: z.coerce.number().int().min(1).max(100_000).default(300),
+  SMS_DAILY_LIMIT: z.coerce.number().int().min(1).max(1_000_000).default(2000),
+  // Bot check on the code request: `off` (default) or `turnstile` (Cloudflare Turnstile, secret in CAPTCHA_SECRET).
+  CAPTCHA_DRIVER: z.enum(['off', 'turnstile'], { errorMap: () => ({ message: 'CAPTCHA_DRIVER must be off or turnstile' }) }).default('off'),
+  CAPTCHA_SECRET: z.string().min(1).optional(),
   // Phase 2 (jobs): which background queues this API process works. `light` (default) = everything
   // except CPU-heavy jobs (passport OCR), which run in the separate worker process; `all` = a single-process
   // deployment; `send` = enqueue only; `off` = no job runtime (enqueueing then fails loudly).
@@ -83,10 +101,26 @@ function refineDemoSignIn(env: { APP_ENV: string, DEMO_SIGN_IN_ENABLED: boolean 
   }
 }
 
-/** Production may not run without staff two-factor enforcement (design v7 §21: a launch prerequisite). */
-function refineProductionSecurity(env: { APP_ENV: string, STAFF_2FA_ENFORCEMENT: string }, ctx: z.RefinementCtx): void {
+/**
+ * Production may not run without staff two-factor enforcement (design v7 §21: a launch prerequisite), and no
+ * shared environment (anything but development) may write sign-in codes to the log.
+ */
+function refineProductionSecurity(env: { APP_ENV: string, STAFF_2FA_ENFORCEMENT: string, SMS_DRIVER: string }, ctx: z.RefinementCtx): void {
   if (env.APP_ENV === 'production' && env.STAFF_2FA_ENFORCEMENT !== 'required-roles') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['STAFF_2FA_ENFORCEMENT'], message: 'STAFF_2FA_ENFORCEMENT must be required-roles with APP_ENV=production' })
+  }
+  if (env.APP_ENV !== 'development' && env.SMS_DRIVER === 'log') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['SMS_DRIVER'], message: 'SMS_DRIVER=log is allowed only with APP_ENV=development' })
+  }
+}
+
+/** The webhook driver needs an https URL (a sign-in code must never travel in clear text); Turnstile needs its secret. */
+function refineSmsWebhook(env: { SMS_DRIVER: string, SMS_WEBHOOK_URL?: string, CAPTCHA_DRIVER: string, CAPTCHA_SECRET?: string }, ctx: z.RefinementCtx): void {
+  if (env.SMS_DRIVER === 'webhook' && !env.SMS_WEBHOOK_URL?.startsWith('https://')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['SMS_WEBHOOK_URL'], message: 'SMS_WEBHOOK_URL (https) is required with SMS_DRIVER=webhook' })
+  }
+  if (env.CAPTCHA_DRIVER === 'turnstile' && !env.CAPTCHA_SECRET) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CAPTCHA_SECRET'], message: 'CAPTCHA_SECRET is required with CAPTCHA_DRIVER=turnstile' })
   }
 }
 
@@ -105,7 +139,7 @@ function refineDistinctPiiKeys(env: { PII_ENCRYPTION_KEYS: string, PII_LOOKUP_KE
   if (isLookupKeyReused(env)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['PII_LOOKUP_KEY'], message: 'PII_LOOKUP_KEY must differ from every PII_ENCRYPTION_KEYS key' })
 }
 
-const envSchema = envBase.superRefine(refineDemoSignIn).superRefine(refineProductionSecurity).superRefine(refineDistinctPiiKeys)
+const envSchema = envBase.superRefine(refineDemoSignIn).superRefine(refineProductionSecurity).superRefine(refineDistinctPiiKeys).superRefine(refineSmsWebhook)
 
 export type Env = z.infer<typeof envSchema>
 

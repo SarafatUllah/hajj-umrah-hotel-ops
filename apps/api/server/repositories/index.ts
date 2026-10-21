@@ -1,9 +1,10 @@
 import type { DbOrTx } from '@hajj/db/client'
 import type { HotelScope, OrganizationScope } from '../security/scope'
-import { AgencyRepository, AgencyUserRepository } from './accounts'
+import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from './accounts'
 import { BookingInventoryRepository } from './booking'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from './hotel'
 import { PlatformOrganizationRepository } from './platform/organizationRepository'
+import { PlatformOtpChallengeRepository } from './platform/otpChallengeRepository'
 import { PlatformPermissionCatalogRepository } from './platform/permissionCatalogRepository'
 import { PlatformRateLimitRepository } from './platform/rateLimitRepository'
 import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from './tenant'
@@ -34,6 +35,7 @@ export function platformRepos(db: DbOrTx) {
     organizations: () => new PlatformOrganizationRepository(db),
     permissionCatalog: () => new PlatformPermissionCatalogRepository(db),
     rateLimits: () => new PlatformRateLimitRepository(db),
+    otpChallenges: () => new PlatformOtpChallengeRepository(db),
   })
 }
 
@@ -66,11 +68,13 @@ export function hotelRepos(db: DbOrTx, scope: HotelScope) {
   })
 }
 
-/** Accounts-module repositories (agencies and their users) for one organization; used by server/services/accounts and server/security. */
+/** Accounts-module repositories (agencies, agency users, customers, sign-in codes) for one organization; used by server/services/accounts and server/security. */
 export function accountsRepos(db: DbOrTx, scope: OrganizationScope) {
   return lazy({
     agencies: () => new AgencyRepository(db, scope),
     agencyUsers: () => new AgencyUserRepository(db, scope),
+    customers: () => new CustomerRepository(db, scope),
+    otpChallenges: () => new OtpChallengeRepository(db, scope),
   })
 }
 

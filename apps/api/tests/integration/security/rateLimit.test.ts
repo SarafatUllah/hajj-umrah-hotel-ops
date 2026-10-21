@@ -1,7 +1,7 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { platformRepos } from '../../../server/repositories'
 import { JOBS } from '../../../server/jobs'
-import { rateLimitCleanupJob } from '../../../server/jobs/securityJobs'
+import { securityCleanupJob } from '../../../server/jobs/securityJobs'
 import { TooManyRequestsError } from '../../../server/errors/domainError'
 import { bucketKey, clearRateLimit, consumeRateLimit, purgeExpiredRateLimits, RATE_LIMIT_RETENTION_MS, type RateLimitPolicy } from '../../../server/security/rateLimit'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
@@ -88,11 +88,11 @@ describe('rate-limit service', () => {
   })
 })
 
-describe('security.rate-limit-cleanup job', () => {
+describe('security.cleanup job', () => {
   it('is registered as a light, scheduled job', () => {
-    expect(JOBS).toContain(rateLimitCleanupJob)
-    expect(rateLimitCleanupJob.tier).toBe('light')
-    expect(rateLimitCleanupJob.schedule?.cron).toBeTruthy()
+    expect(JOBS).toContain(securityCleanupJob)
+    expect(securityCleanupJob.tier).toBe('light')
+    expect(securityCleanupJob.schedule?.cron).toBeTruthy()
   })
 
   it('purges buckets older than the retention period and keeps recent ones', async () => {
@@ -101,7 +101,7 @@ describe('security.rate-limit-cleanup job', () => {
     await repo.hit('recent', new Date(now.getTime() - 60_000))
 
     expect(await purgeExpiredRateLimits(db, now)).toBe(1)
-    await rateLimitCleanupJob.handle({}, { db, jobId: 'test' })
+    await securityCleanupJob.handle({}, { db, jobId: 'test' })
     expect(await repo.count('recent', new Date(now.getTime() - 60_000))).toBe(1)
   })
 })

@@ -70,3 +70,25 @@ export const customer = pgTable('customer', {
   // E.164, as normalized by the API (`+` and 8–15 digits).
   check('customer_phone_check', sql`${t.phone} ~ '^\\+[1-9][0-9]{7,14}$'`),
 ])
+
+/**
+ * A one-time code sent by SMS to sign a customer up or in (v7 §21: phone OTP before the public site opens).
+ * Only an HMAC of the code is stored (keyed by the PII lookup key and the challenge id); a challenge expires
+ * after a few minutes, allows a few wrong codes, and is consumed once. Purged daily after expiry.
+ */
+export const otpChallenge = pgTable('otp_challenge', {
+  id: idColumn(),
+  organizationId: organizationColumn(),
+  phone: text('phone').notNull(),
+  codeHash: text('code_hash').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  attempts: integer('attempts').notNull().default(0),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  index('otp_challenge_phone_idx').on(t.organizationId, t.phone, t.createdAt),
+  index('otp_challenge_expiry_idx').on(t.expiresAt),
+  check('otp_challenge_phone_check', sql`${t.phone} ~ '^\\+[1-9][0-9]{7,14}$'`),
+  check('otp_challenge_attempts_check', sql`${t.attempts} >= 0`),
+  check('otp_challenge_hash_check', sql`${t.codeHash} ~ '^[0-9a-f]{64}$'`),
+])

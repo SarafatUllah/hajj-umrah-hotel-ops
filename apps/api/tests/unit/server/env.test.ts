@@ -245,6 +245,33 @@ describe('getEnv: Phase 2a security settings', () => {
     expect(() => getEnv()).toThrow(/exact origins/)
   })
 
+  it('SMS: disabled by default, Saudi numbers only by default; log only in development; webhook needs https; Turnstile needs its secret', () => {
+    expect(getEnv()).toMatchObject({ SMS_DRIVER: 'disabled', SMS_ALLOWED_CALLING_CODES: ['966'], SMS_HOURLY_LIMIT: 300, SMS_DAILY_LIMIT: 2000, CAPTCHA_DRIVER: 'off' })
+    resetEnvCache()
+    process.env.SMS_ALLOWED_CALLING_CODES = '966, 880,92'
+    expect(getEnv().SMS_ALLOWED_CALLING_CODES).toEqual(['966', '880', '92'])
+    resetEnvCache()
+    process.env.SMS_ALLOWED_CALLING_CODES = '+966'
+    expect(() => getEnv()).toThrow(/SMS_ALLOWED_CALLING_CODES/)
+    resetEnvCache()
+    delete process.env.SMS_ALLOWED_CALLING_CODES
+    Object.assign(process.env, { APP_ENV: 'staging', SMS_DRIVER: 'log' })
+    expect(() => getEnv()).toThrow(/SMS_DRIVER=log is allowed only with APP_ENV=development/)
+    resetEnvCache()
+    Object.assign(process.env, { APP_ENV: 'development', CAPTCHA_DRIVER: 'turnstile' })
+    expect(() => getEnv()).toThrow(/CAPTCHA_SECRET is required/)
+    resetEnvCache()
+    delete process.env.CAPTCHA_DRIVER
+    Object.assign(process.env, { APP_ENV: 'production', STAFF_2FA_ENFORCEMENT: 'required-roles', SMS_DRIVER: 'log' })
+    expect(() => getEnv()).toThrow(/SMS_DRIVER=log is allowed only/)
+    resetEnvCache()
+    Object.assign(process.env, { SMS_DRIVER: 'webhook', SMS_WEBHOOK_URL: 'http://sms.example.test' })
+    expect(() => getEnv()).toThrow(/SMS_WEBHOOK_URL \(https\)/)
+    resetEnvCache()
+    process.env.SMS_WEBHOOK_URL = 'https://sms.example.test'
+    expect(getEnv().SMS_DRIVER).toBe('webhook')
+  })
+
   it('refuses production without staff 2FA enforcement', () => {
     process.env.APP_ENV = 'production'
     expect(() => getEnv()).toThrow(/STAFF_2FA_ENFORCEMENT must be required-roles/)

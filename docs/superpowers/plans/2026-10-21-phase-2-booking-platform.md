@@ -29,7 +29,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 8 | 2a: booking-platform schema (agency, customer, pricing, pilgrim, booking*, guest_stay, view, constraints) | done |
 | 9 | 2a: inventory ↔ booking conflict rules + Phase 1 lock gaps (floor deactivate, room reactivate, period delete) | done |
 | 10a | 2a: agency accounts — registration, staff approval, agency users, agency sign-in (`AgencyScope`), RBAC sync | done |
-| 10b | 2a: customers — phone OTP sign-up/sign-in (`CustomerScope`) | |
+| 10b | 2a: customers — phone OTP sign-up/sign-in (`CustomerScope`) | done |
 | 10c | 2a: booking settings, rates, quotas, room-mix rules, extra-bed policies (staff admin) | |
 | 10d | 2a: WhatsApp quotes and price resolution (quote → agency default → public, per night) | |
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | |
@@ -172,6 +172,21 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
 - **D-P2-25b (accounts) Follow-ups.** Agency-user password change/reset and invitations (staff currently set the
   first password) come with the agency portal UI (step 16). `agency.view` is organization-wide by design
   (agencies are not hotel-scoped).
+- **D-P2-27 (accounts) Customers sign in by SMS code.** Sign-up and sign-in are one flow (v7 §21): request a
+  code (202 whatever the phone), then verify it (a new customer gives a name: 422 `FULL_NAME_REQUIRED`, the
+  code stays usable). Six digits from a CSPRNG, valid 5 minutes, 5 attempts per challenge counted atomically,
+  consumed once inside the sign-in transaction; only HMAC(lookup key, challenge id + code) is stored; every
+  failure is 401 `OTP_INVALID`. Security review (SMS pumping, guessing, harassment): only allowed countries
+  receive codes (`SMS_ALLOWED_CALLING_CODES`, default 966); an optional Cloudflare Turnstile bot check
+  (`CAPTCHA_DRIVER`); one code per phone per minute and 3 per 15 minutes, a new code closing the older ones (one
+  live code per phone); 10 verifications per phone per hour across challenges and addresses; generous per-address
+  limits (carrier NAT); an organization SMS budget per hour and per day (env, with a log warning). SMS goes
+  through a pluggable sender (`SMS_DRIVER=disabled|log|webhook`; `log` only in development, phone masked;
+  webhook https-only, no redirects). Customer sessions carry `kind: 'customer'` and a session version ("sign out
+  everywhere" bumps it); `defineApiHandler({ auth: 'customer' })`; `CustomerScope`.
+- **D-P2-27b (accounts) Accepted risk: the phone is the identity.** Whoever controls the number (SIM swap,
+  recycled number) gets the account. When bookings and passport data attach to customers (step 15), sensitive
+  actions get a fresh-code step-up and the UI masks the phone.
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

@@ -26,3 +26,12 @@ export interface AgencyScope extends OrganizationScope { readonly [agencyBrand]:
 export function trustedAgencyScope(org: OrganizationScope, agencyId: string): AgencyScope {
   return { organizationId: org.organizationId, agencyId } as unknown as AgencyScope
 }
+
+declare const customerBrand: unique symbol
+
+/** Proof that the caller is this signed-in customer (public site). Minted only by server/security. */
+export interface CustomerScope extends OrganizationScope { readonly [customerBrand]: true, readonly customerId: string }
+
+export function trustedCustomerScope(org: OrganizationScope, customerId: string): CustomerScope {
+  return { organizationId: org.organizationId, customerId } as unknown as CustomerScope
+}

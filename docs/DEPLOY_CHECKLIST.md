@@ -40,6 +40,15 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
 - [ ] `ALLOWED_ORIGINS` lists the exact origins of the separate frontends (ops console, agency portal, public site)
       when they are not served from the API host; unset = same host only.
 
+- [ ] Customer sign-in (public site) needs an SMS gateway: `SMS_DRIVER=webhook` with an `https` `SMS_WEBHOOK_URL`
+      (and `SMS_WEBHOOK_TOKEN`); until then `disabled` makes the code request answer 503. `log` is refused outside
+      development. The gateway receives `{ "to": "+9665…", "text": "…" }` and must answer 2xx (redirects are not
+      followed). Set `SMS_ALLOWED_CALLING_CODES` to the countries actually served, size `SMS_HOURLY_LIMIT` /
+      `SMS_DAILY_LIMIT` to the SMS budget (watch for the `[sms] … reached its … SMS budget` warning), and enable the
+      bot check (`CAPTCHA_DRIVER=turnstile` + `CAPTCHA_SECRET`) before the public site opens.
+- [ ] The public site, agency portal and ops console reach the API on the same site (same domain behind one proxy, or
+      sibling subdomains of one registrable domain): sessions are `SameSite=Lax` cookies.
+
 ## Database and migrations
 
 - [ ] The migrating role can run `CREATE EXTENSION btree_gist` — on PostgreSQL 13+ `btree_gist` is a trusted

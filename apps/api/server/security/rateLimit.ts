@@ -36,6 +36,16 @@ export const RATE_LIMITS = {
   agencyRegistrationPerIp: { name: 'agency-register', limit: 5, windowSeconds: 60 * 60 },
   /** Agency self-registrations per organization from anywhere (caps a PENDING-queue flood from many addresses). */
   agencyRegistrationPerOrganization: { name: 'agency-register-org', limit: 50, windowSeconds: 60 * 60 },
+  /** Sign-in codes texted to one phone (each SMS costs money and annoys the owner). */
+  otpRequestPerPhone: { name: 'otp-phone', limit: 3, windowSeconds: 15 * 60 },
+  /** At most one code per phone per minute (no burst of texts to a victim). */
+  otpResendCooldown: { name: 'otp-cooldown', limit: 1, windowSeconds: 60 },
+  /** Sign-in code requests from one client address (generous: carrier NAT and hotel Wi-Fi share addresses). */
+  otpRequestPerIp: { name: 'otp-ip', limit: 30, windowSeconds: 15 * 60 },
+  /** Code verifications from one client address (each challenge also allows only OTP_MAX_ATTEMPTS). */
+  otpVerifyPerIp: { name: 'otp-verify-ip', limit: 60, windowSeconds: 15 * 60 },
+  /** Code verifications for one phone across every challenge and address (bounds slow distributed guessing). */
+  otpVerifyPerPhone: { name: 'otp-verify-phone', limit: 10, windowSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>
 
 /** Buckets are kept this long after their window started (far beyond the longest window), then purged. */

@@ -5,3 +5,4 @@
 export { addAgencyUser, changeAgencyStatus, createAgency, getAgency, listAgencies, updateAgencyUser, type AgencyDetail, type AgencyListPage } from './agencyAdminService'
 export { getAgencyMe, loginAgencyUser, registerAgency, type AgencyMe, type AgencySessionUser } from './agencyPortalService'
 export type { AgencyDto, AgencyUserDto } from './agencyDto'
+export { getCustomerMe, requestCustomerOtp, signOutEverywhere, verifyCustomerOtp, type CustomerMe, type CustomerSessionUser, type OtpChallengeIssued } from './customerAuthService'

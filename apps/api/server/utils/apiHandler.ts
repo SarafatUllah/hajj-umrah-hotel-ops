@@ -5,17 +5,23 @@ import { DomainError, ForbiddenError, TooManyRequestsError, ValidationError } fr
 import { translateDbError } from '../errors/dbErrors'
 import type { AgencyContext } from '../security/agencyContext'
 import type { AuthContext } from '../security/authContext'
+import type { CustomerContext } from '../security/customerContext'
 import { requireAgencyContext, requireApprovedAgency } from './requireAgency'
 import { requireAuthContext } from './requireAuth'
+import { requireCustomerContext } from './requireCustomer'
 
 /**
  * `'required'` = a staff session (operations console); `'agency'` = an agency-portal session of an APPROVED
  * agency (the safe default for every agency route); `'agency-any-status'` = any agency session, for the few
- * routes a pending or suspended agency may still use (its own `me`).
+ * routes a pending or suspended agency may still use (its own `me`); `'customer'` = a public-site customer session.
  */
-export type AuthRequirement = 'none' | 'required' | 'agency' | 'agency-any-status'
+export type AuthRequirement = 'none' | 'required' | 'agency' | 'agency-any-status' | 'customer'
 
-type ContextFor<A extends AuthRequirement> = A extends 'required' ? AuthContext : A extends 'agency' | 'agency-any-status' ? AgencyContext : undefined
+type ContextFor<A extends AuthRequirement> =
+  A extends 'required' ? AuthContext
+    : A extends 'agency' | 'agency-any-status' ? AgencyContext
+      : A extends 'customer' ? CustomerContext
+        : undefined
 
 export interface ApiHandlerArgs<P, Q, B, A extends AuthRequirement = 'none'> {
   event: H3Event
@@ -174,8 +180,9 @@ function handleError(event: H3Event, error: unknown): never {
   throw createError({ statusCode: 500, statusMessage: 'Internal server error', data: { code: 'INTERNAL_ERROR' } })
 }
 
-async function contextFor(event: H3Event, auth: AuthRequirement | undefined): Promise<AuthContext | AgencyContext | undefined> {
+async function contextFor(event: H3Event, auth: AuthRequirement | undefined): Promise<AuthContext | AgencyContext | CustomerContext | undefined> {
   if (auth === 'required') return requireAuthContext(event)
+  if (auth === 'customer') return requireCustomerContext(event)
   if (auth === 'agency' || auth === 'agency-any-status') {
     const ctx = await requireAgencyContext(event)
     if (auth === 'agency') requireApprovedAgency(ctx)

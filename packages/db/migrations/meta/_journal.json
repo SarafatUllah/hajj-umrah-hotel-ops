@@ -71,6 +71,13 @@
       "when": 1792549923399,
       "tag": "0009_booking_platform",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792553165614,
+      "tag": "0010_customer_otp",
+      "breakpoints": true
     }
   ]
 }
