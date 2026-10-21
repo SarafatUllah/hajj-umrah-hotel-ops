@@ -95,6 +95,8 @@ export const bookingSettingsPatchSchema = z.object({
   passportMinValidityMonths: z.number().int().min(0).max(24),
   detailsReminderDays: z.number().int().min(0).max(60),
   passportImageRetentionMonths: z.number().int().min(1).max(120),
+  /** Send unreadable passports to the external AI reader (a cross-border transfer of personal data: off until the organization agrees). */
+  passportAiAllowed: z.boolean(),
   /** International digits without "+" (the wa.me format), e.g. 9665XXXXXXXX. */
   whatsappNumber: z.string().regex(/^[1-9]\d{7,14}$/, 'Digits only, with the country code (e.g. 9665XXXXXXXX)').nullable(),
   whatsappTemplate: safeText(1000).nullable(),

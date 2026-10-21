@@ -6,3 +6,8 @@ import { trustedOrganizationScope, type OrganizationScope } from './scope'
 export async function allOrganizationScopes(db: DbOrTx): Promise<OrganizationScope[]> {
   return (await platformRepos(db).organizations.listIds()).map(trustedOrganizationScope)
 }
+
+/** The scope of one organization named by a background job's payload; null when it no longer exists. */
+export async function organizationScopeById(db: DbOrTx, organizationId: string): Promise<OrganizationScope | null> {
+  return (await platformRepos(db).organizations.findById(organizationId)) ? trustedOrganizationScope(organizationId) : null
+}

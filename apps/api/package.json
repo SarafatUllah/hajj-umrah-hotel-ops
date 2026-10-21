@@ -31,6 +31,7 @@
     "rbac:sync": "tsx db/scripts/syncRbac.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.137.0",
     "@hajj/contracts": "workspace:*",
     "@hajj/db": "workspace:*",
     "@node-rs/argon2": "^2.2.1",

@@ -3,6 +3,7 @@ import { getStorageEnv } from '../utils/env'
 import { LocalStorageDriver, type StorageDriver } from './localStorageDriver'
 
 export { InvalidStorageKeyError, isValidStorageKey, LocalStorageDriver, StorageObjectNotFoundError, type StorageDriver } from './localStorageDriver'
+export { imageSize, type ImageSize } from './imageSize'
 export { MAX_UPLOAD_BYTES, sanitizeFilename, UploadRejectedError, validateUpload, type AllowedMime, type UploadRejection, type ValidatedUpload } from './uploadValidation'
 
 export class UnsupportedStorageDriverError extends Error {

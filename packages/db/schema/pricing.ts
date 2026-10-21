@@ -174,6 +174,8 @@ export const bookingSetting = pgTable('booking_setting', {
   passportMinValidityMonths: integer('passport_min_validity_months').notNull().default(6),
   detailsReminderDays: integer('details_reminder_days').notNull().default(7),
   passportImageRetentionMonths: integer('passport_image_retention_months').notNull().default(12),
+  /** The organization's consent to send passport images to the external AI reader (v7 §13 fallback; PDPL transfer). */
+  passportAiAllowed: boolean('passport_ai_allowed').notNull().default(false),
   whatsappNumber: text('whatsapp_number'),
   whatsappTemplate: text('whatsapp_template'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

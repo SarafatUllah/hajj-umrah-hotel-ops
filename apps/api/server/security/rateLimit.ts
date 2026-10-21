@@ -56,6 +56,12 @@ export const RATE_LIMITS = {
   piiRevealPerStaff: { name: 'pii-reveal-staff', limit: 60, windowSeconds: 60 * 60 },
   /** Full views of its own guest lists per agency user (the same bound for the agency portal). */
   guestListPerAgencyUser: { name: 'guest-list-agency-user', limit: 300, windowSeconds: 60 * 60 },
+  /** Passport photo uploads per user, agency or staff (each is stored and read in the worker; a 580-pilgrim group fits in an hour). */
+  passportUploadPerUser: { name: 'passport-upload-user', limit: 600, windowSeconds: 60 * 60 },
+  /** Passport images opened for review per user (each is decrypted and logged). */
+  passportImagePerUser: { name: 'passport-image-user', limit: 1200, windowSeconds: 60 * 60 },
+  /** Passports sent to the external AI reader per organization (each is a paid call and a disclosure). */
+  passportAiPerOrganization: { name: 'passport-ai-org', limit: 300, windowSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>
 
 /** Buckets are kept this long after their window started (far beyond the longest window), then purged. */

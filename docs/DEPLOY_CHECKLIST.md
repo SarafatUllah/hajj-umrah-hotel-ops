@@ -89,3 +89,17 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
 - [ ] Production and staging: `GET /api/public/demo-sign-in` answers 404.
 - [ ] A state-changing request with a foreign `Origin` (e.g. `curl -X POST -H 'Origin: https://example.org'
       …/api/auth/logout`) answers 403 `CSRF_ORIGIN_MISMATCH`.
+
+## Passport reading (Phase 2d)
+
+- The worker process (`pnpm --filter @hajj/api worker`, `JOBS_MODE=all` there) runs `booking.passport-read`. The API
+  processes must be able to enqueue (`JOBS_MODE` light, send or all) or uploads answer 409 `PASSPORT_READING_UNAVAILABLE`.
+- `PASSPORT_OCR=tesseract` in the worker only: install `tesseract.js` (and its English language data, or allow the
+  first download) in the worker image. Without it every scan goes to manual entry.
+- `PASSPORT_AI=anthropic` (+ `ANTHROPIC_API_KEY`, optional `PASSPORT_AI_MODEL`) sends unreadable passport images to
+  an external service: enable only after the contract and data-region review (v7 §23 Q24), including zero-data
+  retention and the server-side fallback models. Each organization must then also opt in
+  (`PATCH /api/booking-settings {"passportAiAllowed": true}`); every sending is logged in `pii_access_log`.
+- The daily `booking.passport-retention` job (light tier) deletes passport images after their retention: some
+  process must work the light tier (`JOBS_MODE` light or all), or images are kept beyond the PDPL period.
+- Passport images are encrypted with `PII_ENCRYPTION_KEYS` like the other personal data: rotate keys by prepending.

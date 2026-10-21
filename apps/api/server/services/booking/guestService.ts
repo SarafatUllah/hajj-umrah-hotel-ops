@@ -69,7 +69,15 @@ interface Viewer { actor: Actor, full: boolean, warnHotelIds?: readonly string[]
  * a master on first sight; only staff who may see passports (`mergesMaster`) link to an existing one and learn
  * whether it differs — for anyone else the answer must not tell whether a master exists (no oracle).
  */
-interface Writer { actor: Actor, writesMaster: boolean, mergesMaster: boolean, lockedStatuses: readonly string[], warnHotelIds?: readonly string[] | null }
+export interface Writer {
+  actor: Actor
+  writesMaster: boolean
+  mergesMaster: boolean
+  lockedStatuses: readonly string[]
+  warnHotelIds?: readonly string[] | null
+  /** Runs in the save's transaction once the booker's copy is written (e.g. a passport scan's review marks the scan). */
+  afterSave?: (tx: Db, saved: { detailId: string, guestId: string }) => Promise<void>
+}
 
 // Ciphertexts are bound to the row they belong to: a booker's copy is one per slot, a master one per passport.
 const passportContext = (guestId: string) => `booking_guest_detail.passport_no:${guestId}`
@@ -161,7 +169,7 @@ async function linkMaster(repos: Repos, lookup: string, input: GuestDetailsInput
  * the person does not fit the slot — the other gender's side from the child age on, or an infant slot for someone
  * older — and when the same passport is already in another slot of this booking. Logged as DETAILS_UPDATED (no PII).
  */
-async function saveSlot(db: Db, scope: OrganizationScope, booking: BookingRow, guestId: string, input: GuestDetailsInput, writer: Writer): Promise<GuestSlotDto> {
+export async function saveSlot(db: Db, scope: OrganizationScope, booking: BookingRow, guestId: string, input: GuestDetailsInput, writer: Writer): Promise<GuestSlotDto> {
   const settings = await loadBookingSettings(db, scope)
   const cipher = usePiiCipher()
   const lookup = input.passportNo && input.nationality ? cipher.blindIndex(passportLookupInput(input.nationality, input.passportNo), PASSPORT_LOOKUP_CONTEXT) : null
@@ -182,7 +190,7 @@ async function saveSlot(db: Db, scope: OrganizationScope, booking: BookingRow, g
       throw new ValidationError('DUPLICATE_PASSPORT_IN_BOOKING', 'This passport is already in another slot of this booking')
     }
 
-    await repos.guests.saveDetail({
+    const detail = await repos.guests.saveDetail({
       bookingId: booking.id,
       bookingGuestId: guestId,
       fullName: input.fullName,
@@ -204,6 +212,7 @@ async function saveSlot(db: Db, scope: OrganizationScope, booking: BookingRow, g
     const status = DETAILS_STAGES.includes(slot.guest.status) ? (complete ? 'READY' : 'PENDING_DETAILS') : slot.guest.status
     await repos.guests.updateSlot(booking.id, guestId, { gender: input.gender ?? slot.guest.gender, ageGroup: checked.ageGroup, status, pilgrimId: link.pilgrimId })
     await repos.records.recordChange({ bookingId: booking.id, kind: 'DETAILS_UPDATED', before: { slotNo: slot.guest.slotNo, status: slot.guest.status }, after: { slotNo: slot.guest.slotNo, status, complete }, actor: writer.actor })
+    if (writer.afterSave) await writer.afterSave(tx, { detailId: detail.id, guestId })
     return link.differs
   }).catch(rethrowDbError)
 
@@ -213,7 +222,14 @@ async function saveSlot(db: Db, scope: OrganizationScope, booking: BookingRow, g
   return masterDiffers ? { ...saved, warnings: [...saved.warnings, { code: 'MASTER_DIFFERS' }] } : saved
 }
 
-const AGENCY_LOCKED = ['CHECKED_IN', 'CHECKED_OUT', 'NO_SHOW', 'REMOVED']
+/** Slot statuses an agency can no longer change (the hotel can, except a removed slot). */
+export const AGENCY_LOCKED = ['CHECKED_IN', 'CHECKED_OUT', 'NO_SHOW', 'REMOVED']
+
+/** The writer of a staff save: complete details create the master; only staff who may see passports merge into one. */
+export const staffWriter = (ctx: AuthContext): Writer => ({ actor: { kind: 'staff', id: ctx.identity.userId }, writesMaster: true, mergesMaster: orgCan(ctx.authz, 'pilgrim.viewSensitive'), lockedStatuses: ['REMOVED'], warnHotelIds: visibleHotels(ctx) })
+
+/** The writer of an agency save. */
+export const agencyWriter = (ctx: AgencyContext): Writer => ({ actor: { kind: 'agency', id: ctx.identity.agencyUserId }, writesMaster: false, mergesMaster: false, lockedStatuses: AGENCY_LOCKED })
 
 /** Agency portal: its booking's slots with its own copies in full (the read is logged; rate limited per agency user). */
 export async function listAgencyGuests(ctx: AgencyContext, bookingId: string): Promise<GuestSlotDto[]> {
@@ -225,7 +241,7 @@ export async function listAgencyGuests(ctx: AgencyContext, bookingId: string): P
 /** Agency portal: enter or correct a pilgrim's details (v7 §5 rule 16: never another agency's). */
 export async function saveAgencyGuest(ctx: AgencyContext, bookingId: string, guestId: string, input: GuestDetailsInput): Promise<GuestSlotDto> {
   const booking = await loadForAgency(ctx, bookingId)
-  return saveSlot(ctx.db, ctx.scope, booking, guestId, input, { actor: { kind: 'agency', id: ctx.identity.agencyUserId }, writesMaster: false, mergesMaster: false, lockedStatuses: AGENCY_LOCKED })
+  return saveSlot(ctx.db, ctx.scope, booking, guestId, input, agencyWriter(ctx))
 }
 
 /**
@@ -247,5 +263,5 @@ const visibleHotels = (ctx: AuthContext): readonly string[] | null => (ctx.authz
 /** Staff (`booking.edit`: managers, reception at arrival): enter or correct details; complete details refresh the staff master. */
 export async function saveGuest(ctx: AuthContext, bookingId: string, guestId: string, input: GuestDetailsInput): Promise<GuestSlotDto> {
   const booking = await loadForStaff(ctx, bookingId, 'booking.edit')
-  return saveSlot(ctx.db, ctx.scope, booking, guestId, input, { actor: { kind: 'staff', id: ctx.identity.userId }, writesMaster: true, mergesMaster: orgCan(ctx.authz, 'pilgrim.viewSensitive'), lockedStatuses: ['REMOVED'], warnHotelIds: visibleHotels(ctx) })
+  return saveSlot(ctx.db, ctx.scope, booking, guestId, input, staffWriter(ctx))
 }

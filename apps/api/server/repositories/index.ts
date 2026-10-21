@@ -1,7 +1,7 @@
 import type { DbOrTx } from '@hajj/db/client'
 import type { HotelScope, OrganizationScope } from '../security/scope'
 import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from './accounts'
-import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingRecordRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, GuestRepository, PiiAccessLogRepository, PilgrimRepository, PriceQuoteRepository, RateRepository } from './booking'
+import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingRecordRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, GuestRepository, PassportScanRepository, PiiAccessLogRepository, PilgrimRepository, PriceQuoteRepository, RateRepository } from './booking'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from './hotel'
 import { PlatformOrganizationRepository } from './platform/organizationRepository'
 import { PlatformOtpChallengeRepository } from './platform/otpChallengeRepository'
@@ -100,6 +100,7 @@ export function bookingOrgRepos(db: DbOrTx, scope: OrganizationScope) {
     guests: () => new GuestRepository(db, scope),
     pilgrims: () => new PilgrimRepository(db, scope),
     piiAccess: () => new PiiAccessLogRepository(db, scope),
+    passportScans: () => new PassportScanRepository(db, scope),
   })
 }
 

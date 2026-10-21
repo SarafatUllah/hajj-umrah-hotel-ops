@@ -84,6 +84,15 @@ const envBase = z.object({
   // deployment; `send` = enqueue only; `off` = no job runtime (enqueueing then fails loudly).
   JOBS_POOL_MAX: z.coerce.number().int().min(1).max(20).default(3),
   JOBS_MODE: z.enum(['off', 'send', 'light', 'all'], { errorMap: () => ({ message: 'JOBS_MODE must be off, send, light or all' }) }).default('light'),
+  // Phase 2d: reading passport images (v7 §13), in the worker. `PASSPORT_OCR=tesseract` reads the MRZ on our own
+  // server (the worker image must have the `tesseract.js` package and its English data installed); `none` (default)
+  // sends every scan straight to manual review. `PASSPORT_AI=anthropic` is the external fallback (Claude vision) when
+  // the MRZ cannot be read — off by default (§23 Q24: only after the contract and data-region review); it needs
+  // ANTHROPIC_API_KEY. PASSPORT_AI_MODEL picks the model.
+  PASSPORT_OCR: z.enum(['none', 'tesseract'], { errorMap: () => ({ message: 'PASSPORT_OCR must be none or tesseract' }) }).default('none'),
+  PASSPORT_AI: z.enum(['none', 'anthropic'], { errorMap: () => ({ message: 'PASSPORT_AI must be none or anthropic' }) }).default('none'),
+  PASSPORT_AI_MODEL: z.string().min(1).default('claude-opus-5-5'),
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
 })
 
 /** APP_ENV values under which the demo sign-in endpoint may ever answer (the runtime gate below). */
@@ -139,7 +148,13 @@ function refineDistinctPiiKeys(env: { PII_ENCRYPTION_KEYS: string, PII_LOOKUP_KE
   if (isLookupKeyReused(env)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['PII_LOOKUP_KEY'], message: 'PII_LOOKUP_KEY must differ from every PII_ENCRYPTION_KEYS key' })
 }
 
-const envSchema = envBase.superRefine(refineDemoSignIn).superRefine(refineProductionSecurity).superRefine(refineDistinctPiiKeys).superRefine(refineSmsWebhook)
+function refinePassportAi(env: { PASSPORT_AI: string, ANTHROPIC_API_KEY?: string }, ctx: z.RefinementCtx): void {
+  if (env.PASSPORT_AI === 'anthropic' && !env.ANTHROPIC_API_KEY) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ANTHROPIC_API_KEY'], message: 'ANTHROPIC_API_KEY is required with PASSPORT_AI=anthropic' })
+  }
+}
+
+const envSchema = envBase.superRefine(refineDemoSignIn).superRefine(refineProductionSecurity).superRefine(refineDistinctPiiKeys).superRefine(refineSmsWebhook).superRefine(refinePassportAi)
 
 export type Env = z.infer<typeof envSchema>
 

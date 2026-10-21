@@ -11,3 +11,6 @@ export { expireLapsedBookings, placeHold, searchStay, type HeldBooking, type Sta
 export type { Booker } from './stayFacts'
 export { agencyBookingReceipt, bookingReceipt, confirmAgencyBooking, confirmBooking, getAgencyBooking, getBooking, holdAgencyStay, holdStayForAgency, listAgencyBookings, listBookings, searchAgencyStay, searchStayForAgency, type BookingDetailDto, type BookingDto, type BookingPage, type ReceiptDto } from './bookingService'
 export { listAgencyGuests, listGuests, saveAgencyGuest, saveGuest, type GuestDetailsDto, type GuestSlotDto, type GuestWarning } from './guestService'
+export { agencyScanImage, confirmAgencyScan, confirmScan, discardAgencyScan, discardScan, listAgencyScans, listScans, scanImage, setPassportReadQueue, uploadAgencyScan, uploadScan, type PassportScanDto, type ScanUpload } from './passportScanService'
+export { purgeExpiredPassportImages } from './passportImages'
+export { readPassportScan } from './passportReading'

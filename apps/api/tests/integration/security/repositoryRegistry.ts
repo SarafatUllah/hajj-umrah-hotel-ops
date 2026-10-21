@@ -1,11 +1,11 @@
 import { and, eq, isNotNull, isNull } from 'drizzle-orm'
-import { agency, agencyQuota, agencyUser, allocationRule, appUser, auditLog, booking, bookingGuestDetail, bookingPriceLine, bookingSetting, piiAccessLog, pilgrim, customer, documentSequence, extraBedPolicy, otpChallenge, priceQuote, rate, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
+import { agency, agencyQuota, agencyUser, allocationRule, appUser, auditLog, booking, bookingGuestDetail, bookingPriceLine, passportScan, bookingSetting, piiAccessLog, pilgrim, customer, documentSequence, extraBedPolicy, otpChallenge, priceQuote, rate, capacityPeriod, documentAsset, floor, hotel, hotelDocument, hotelSetting, room, roomBaseConfig, roomCapacityOverride, roomOperationalBlock, roomType, role, rolePermission, userHotelAccess, userRole } from '@hajj/db/schema'
 import type { DbOrTx } from '@hajj/db/client'
 import { trustedHotelScope, type OrganizationScope } from '../../../server/security/scope'
 import { AuditRepository, DocumentAssetRepository, HotelRepository, RoleNotInScopeError, RoleRepository, RoomTypeRepository, TenantOrganizationRepository, UserHotelAccessRepository, UserRepository } from '../../../server/repositories/tenant'
 import { CapacityPeriodRepository, FloorRepository, HotelDocumentRepository, HotelSettingRepository, InventoryReadRepository, OperationalBlockRepository, RoomBaseConfigRepository, RoomCapacityOverrideRepository, RoomRepository } from '../../../server/repositories/hotel'
 import { AgencyRepository, AgencyUserRepository, CustomerRepository, OtpChallengeRepository } from '../../../server/repositories/accounts'
-import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingRecordRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, GuestRepository, PiiAccessLogRepository, PilgrimRepository, PriceQuoteRepository, RateRepository } from '../../../server/repositories/booking'
+import { AgencyQuotaRepository, AllocationRuleRepository, BookingInventoryRepository, BookingRecordRepository, BookingRepository, BookingSettingRepository, DocumentSequenceRepository, ExtraBedPolicyRepository, GuestRepository, PassportScanRepository, PiiAccessLogRepository, PilgrimRepository, PriceQuoteRepository, RateRepository } from '../../../server/repositories/booking'
 import { makeAgency, makeBooking, makeBookingRoom, makeCustomer, makeGuest, makeHotelWithRooms, makeStay } from '../../support/bookingFixtures'
 import { ensurePermissions, makeCapacityPeriod, makeFloor, makeHotel, makeHotelDocument, makeRole, makeRoom, makeRoomBlock, makeRoomCapacityOverride, makeRoomType, makeRoomWithVersion, makeUser, makeUserWithPermissions } from '../../support/fixtures'
 
@@ -90,6 +90,14 @@ async function arrangeGuestDetail(db: DbOrTx, orgA: OrganizationScope) {
   const [detail] = await db.insert(bookingGuestDetail).values({ organizationId: orgA.organizationId, bookingId: b.id, bookingGuestId: guest.id, fullName: 'Pilgrim A', passportNoEncrypted: 'x', passportLookup: lookup, enteredByKind: 'agency' }).returning()
   const [master] = await db.insert(pilgrim).values({ organizationId: orgA.organizationId, fullName: 'Pilgrim A', gender: 'MALE', nationality: 'BGD', dateOfBirth: '1980-01-01', passportNoEncrypted: 'x', passportLookup: lookup, passportExpiry: '2030-01-01' }).returning()
   return { bookingId: b.id, guestId: guest.id, detailId: detail!.id, pilgrimId: master!.id, lookup }
+}
+
+/** Phase 2d: org A's booking slot with a passport scan in the given status, placed in the slot. */
+async function arrangeScan(db: DbOrTx, orgA: OrganizationScope, status = 'NEEDS_REVIEW') {
+  const ids = await arrangeGuestDetail(db, orgA)
+  const [asset] = await db.insert(documentAsset).values({ organizationId: orgA.organizationId, storageKey: `${orgA.organizationId}/2027/${ids.guestId}.png`, originalFilename: 'p.png', mimeType: 'image/png', sizeBytes: 1, sha256: 'a'.repeat(64) }).returning()
+  const [scan] = await db.insert(passportScan).values({ organizationId: orgA.organizationId, bookingId: ids.bookingId, bookingGuestId: ids.guestId, documentId: asset!.id, status, uploadedByKind: 'agency' }).returning()
+  return { ...ids, scanId: scan!.id, documentId: asset!.id }
 }
 
 /** Phase 2b: org A's customer with one open REQUESTED booking. */
@@ -1605,6 +1613,43 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     },
     expect: 'empty',
   }),
+  'PassportScanRepository.insert': isolationCase({
+    // A fresh image (one scan per image): only the organization can make the insert fail.
+    arrange: async (db, orgA) => {
+      const ids = await arrangeScan(db, orgA)
+      const [asset] = await db.insert(documentAsset).values({ organizationId: orgA.organizationId, storageKey: `${orgA.organizationId}/2027/${ids.scanId}.png`, originalFilename: 'p2.png', mimeType: 'image/png', sizeBytes: 1, sha256: 'b'.repeat(64) }).returning()
+      return { ...ids, documentId: asset!.id }
+    },
+    act: (db, scope, ids) => new PassportScanRepository(db, scope).insert({ bookingId: ids.bookingId, documentId: ids.documentId, status: 'QUEUED', uploadedByKind: 'agency' }),
+    expect: 'rejects',
+    rejection: foreignKeyViolation,
+  }),
+  'PassportScanRepository.findById': isolationCase({ arrange: arrangeScan, act: (db, scope, ids) => new PassportScanRepository(db, scope).findById(ids.scanId), expect: 'null' }),
+  'PassportScanRepository.listForBooking': isolationCase({ arrange: arrangeScan, act: (db, scope, ids) => new PassportScanRepository(db, scope).listForBooking(ids.bookingId), expect: 'empty' }),
+  'PassportScanRepository.startReading': isolationCase({ arrange: (db, orgA) => arrangeScan(db, orgA, 'QUEUED'), act: (db, scope, ids) => new PassportScanRepository(db, scope).startReading(ids.scanId, new Date()), expect: 'null' }),
+  'PassportScanRepository.recordReading': isolationCase({
+    arrange: (db, orgA) => arrangeScan(db, orgA, 'PROCESSING'),
+    act: (db, scope, ids) => new PassportScanRepository(db, scope).recordReading(ids.scanId, { status: 'FAILED', method: null, extractedEncrypted: null, confidence: null, failureReason: 'UNREADABLE', bookingGuestId: null }, new Date()),
+    expect: 'null',
+  }),
+  'PassportScanRepository.confirm': isolationCase({
+    arrange: arrangeScan,
+    act: (db, scope, ids) => new PassportScanRepository(db, scope).confirm(ids.scanId, { bookingGuestId: ids.guestId, bookingGuestDetailId: ids.detailId }, { reviewedByKind: 'staff', reviewedById: null, reviewedAt: new Date() }),
+    expect: 'null',
+  }),
+  'PassportScanRepository.discard': isolationCase({ arrange: arrangeScan, act: (db, scope, ids) => new PassportScanRepository(db, scope).discard(ids.scanId, { reviewedByKind: 'staff', reviewedById: null, reviewedAt: new Date() }, '2027-01-01'), expect: 'null' }),
+  'PassportScanRepository.clearReading': isolationCase({ arrange: arrangeScan, act: (db, scope, ids) => new PassportScanRepository(db, scope).clearReading(ids.scanId, new Date()), expect: 'null' }),
+  'PassportScanRepository.countUnresolved': isolationCase({ arrange: arrangeScan, act: (db, scope, ids) => new PassportScanRepository(db, scope).countUnresolved(ids.bookingId), expect: 'zero-affected' }),
+  'PassportScanRepository.imagesDue': isolationCase({
+    arrange: async (db, orgA) => {
+      const ids = await arrangeScan(db, orgA)
+      await db.update(passportScan).set({ deleteAfter: '2027-01-01' }).where(eq(passportScan.id, ids.scanId))
+      return ids
+    },
+    act: (db, scope) => new PassportScanRepository(db, scope).imagesDue('2099-12-31', new Date(), 10),
+    expect: 'empty',
+  }),
+  'PassportScanRepository.targetedSlots': isolationCase({ arrange: arrangeScan, act: (db, scope, ids) => new PassportScanRepository(db, scope).targetedSlots(ids.bookingId), expect: 'empty' }),
   'BookingRecordRepository.lockOpenRequests': isolationCase({
     arrange: arrangeCustomerRequest,
     act: async (db, scope, ids) => db.transaction(tx => new BookingRecordRepository(tx, scope).lockOpenRequests(ids.customerId, new Date())),

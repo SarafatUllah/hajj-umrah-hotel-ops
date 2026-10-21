@@ -34,7 +34,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 10d | 2a: WhatsApp quotes and price resolution (quote → agency default → public, per night) | done |
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | done |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | done |
-| 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | 13a guest details done |
+| 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | 13a guest details, 13b passport pipeline done |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | |
@@ -312,6 +312,37 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   checks cannot race, the status is current); one undecryptable row shows `DETAILS_UNREADABLE` instead of failing
   the list; passport numbers must be ASCII before case folding. Accepted: an agency may correct its READY details
   until check-in.
+- **D-P2-40 (booking) Passport pipeline (v7 §13, ticket 1).** Agencies (own bookings) and staff (`booking.edit`)
+  upload one passport photo per request (PNG/JPEG ≤ 10 MB; the portal sends many in parallel). The image is
+  encrypted before storage (context bound to its storage key) and recorded as a QUEUED `passport_scan` whose reading
+  job (`booking.passport-read`, heavy tier: worker process only) is enqueued in the same transaction; the image is
+  deleted `passportImageRetentionMonths` after check-out (`delete_after`) or at once when the scan is discarded.
+  Reading: on-server OCR (`PASSPORT_OCR=tesseract`, tesseract.js installed in the worker image only) → the TD3 MRZ,
+  repaired by position (letters vs digits) and verified by its ICAO check digits; only when the MRZ is missing or
+  fails a check, the external vision fallback (`PASSPORT_AI=anthropic`: Claude via the official SDK, structured JSON
+  output, server-side refusal fallback; off by default per §23 Q24 — contract and data-region review first). With
+  neither configured every scan is FAILED (`NO_READER`) and typed in by hand. Per-field confidence: verified MRZ
+  fields 0.99, a cut-off MRZ name or a failed check 0.4, AI fields 0.6; below 0.9 is highlighted. The reading is
+  encrypted on the scan and placed in an open slot (the passport's gender side in a GROUP, children and infants in
+  their own slots). Review: the card lists what was read (logged in `pii_access_log`), the image is streamed
+  decrypted (logged, `no-store`, sandboxed); confirming saves the details through the same rules as a hand entry and
+  marks the scan CONFIRMED with the booker's copy it filled, in one transaction (ticket 1: never the staff master).
+  Printed-page extras (place of birth, issue date, authority, address) come from the AI fallback or are typed in.
+  Deferred: cropping the face photo for check-in comparison (needs face detection).
+  Hardening (security review): uploads are rate limited per user (600/h) and a booking holds at most one unresolved
+  scan per pilgrim + 5 re-takes (counted under the booking row lock); the image header is parsed and anything over
+  60 MP refused before OCR can decode it (tesseract also times out after 60 s, one job at a time per worker). A
+  reading that throws ends FAILED (`READ_ERROR`) instead of staying PROCESSING; a PROCESSING older than 10 min (a
+  crashed worker) is taken over by the job's retry (retries start 11 min later). The external AI reader needs the
+  organization's consent (`booking_setting.passport_ai_allowed`, off by default; PDPL cross-border transfer) and an
+  hourly budget (300/organization); each sending is a `system` row in `pii_access_log`. AI answers are untrusted:
+  real calendar dates and Latin-letter names only, every AI field below the review threshold. Staff reviewing what
+  was read (cards, images) also need `pilgrim.viewSensitive` and are rate limited like `reveal=passport`; reception
+  (`booking.edit` only) uploads and confirms. Images are deleted by the daily `booking.passport-retention` sweep
+  (`delete_after`, or the day of a discard) — storage object first, then the asset is archived and the reading
+  cleared, so an archived asset always means the object is gone and a failed deletion is retried. Accepted risk: a
+  crash between the storage write and the upload transaction leaves an orphan encrypted object (no row, no key
+  material exposed); an orphan reaper joins ticket 4's retention work.
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).
