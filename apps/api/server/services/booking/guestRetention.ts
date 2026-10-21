@@ -16,7 +16,7 @@ const ERASURE_BATCH = 500
  * slots let go of the staff master, copies erased in place, passport readings cleared and images made due (the image
  * sweep deletes them), task notes cleared. Returns how many copies were erased.
  */
-async function eraseBookings(tx: Db, scope: OrganizationScope, bookingIds: readonly string[], today: IsoDate, now: Date): Promise<number> {
+export async function eraseBookingData(tx: Db, scope: OrganizationScope, bookingIds: readonly string[], today: IsoDate, now: Date): Promise<number> {
   const repos = bookingOrgRepos(tx, scope)
   await repos.records.clearFreeText(bookingIds)
   await repos.guests.releaseMasters(bookingIds)
@@ -43,7 +43,7 @@ export async function eraseExpiredGuestData(db: Db, scopes: readonly Organizatio
     for (;;) {
       const due = await bookingOrgRepos(db, scope).records.dueForErasure(cutoff, today, ERASURE_BATCH, after)
       if (due.length === 0) break
-      erased += await db.transaction(tx => eraseBookings(tx, scope, due.map(b => b.id), today, now))
+      erased += await db.transaction(tx => eraseBookingData(tx, scope, due.map(b => b.id), today, now))
       if (due.length < ERASURE_BATCH) break
       after = due.at(-1)!
     }

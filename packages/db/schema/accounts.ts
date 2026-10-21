@@ -52,23 +52,30 @@ export const agencyUser = pgTable('agency_user', {
   index('agency_user_agency_idx').on(t.organizationId, t.agencyId),
 ])
 
-/** An individual booker (public site): identified by a verified phone number (OTP, v7 §21), e-mail optional. */
+/**
+ * An individual booker (public site): identified by a verified phone number (OTP, v7 §21), e-mail optional. A closed
+ * account (step 15b) keeps its row for the bookings that name it, without phone, name or e-mail: the number is free
+ * to sign up again as a new account.
+ */
 export const customer = pgTable('customer', {
   id: idColumn(),
   organizationId: organizationColumn(),
   fullName: text('full_name').notNull(),
-  phone: text('phone').notNull(),
+  phone: text('phone'),
   phoneVerifiedAt: timestamp('phone_verified_at', { withTimezone: true }),
   email: text('email'),
   isActive: boolean('is_active').notNull().default(true),
   sessionVersion: integer('session_version').notNull().default(1),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+  closedAt: timestamp('closed_at', { withTimezone: true }),
   ...timestampColumns(),
 }, t => [
   unique('customer_org_id_unique').on(t.organizationId, t.id),
   unique('customer_org_phone_unique').on(t.organizationId, t.phone),
   // E.164, as normalized by the API (`+` and 8–15 digits).
   check('customer_phone_check', sql`${t.phone} ~ '^\\+[1-9][0-9]{7,14}$'`),
+  // An open account has its phone; a closed one has none and signs nobody in.
+  check('customer_closed_check', sql`(${t.closedAt} is null) = (${t.phone} is not null) and (${t.closedAt} is null or not ${t.isActive})`),
 ])
 
 /**

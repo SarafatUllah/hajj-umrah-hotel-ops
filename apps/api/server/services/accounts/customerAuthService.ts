@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { OTP_MAX_ATTEMPTS, OTP_TTL_SECONDS } from '@hajj/contracts/constants/accounts'
 import type { OtpRequestInput, OtpVerifyInput } from '@hajj/contracts/schemas/customer'
 import { rethrowDbError } from '../../errors/dbErrors'
-import { ForbiddenError, UnauthenticatedError, ValidationError } from '../../errors/domainError'
+import { ConflictError, ForbiddenError, UnauthenticatedError, ValidationError } from '../../errors/domainError'
 import { useSmsSender } from '../../notifications/sms'
 import { accountsRepos } from '../../repositories'
 import type { CustomerContext } from '../../security/customerContext'
 import type { LoginRequest } from '../../security/loginThrottle'
+import type { OrganizationScope } from '../../security/scope'
 import { generateOtpCode, hashOtpCode, otpCodeMatches } from '../../security/otp'
 import { assertHuman } from '../../security/captcha'
 import { clearRateLimit, consumeRateLimit, RATE_LIMITS, type RateLimitPolicy } from '../../security/rateLimit'
@@ -111,7 +112,7 @@ export async function verifyCustomerOtp(input: OtpVerifyInput, request: LoginReq
 
   await clearRateLimit(db, RATE_LIMITS.otpVerifyPerPhone, phoneKey)
   const { customerRow, isNew } = signedIn
-  return { id: customerRow.id, organizationId: customerRow.organizationId, phone: customerRow.phone, fullName: customerRow.fullName, sessionVersion: customerRow.sessionVersion, isNew }
+  return { id: customerRow.id, organizationId: customerRow.organizationId, phone: challenge.phone, fullName: customerRow.fullName, sessionVersion: customerRow.sessionVersion, isNew }
 }
 
 /** "Sign out everywhere": ends every session of the customer (the caller's included). */
@@ -121,4 +122,15 @@ export async function signOutEverywhere(ctx: CustomerContext): Promise<void> {
 
 export function getCustomerMe(ctx: CustomerContext): CustomerMe {
   return { id: ctx.identity.customerId, phone: ctx.identity.phone, fullName: ctx.identity.fullName }
+}
+
+/** Is the customer's account open (not closed, not disabled)? The booking module asks under its request lock. */
+export async function isCustomerOpen(db: Db, scope: OrganizationScope, customerId: string): Promise<boolean> {
+  const row = await accountsRepos(db, scope).customers.findById(customerId)
+  return Boolean(row?.isActive && !row.closedAt)
+}
+
+/** Step 15b: the account is closed — anonymized, inactive, every session ended (409 `ACCOUNT_CLOSED` when it already is). */
+export async function closeCustomerRecord(db: Db, scope: OrganizationScope, customerId: string, at: Date): Promise<void> {
+  if (!await accountsRepos(db, scope).customers.close(customerId, at)) throw new ConflictError('ACCOUNT_CLOSED', 'This account is already closed')
 }

@@ -1,4 +1,5 @@
-import type { BookingStatus } from '@hajj/contracts/constants/booking'
+import { type BookingStatus, PENDING_BOOKING_STATUSES } from '@hajj/contracts/constants/booking'
+import { todayInTimezone } from '@hajj/contracts/utils/dates'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { CancelBookingInput } from '@hajj/contracts/schemas/booking'
 import { effectiveBookingStatus } from '../../domain/booking/bookingView'
@@ -12,6 +13,7 @@ import type { CustomerContext } from '../../security/customerContext'
 import type { OrganizationScope } from '../../security/scope'
 import { loadForAgency, loadForCustomer, loadForStaff } from './bookingAccess'
 import { bookingCancelledEvent } from './bookingEvents'
+import { eraseBookingData } from './guestRetention'
 import { type BookingDetailDto, bookingDetail } from './bookingService'
 
 type Db = Parameters<typeof bookingOrgRepos>[0]
@@ -75,4 +77,35 @@ export async function releaseAgencyHold(ctx: AgencyContext, bookingId: string): 
 export async function withdrawCustomerRequest(ctx: CustomerContext, bookingId: string): Promise<BookingDetailDto> {
   const row = await loadForCustomer(ctx, bookingId)
   return cancel(ctx.db, ctx.scope, row, { kind: 'customer', id: ctx.scope.customerId }, null, ctx.now(), CUSTOMER_WITHDRAWABLE)
+}
+
+/**
+ * Step 15b, inside an account closure's transaction: under the customer's request lock (taken first, as a new request
+ * does), a stay not over yet — confirmed with a check-out after today (UTC), or pilgrims in the house — refuses the
+ * closure (409 `ACTIVE_BOOKINGS`, with their numbers: the hotel cancels them; "today" in UTC, like the retention sweep —
+ * conservative east of UTC); the open requests are withdrawn and their personal data erased at once (the pilgrims'
+ * copies, free text, passport scans: no stay will use them). One the hotel confirmed meanwhile (judged again under
+ * its row lock) refuses the closure the same way. Returns the withdrawn booking numbers. Past stays keep naming the
+ * (anonymized) customer and keep their data until the retention sweep.
+ */
+export async function releaseCustomerBookings(db: Db, scope: OrganizationScope, customerId: string, now: Date): Promise<string[]> {
+  const records = bookingOrgRepos(db, scope).records
+  await records.lockOpenRequests(customerId, now)
+  const today = todayInTimezone('UTC', now)
+  const live = (await records.liveForCustomer(customerId)).map(row => ({ row, status: effectiveBookingStatus({ status: row.status as BookingStatus, holdExpiresAt: row.holdExpiresAt }, now) }))
+  const active = live.filter(b => b.status === 'IN_HOUSE' || (b.status === 'CONFIRMED' && b.row.checkOut > today))
+  if (active.length > 0) {
+    throw new ConflictError('ACTIVE_BOOKINGS', 'Ask the hotel to cancel your confirmed stays before closing the account', { bookingNos: active.map(b => b.row.bookingNo) })
+  }
+  const open = live.filter(b => (PENDING_BOOKING_STATUSES as readonly string[]).includes(b.status))
+  for (const { row } of open) {
+    await cancel(db, scope, row, { kind: 'customer', id: customerId }, null, now, PENDING_BOOKING_STATUSES).catch((error: unknown) => {
+      if (error instanceof ConflictError && error.code === 'CANCEL_BY_HOTEL') {
+        throw new ConflictError('ACTIVE_BOOKINGS', 'Ask the hotel to cancel your confirmed stays before closing the account', { bookingNos: [row.bookingNo] })
+      }
+      throw error
+    })
+  }
+  if (open.length > 0) await eraseBookingData(db, scope, open.map(b => b.row.id), today, now)
+  return open.map(b => b.row.bookingNo)
 }

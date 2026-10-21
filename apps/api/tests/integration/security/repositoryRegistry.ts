@@ -1701,6 +1701,17 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     rejection: error => foreignKeyViolation(error) || pgCode(error) === '23514',
   }),
   // Step 14d date change: org B never moves, empties or prices org A's booking (its update finds nothing: null).
+  // Step 15b: org B never lists org A's customer's live bookings (an account closure's check).
+  'BookingRecordRepository.liveForCustomer': isolationCase({
+    arrange: async (db, orgA) => {
+      const { hotel } = await makeHotelWithRooms(db, orgA, 1)
+      const customerRow = await makeCustomer(db, orgA)
+      await makeBooking(db, orgA, hotel.id, { bookerType: 'INDIVIDUAL', customerId: customerRow.id, bookingType: 'FAMILY', maleCount: 0, totalCount: 2, status: 'REQUESTED' })
+      return { customerId: customerRow.id }
+    },
+    act: (db, scope, ids) => new BookingRecordRepository(db, scope).liveForCustomer(ids.customerId),
+    expect: 'empty',
+  }),
   'BookingRecordRepository.rebook': isolationCase({
     arrange: async (db, orgA) => {
       const ids = await arrangeConfirmedBooking(db, orgA)
@@ -1966,6 +1977,12 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
       return db.select().from(customer).where(and(eq(customer.id, ids.customerId), isNotNull(customer.lastLoginAt)))
     },
     expect: 'empty',
+  }),
+  // Step 15b: org B never closes (anonymizes) org A's customer.
+  'CustomerRepository.close': isolationCase({
+    arrange: arrangeCustomerChallenge,
+    act: (db, scope, ids) => new CustomerRepository(db, scope).close(ids.customerId, new Date()),
+    expect: 'null',
   }),
   'OtpChallengeRepository.insert': isolationCase({
     arrange: async (_db, orgA) => ({ orgAId: orgA.organizationId }),

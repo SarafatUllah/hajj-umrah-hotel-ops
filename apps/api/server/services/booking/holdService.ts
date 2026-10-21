@@ -14,6 +14,7 @@ import { bookingOrgRepos, bookingRepos } from '../../repositories'
 import type { BookingSettingRow } from '../../repositories/booking'
 import { bookableHotel } from '../../security/authorize'
 import type { HotelScope, OrganizationScope } from '../../security/scope'
+import { isCustomerOpen } from '../accounts'
 import { loadBookingSettings } from './bookingSettingsService'
 import { agencyOwnerKey, type Booker, headcountOf, loadStayFacts } from './stayFacts'
 import { assertApprovedAgency, assertQuota, checkInput, optionError, priceRooms, quotaHeadroomFor, type StaySearchResult, toOption, usableQuote, type UsableQuote } from './stayChecks'
@@ -124,6 +125,8 @@ export async function placeHold(db: Db, scope: OrganizationScope, booker: Booker
     const held = booker.kind === 'AGENCY' ? await repos.inventory.lockAgencyQuota(booker.agencyId, nights) : null
     if (booker.kind === 'INDIVIDUAL') {
       const open = await bookingOrgRepos(tx, scope).records.lockOpenRequests(booker.customerId, now)
+      // Under the request lock an account closure also takes: a request waiting behind one finds the account closed.
+      if (!await isCustomerOpen(tx, scope, booker.customerId)) throw new ConflictError('ACCOUNT_CLOSED', 'This account is closed')
       if (open >= settings.individualMaxOpenRequests) throw new ConflictError('TOO_MANY_OPEN_REQUESTS', `At most ${settings.individualMaxOpenRequests} open request(s) at a time; wait for the hotel's answer`)
     }
     const locked = await repos.inventory.lockRooms(roomIds)

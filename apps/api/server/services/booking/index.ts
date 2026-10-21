@@ -20,7 +20,7 @@ export { completeHotelTask, listHotelTasks, type HotelTaskDto } from './hotelTas
 export { sendDetailsReminders } from './detailsReminder'
 export { getOccupancy, getOccupancyDay, type OccupancyDayViewDto, type OccupancyRangeDto } from './occupancyService'
 export { notifyBookingCancelled, notifyBookingConfirmed } from './bookingEvents'
-export { cancelBooking, releaseAgencyHold, withdrawCustomerRequest } from './cancellationService'
+export { cancelBooking, releaseAgencyHold, releaseCustomerBookings, withdrawCustomerRequest } from './cancellationService'
 export { readAgencyGuests, readBookingSlots, type AgencyGuestView, type BookingSlotsView } from './publicRead'
 export { eraseExpiredGuestData } from './guestRetention'
 export { addAgencyGuests, addGuests, removeGuest, searchAgencyGuestAdditions, searchGuestAdditions } from './guestChangeService'

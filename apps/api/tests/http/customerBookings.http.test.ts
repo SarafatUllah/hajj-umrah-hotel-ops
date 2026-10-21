@@ -63,4 +63,18 @@ describe('public booking API over HTTP (v7 §6, §10)', () => {
     const withdrawn = await client.request(`/api/customer/bookings/${id}/withdraw`, { method: 'POST', cookie })
     expect(withdrawn.json).toMatchObject({ status: 'CANCELLED' })
   })
+
+  it('closing the account (fresh code) ends the session; the phone then signs up as a new account', async () => {
+    const { organization } = await makeOrg(db)
+    const cookie = await signIn(organization, '+966501230003', 'Omar Faruk')
+    const closed = await client.request('/api/customer/account/close', { method: 'POST', cookie })
+    expect(closed.status).toBe(200)
+    expect(closed.json).toEqual({ closed: true, withdrawn: [] })
+    expectStandardError(await client.request('/api/customer/auth/me', { cookie }), { status: 401 })
+
+    const challengeId = randomUUID()
+    await db.insert(otpChallenge).values({ id: challengeId, organizationId: organization.id, phone: '+966501230003', codeHash: hashOtpCode(challengeId, '482913'), expiresAt: new Date(Date.now() + 300_000) })
+    const again = await client.request('/api/customer/auth/otp/verify', { method: 'POST', body: { organizationSlug: organization.slug, challengeId, code: '482913', fullName: 'New Owner' } })
+    expect(again.json).toMatchObject({ isNew: true, customer: { fullName: 'New Owner' } })
+  })
 })

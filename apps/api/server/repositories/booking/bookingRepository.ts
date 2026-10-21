@@ -506,6 +506,11 @@ export class BookingRecordRepository {
     return row
   }
 
+  /** Step 15b account closure: the customer's bookings that still hold seats (pending, confirmed or in the house). */
+  async liveForCustomer(customerId: string): Promise<BookingRow[]> {
+    return this.#q.select(booking, and(eq(booking.customerId, customerId), inArray(booking.status, [...SEAT_HOLDING_STATUSES]))!, { orderBy: [asc(booking.checkIn)] })
+  }
+
   /** v7 §12: the booking's head count after pilgrims joined or left (the caller holds the row lock). */
   async setCounts(id: string, counts: { maleCount: number, femaleCount: number, childCount: number, infantCount: number, totalCount: number }, at: Date): Promise<BookingRow | null> {
     const [row] = await this.#q.update(booking, { ...counts, updatedAt: at }, eq(booking.id, id)).returning()

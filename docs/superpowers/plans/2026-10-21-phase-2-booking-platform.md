@@ -36,7 +36,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | done |
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
-| 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | 15a public request flow done |
+| 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | |
 | 17 | Final review (code, security, database, architecture) and docs | |
 
@@ -406,7 +406,7 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   who entered a copy (staff or agency user ids) — not identifying without a name or passport. The PII-in-logs test
   writes both kinds of copies and a master and checks `audit_log`, `booking_change`, `pii_access_log` and
   `event_receipt`. Customer accounts (phone, name) are account data, closed with the account, not by this sweep
-  (follow-up: account closure in step 15).
+  (account closure: D-P2-51).
 - **D-P2-46 (booking) Cancellation, early departure, no-show policy (v7 §12, step 14a).** Staff with
   `booking.cancel` on the hotel cancel a HELD, REQUESTED or CONFIRMED booking with a reason (`POST
   /api/bookings/:id/cancel`, 3–500 characters): under the booking's row lock it becomes CANCELLED (its room claims
@@ -512,6 +512,24 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   (D-P2-27) and the one open request; a REQUESTED booking expires by itself after `requestHours` (the minute sweep).
   Accepted: the slug's existence shows (it is a sign-in input anyway); searches are bounded per customer, whose
   accounts cost an SMS each.
+- **D-P2-51 (accounts) Customer account closure (step 15b).** `POST /api/customer/account/close` (customer session):
+  irreversible, so it needs a code verified in the last 10 minutes (the session's `loggedInAt`, now carried as
+  `CustomerContext.signedInAt`; 403 `STEP_UP_REQUIRED`: sign in again with a new code — D-P2-27b's step-up). One
+  transaction, orchestrated outside both modules (`services/customerAccountService.ts`, each module's public API):
+  the booking module takes the customer's request lock (the one a new request takes first) and refuses while a
+  stay is not over — CONFIRMED with a check-out after today (UTC), or IN_HOUSE (409 `ACTIVE_BOOKINGS` with the
+  booking numbers: the hotel cancels them; "today" in UTC like the retention sweep, conservative east of UTC; one the
+  hotel confirmed meanwhile, judged again under its row lock, refuses the same way) — then withdraws every open
+  request (CANCELLED, actor `customer`) and erases its personal data at once with the retention sweep's own step
+  (`eraseBookingData`: the pilgrims' copies, free text, passport scans — security review: no stay will use them,
+  so they do not wait out the retention months); the accounts module closes the row (migration 0019: `customer.phone` nullable, `closed_at`, check: closed ⇔ no phone,
+  closed ⇒ inactive): phone, e-mail, verification and last sign-in times cleared (a sign-in racing the closure
+  records nothing on a closed row), the name replaced by "Closed account", inactive,
+  the session version bumped (every session ends; the route also clears its cookie). The row stays because past
+  bookings name it; their pilgrims' details go with the retention sweep (D-P2-45). The number is free: signing in
+  with it creates a new account without history. A request waiting behind the closure on the request lock checks
+  the account under that lock (409 `ACCOUNT_CLOSED`), so none slips in; closing twice is 409 `ACCOUNT_CLOSED`.
+  Left to their own expiry: the phone's sign-in challenges (purged daily) and rate-limit buckets (minutes to a day).
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).
