@@ -21,7 +21,10 @@
     "seasons": "Seasonal capacity",
     "blocks": "Blocks & maintenance",
     "calendar": "Room calendar",
-    "bookings": "Bookings"
+    "bookings": "Bookings",
+    "frontDesk": "Front desk",
+    "occupancy": "Occupancy",
+    "tasks": "Housekeeping"
   },
   "switcher": {
     "label": "Hotel",
@@ -744,7 +747,27 @@
     "noShowTitle": "Mark {name} as not come?",
     "noShowText": "{name} won't be checked in on this booking. This cannot be undone.",
     "noShown": "{name} marked as not come.",
-    "detailsFirst": "Add the details to check in"
+    "detailsFirst": "Add the details to check in",
+    "receipt": "Receipt code",
+    "receiptHelp": "Scan the receipt's QR code (a scanner types it here), or type the code under it.",
+    "receiptPlaceholder": "Scan or type the code",
+    "open": "Open",
+    "scan": "Scan with the camera",
+    "scanTitle": "Scan the receipt",
+    "scanHelp": "Hold the QR code in front of the camera.",
+    "cameraUnsupported": "This browser can't read codes with the camera. Use a scanner or type the code.",
+    "cameraDenied": "The camera is not allowed for this site. Allow it, or type the code.",
+    "cameraFailed": "The camera could not be started. Use a scanner or type the code.",
+    "byNumber": "Find by booking number",
+    "find": "Find",
+    "arrivalsToday": "Arriving today",
+    "departuresToday": "Leaving today",
+    "noArrivals": "Nobody arrives today.",
+    "noDepartures": "Nobody leaves today.",
+    "pilgrims": "{count} pilgrim | {count} pilgrims",
+    "rooms": "Rooms: {rooms}",
+    "notAReceipt": "This is not a receipt code. Scan the QR code again, or type the code printed under it.",
+    "detailsMissing": "{count} without details | {count} without details"
   },
   "pilgrims": {
     "remove": "Remove",
@@ -779,5 +802,72 @@
     "hold": "Hold these rooms",
     "holdNote": "The rooms are held for a few minutes: confirm the booking on its page.",
     "held": "Booking {no} held."
+  },
+  "occupancy": {
+    "view": "View",
+    "views": {
+      "year": "Year",
+      "month": "Month",
+      "day": "Day"
+    },
+    "dayLabel": "{date}: {percent}% full, {taken} of {total} places taken. Arrivals {arrivals}, departures {departures}.",
+    "freeRooms": "{count} room free | {count} rooms free",
+    "freePlaces": "{count} place free | {count} places free",
+    "tone": {
+      "low": "Under half full",
+      "mid": "Half to 90% full",
+      "high": "Over 90% full"
+    },
+    "summary": "The day's summary",
+    "rooms": "Rooms: {count}",
+    "places": "Places: {count}",
+    "pilgrimsSeated": "Pilgrims",
+    "desk": "At the desk",
+    "arrivals": "Arrivals",
+    "departures": "Departures",
+    "detailsPending": "Details missing",
+    "bookerShare": "pilgrims {pilgrims}, rooms {rooms}",
+    "individuals": "Families and individuals",
+    "allSides": "Men, women, families",
+    "side": "Side",
+    "allStates": "Every state",
+    "stateLabel": "State",
+    "state": {
+      "FULL": "Full",
+      "PARTIAL": "Part full",
+      "HELD": "On hold",
+      "EMPTY": "Empty",
+      "BLOCKED": "Blocked"
+    },
+    "severalBookings": "{count} booking | {count} bookings",
+    "tileLabel": "Room {room}: {state}, {taken} of {places} places, {holder}",
+    "legendSeats": "\"3/4\" = places taken / places",
+    "placesTaken": "{taken} of {places} places taken",
+    "noBooking": "No booking sleeps here this night.",
+    "openBooking": "Open the booking",
+    "groupFree": "{count} free place stays this agency's, for the same dates. | {count} free places stay this agency's, for the same dates.",
+    "download": "Download the day's list",
+    "csv": {
+      "floor": "Floor",
+      "taken": "Places taken",
+      "places": "Places",
+      "pilgrim": "Pilgrim"
+    },
+    "noRoomsLabel": "{date}: no rooms in inventory."
+  },
+  "tasks": {
+    "statusLabel": "Tasks",
+    "due": "Due",
+    "task": "Task",
+    "kind": {
+      "EXTRA_BED_SETUP": "Set up {count} extra bed | Set up {count} extra beds",
+      "EXTRA_BED_REMOVAL": "Take away {count} extra bed | Take away {count} extra beds"
+    },
+    "overdue": "Overdue",
+    "markDone": "Done",
+    "markDoneNamed": "Mark the task in room {room} as done",
+    "doneNamed": "Room {room}: task done.",
+    "noneOpen": "Nothing to do: no extra bed to set up or take away.",
+    "none": "No tasks here."
   }
 }

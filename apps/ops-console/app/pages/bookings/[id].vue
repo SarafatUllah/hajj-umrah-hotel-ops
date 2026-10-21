@@ -56,6 +56,10 @@ const refresh = () => Promise.all([
   queryClient.invalidateQueries({ queryKey: ['booking-guests', id.value] }),
   queryClient.invalidateQueries({ queryKey: ['booking-receipt', id.value] }),
   queryClient.invalidateQueries({ queryKey: ['bookings'] }),
+  // The occupancy calendar, the desk's arrivals and departures and the housekeeping follow the booking.
+  queryClient.invalidateQueries({ queryKey: ['occupancy'] }),
+  queryClient.invalidateQueries({ queryKey: ['occupancy-day'] }),
+  queryClient.invalidateQueries({ queryKey: ['tasks'] }),
 ])
 async function changed(message: string): Promise<void> {
   notify.done(message)

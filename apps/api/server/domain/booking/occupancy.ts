@@ -1,5 +1,6 @@
-/** How a room looks on one night of the occupancy calendar (v7 §14 legend). */
-export type RoomNightState = 'FULL' | 'PARTIAL' | 'HELD' | 'EMPTY' | 'BLOCKED'
+import type { DayTotals, RoomNightState } from '@hajj/contracts/types/occupancy'
+
+export type { DayTotals, RoomNightState }
 
 /** One room on one night: whether it can be sold, its seats, and the seats taken. */
 export interface RoomNight {
@@ -21,17 +22,6 @@ export function roomNightState(night: RoomNight): RoomNightState {
   if (used === 0) return night.sellable ? 'EMPTY' : 'BLOCKED'
   if (night.booked === 0) return 'HELD'
   return used >= night.capacity ? 'FULL' : 'PARTIAL'
-}
-
-export interface DayTotals {
-  rooms: { total: number, full: number, partial: number, held: number, empty: number, blocked: number }
-  /**
-   * `total` = the sellable seats; `empty` = what is still free in sellable rooms. `pilgrims` and `held` count every
-   * seated person, also in a room blocked after they were booked (so they may exceed `total - empty`).
-   */
-  seats: { total: number, pilgrims: number, held: number, empty: number }
-  /** Seats taken (pilgrims and holds) of the sellable seats, whole percent, at most 100. */
-  occupancyPercent: number
 }
 
 const STATE_KEY = { FULL: 'full', PARTIAL: 'partial', HELD: 'held', EMPTY: 'empty', BLOCKED: 'blocked' } as const

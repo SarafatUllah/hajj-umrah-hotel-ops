@@ -37,6 +37,9 @@ export const NAVIGATION: NavGroup[] = [
   ] },
   { key: 'frontOffice', items: [
     { key: 'bookings', icon: 'i-lucide-notebook-tabs', scope: 'portfolio', path: '/bookings', permission: 'booking.view' },
+    { key: 'frontDesk', icon: 'i-lucide-concierge-bell', scope: 'hotel', path: 'front-desk', permission: 'booking.checkIn' },
+    { key: 'occupancy', icon: 'i-lucide-layout-grid', scope: 'hotel', path: 'occupancy', permission: 'occupancy.view' },
+    { key: 'tasks', icon: 'i-lucide-list-checks', scope: 'hotel', path: 'tasks', permission: 'booking.view' },
   ] },
   { key: 'admin', items: [
     { key: 'demo', icon: 'i-lucide-flask-conical', scope: 'organization', path: '/admin/demo', permission: 'organization.resetDemo', demoOnly: true },

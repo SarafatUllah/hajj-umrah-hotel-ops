@@ -37,7 +37,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
-| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done |
+| 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done |
 | 17 | Final review (code, security, database, architecture) and docs | |
 
 ## Local environment note
@@ -721,6 +721,30 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   at a time; another hotel in the switcher starts a list on its first page; the new booking's hotel defaults to the
   switcher's only where the user may book; Arabic guest statuses read "arrived" and "left" (they read like the check-in
   button). Known limit: the agency filter and picker list the first 100 agencies (an organization works with fewer).
+- **D-P2-58 (frontends) The ops console: occupancy, front desk, housekeeping (step 16f, v7 §11, §12, §14, §17).**
+  Occupancy (`occupancy.view`), a hotel's page with its view in the URL: a year of small months, each day coloured by
+  how full it is (under half, to nine tenths, beyond — said in words too, for assistive technology), Hajj and Ramadan
+  marked and named; a month (weeks from Sunday) with each day's fill, free rooms and places, arrivals and
+  departures; a day as floors of room tiles (places taken of the room's, who holds it and on which side; full, part
+  full, on hold, empty, blocked), its summary (rooms by state, places, by booker, arrivals, departures, details
+  missing), filters (agency or families, side, state, room type), each room's bookings and pilgrims in a drawer, and
+  the day's list as a spreadsheet (a line per pilgrim; UTF-8 with a byte-order mark for Excel; nothing a spreadsheet
+  would run as a formula; never a passport number). The front desk (`booking.checkIn`): a receipt's code opens its
+  booking — typed by a handheld scanner, read by the camera where the browser can (`BarcodeDetector`; the camera
+  stops when its dialog closes), or found by booking number — and today's arrivals and departures with the details
+  still missing. Housekeeping: the extra beds to set up and take away, soonest first, overdue marked, done at the
+  desk. Contracts: the occupancy response types (`types/occupancy.ts`) moved from the API. Verified in a browser
+  against the built API and the demo: the month and year views (Arabic), a day with filters and a room's drawer, the
+  desk opening a booking from its receipt code and refusing a malformed or unknown one, today's arrivals, an
+  extra-bed booking's tasks and one marked done.
+  Review outcomes: the camera scanner reads one frame at a time and hands a code over once (a run ends on close or
+  on a find; a dialog closed while the camera starts stops it), says why when the camera cannot start (refused,
+  unavailable, the picture never shown); the spreadsheet gives places taken and places as two numbers ("2/4" read as a
+  date); switching views keeps the same moment (the views share one date in the URL); a day's filters stay named on
+  a day without that agency or room type; marked seasons and days without rooms said in words; an unnamed agency is
+  still an agency, never "individual"; a booking change asks the calendar, the desk lists and housekeeping again; the
+  room drawer closes on another view or hotel; a calendar link outside 1900–2199 falls back to today; one day query
+  shared by the calendar and the desk (`useOccupancyDay`).
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on
