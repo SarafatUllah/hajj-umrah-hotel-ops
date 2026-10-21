@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, lt, ne } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
 import { booking, bookingGuest, bookingGuestDetail, bookingRoom, guestStay, piiAccessLog, pilgrim, room } from '@hajj/db/schema'
 import { type GuestStatus, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
@@ -72,9 +72,32 @@ export class GuestRepository {
   async saveDetail(values: NewGuestDetail): Promise<BookingGuestDetailRow> {
     const { bookingId: _bookingId, bookingGuestId: _guestId, ...changes } = values
     const [row] = await this.#q.insert(bookingGuestDetail, values)
-      .onConflictDoUpdate({ target: [bookingGuestDetail.organizationId, bookingGuestDetail.bookingGuestId], set: { ...changes, updatedAt: new Date() } })
+      // Re-entered after the retention sweep erased it: the copy holds personal data again.
+      .onConflictDoUpdate({ target: [bookingGuestDetail.organizationId, bookingGuestDetail.bookingGuestId], set: { ...changes, erasedAt: null, updatedAt: new Date() } })
       .returning()
     return row!
+  }
+
+  /** Ticket 4: the slots of these bookings let go of the staff master (before their copies are erased: a save's lock order). */
+  async releaseMasters(bookingIds: readonly string[]): Promise<number> {
+    if (bookingIds.length === 0) return 0
+    const rows = await this.#q.update(bookingGuest, { pilgrimId: null }, isNotNull(bookingGuest.pilgrimId), inArray(bookingGuest.bookingId, [...bookingIds])).returning({ id: bookingGuest.id })
+    return rows.length
+  }
+
+  /**
+   * Ticket 4: erases in place every booker's copy of these bookings not erased yet — name, gender, nationality,
+   * dates, passport and extras are cleared; the row and its slot stay. Returns how many copies were erased.
+   */
+  async eraseCopies(bookingIds: readonly string[], at: Date): Promise<number> {
+    if (bookingIds.length === 0) return 0
+    const rows = await this.#q.update(
+      bookingGuestDetail,
+      { fullName: '', gender: null, nationality: null, dateOfBirth: null, passportNoEncrypted: null, passportLookup: null, passportExpiry: null, detailsEncrypted: null, erasedAt: at, updatedAt: at },
+      isNull(bookingGuestDetail.erasedAt),
+      inArray(bookingGuestDetail.bookingId, [...bookingIds]),
+    ).returning({ id: bookingGuestDetail.id })
+    return rows.length
   }
 
   async updateSlot(bookingId: string, guestId: string, patch: SlotPatch): Promise<BookingGuestRow | null> {
@@ -128,6 +151,20 @@ export class PilgrimRepository {
 
   constructor(private readonly db: DbOrTx, scope: OrganizationScope) {
     this.#q = new OrgQuery(db, scope)
+  }
+
+  /**
+   * Ticket 4: deletes the masters no slot points at any more and nobody changed since `untouchedSince` (their
+   * bookings' retention ended: the slots let go of them first). Returns how many.
+   */
+  async deleteUnreferenced(untouchedSince: Date): Promise<number> {
+    // Outer columns written out in full (inside a subquery Drizzle would render them unqualified).
+    const rows = await this.#q.delete(
+      pilgrim,
+      lt(pilgrim.updatedAt, untouchedSince),
+      sql`not exists (select 1 from public.booking_guest g where g.organization_id = "pilgrim"."organization_id" and g.pilgrim_id = "pilgrim"."id")`,
+    ).returning({ id: pilgrim.id })
+    return rows.length
   }
 
   async findByLookup(passportLookup: string): Promise<PilgrimRow | null> {

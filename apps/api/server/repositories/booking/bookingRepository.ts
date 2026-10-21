@@ -304,6 +304,36 @@ export class BookingRecordRepository {
     return rows.length > 0
   }
 
+  /**
+   * Ticket 4: the bookings that checked out on or before `cutoff` and still hold personal data — an unerased copy, a
+   * slot linked to a staff master, a passport reading or an image not due by `today`, free text — oldest first;
+   * `after` continues past a batch (keyset).
+   */
+  async dueForErasure(cutoff: IsoDate, today: IsoDate, limit: number, after?: { checkOut: IsoDate, id: string }): Promise<Array<{ id: string, checkOut: IsoDate }>> {
+    const holdsPersonalData = sql`(
+      ${booking.notes} is not null or ${booking.cancelReason} is not null
+      or exists (select 1 from public.booking_guest_detail d where d.organization_id = "booking"."organization_id" and d.booking_id = "booking"."id" and d.erased_at is null)
+      or exists (select 1 from public.booking_guest g where g.organization_id = "booking"."organization_id" and g.booking_id = "booking"."id" and g.pilgrim_id is not null)
+      or exists (select 1 from public.passport_scan s where s.organization_id = "booking"."organization_id" and s.booking_id = "booking"."id"
+        and (s.extracted_encrypted is not null or s.delete_after is null or s.delete_after > ${today}::date))
+      or exists (select 1 from public.hotel_task t where t.organization_id = "booking"."organization_id" and t.booking_id = "booking"."id" and t.notes is not null))`
+    return this.db.select({ id: booking.id, checkOut: booking.checkOut }).from(booking)
+      .where(this.#q.cond(
+        booking,
+        lte(booking.checkOut, cutoff),
+        holdsPersonalData,
+        after ? sql`(${booking.checkOut}, ${booking.id}) > (${after.checkOut}::date, ${after.id}::uuid)` : undefined,
+      ))
+      .orderBy(asc(booking.checkOut), asc(booking.id))
+      .limit(limit)
+  }
+
+  /** Ticket 4: the free text of these bookings (notes, cancel reason) may name people: cleared. Takes their row locks first. */
+  async clearFreeText(bookingIds: readonly string[]): Promise<void> {
+    if (bookingIds.length === 0) return
+    await this.#q.update(booking, { notes: null, cancelReason: null }, inArray(booking.id, [...bookingIds]))
+  }
+
   /** Every pending booking of the organization whose hold lapsed becomes EXPIRED, in batches. Returns their ids. */
   async expireLapsed(now: Date): Promise<string[]> {
     const expired: string[] = []

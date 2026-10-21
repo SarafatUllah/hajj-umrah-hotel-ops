@@ -391,6 +391,22 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   and `readAgencyGuests(agencyCtx, bookingId)` — the agency's own copies (name, gender, nationality, date of birth;
   never the staff master, never passport data; another agency's booking is 404; rate limited like its guest list). Future modules (transport) use these
   through `server/services/booking/index.ts` only (the module-public-api rule).
+- **D-P2-45 (booking) Retention of every PII copy (ticket 4, PDPL storage limitation).** The daily
+  `booking.guest-data-retention` job (light tier) acts `guestDataRetentionMonths` (booking setting, default 24, 1–120;
+  migration 0016) after a booking's check-out, on every booking that still holds personal data, in batches of 500
+  (keyset, one transaction each, in a details save's lock order — booking rows, slots, copies — so it cannot deadlock
+  with one): free text that may name people is cleared (booking notes and cancel reason, task notes), the slots let go
+  of the staff master, every booker's copy is erased IN PLACE (name, gender, nationality, dates, passport number,
+  lookup and extras cleared, `erased_at` set — the row stays for the slot's history and a confirmed scan's
+  reference; guest lists show `DETAILS_ERASED`), and the booking's passport scans lose their readings and their
+  images become due today (the image sweep deletes them, even when `passportImageRetentionMonths` is longer). Then
+  every master no slot points at any more and untouched since the cutoff is deleted (one another booking still relies
+  on stays). Re-runs find nothing; re-entering details on an erased slot clears the mark (and the next sweep erases it
+  again if its booking is past the retention). Deliberately kept: slot gender, age group and check-in/out times, and
+  who entered a copy (staff or agency user ids) — not identifying without a name or passport. The PII-in-logs test
+  writes both kinds of copies and a master and checks `audit_log`, `booking_change`, `pii_access_log` and
+  `event_receipt`. Customer accounts (phone, name) are account data, closed with the account, not by this sweep
+  (follow-up: account closure in step 15).
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

@@ -68,12 +68,15 @@ export async function readAgencyGuests(ctx: AgencyContext, bookingId: string): P
   const booking = await loadForAgency(ctx, bookingId)
   await consumeRateLimit(ctx.db, RATE_LIMITS.guestListPerAgencyUser, ctx.identity.agencyUserId, ctx.now())
   const slots = (await bookingOrgRepos(ctx.db, ctx.scope).guests.listForBooking(booking.id)).filter(({ guest }) => guest.status !== 'REMOVED')
-  return slots.map(({ guest, detail }) => ({
-    guestId: guest.id,
-    slotNo: guest.slotNo,
-    fullName: detail?.fullName ?? null,
-    gender: (detail?.gender ?? guest.gender) as Gender | null,
-    nationality: detail?.nationality ?? null,
-    dateOfBirth: detail?.dateOfBirth ?? null,
-  }))
+  return slots.map(({ guest, detail }) => {
+    const own = detail && !detail.erasedAt ? detail : null // erased by the retention sweep: nothing to show
+    return {
+      guestId: guest.id,
+      slotNo: guest.slotNo,
+      fullName: own?.fullName ?? null,
+      gender: (own?.gender ?? guest.gender) as Gender | null,
+      nationality: own?.nationality ?? null,
+      dateOfBirth: own?.dateOfBirth ?? null,
+    }
+  })
 }

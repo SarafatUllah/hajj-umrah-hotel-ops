@@ -1,5 +1,5 @@
 import { allOrganizationScopes } from '../security/organizations'
-import { expireLapsedBookings, expireOfferedQuotes, sendDetailsReminders } from '../services/booking'
+import { eraseExpiredGuestData, expireLapsedBookings, expireOfferedQuotes, sendDetailsReminders } from '../services/booking'
 import { defineJob } from './definition'
 
 /** Hourly: OFFERED quotes past their validity become EXPIRED (reads already treat them as expired). */
@@ -33,5 +33,15 @@ export const detailsReminderJob = defineJob<Record<string, never>>({
   schedule: { cron: '0 6 * * *' },
   handle: async (_data, { db }) => {
     await sendDetailsReminders(db, await allOrganizationScopes(db), new Date())
+  },
+})
+
+/** Daily (ticket 4, PDPL): pilgrims' details are erased `guestDataRetentionMonths` after their stay's check-out. */
+export const guestDataRetentionJob = defineJob<Record<string, never>>({
+  name: 'booking.guest-data-retention',
+  tier: 'light',
+  schedule: { cron: '15 2 * * *' },
+  handle: async (_data, { db }) => {
+    await eraseExpiredGuestData(db, await allOrganizationScopes(db), new Date())
   },
 })

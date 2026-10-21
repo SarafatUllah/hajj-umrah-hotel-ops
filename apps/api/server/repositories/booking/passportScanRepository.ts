@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, isNotNull, isNull, lt, lte, ne, or } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
 import { documentAsset, passportScan } from '@hajj/db/schema'
 import type { OrganizationScope } from '../../security/scope'
@@ -87,6 +87,20 @@ export class PassportScanRepository {
   async clearReading(id: string, at: Date): Promise<PassportScanRow | null> {
     const [row] = await this.#q.update(passportScan, { extractedEncrypted: null, updatedAt: at }, eq(passportScan.id, id)).returning()
     return row ?? null
+  }
+
+  /**
+   * Ticket 4: the scans of these bookings lose their reading now, and their images become due by `today` at the
+   * latest (the image sweep deletes them), whatever the image retention says.
+   */
+  async expireForBookings(bookingIds: readonly string[], today: string, at: Date): Promise<number> {
+    if (bookingIds.length === 0) return 0
+    const rows = await this.#q.update(
+      passportScan,
+      { extractedEncrypted: null, deleteAfter: sql`least(coalesce(${passportScan.deleteAfter}, ${today}::date), ${today}::date)`, updatedAt: at },
+      inArray(passportScan.bookingId, [...bookingIds]),
+    ).returning({ id: passportScan.id })
+    return rows.length
   }
 
   async countUnresolved(bookingId: string): Promise<number> {

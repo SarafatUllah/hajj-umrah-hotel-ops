@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lte, type SQL } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, isNotNull, lte, type SQL } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
 import { hotelTask, room } from '@hajj/db/schema'
 import type { HotelTaskStatus } from '@hajj/contracts/constants/booking'
@@ -53,6 +53,12 @@ export class HotelTaskRepository {
       .innerJoin(room, and(eq(room.organizationId, hotelTask.organizationId), eq(room.hotelId, hotelTask.hotelId), eq(room.id, hotelTask.roomId)))
       .where(this.#q.cond(hotelTask, ...conditions))
       .$dynamic()
+  }
+
+  /** Ticket 4: the notes on these bookings' tasks may name people: cleared. */
+  async clearNotes(bookingIds: readonly string[]): Promise<void> {
+    if (bookingIds.length === 0) return
+    await this.#q.update(hotelTask, { notes: null }, inArray(hotelTask.bookingId, [...bookingIds]), isNotNull(hotelTask.notes))
   }
 
   /** OPEN → DONE for a task of this hotel; null when it is not open (done or cancelled meanwhile) or not this hotel's. */

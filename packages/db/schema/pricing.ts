@@ -176,6 +176,8 @@ export const bookingSetting = pgTable('booking_setting', {
   passportImageRetentionMonths: integer('passport_image_retention_months').notNull().default(12),
   /** The organization's consent to send passport images to the external AI reader (v7 §13 fallback; PDPL transfer). */
   passportAiAllowed: boolean('passport_ai_allowed').notNull().default(false),
+  /** Bookers' copies of pilgrims' details (and unused staff masters) are erased this long after check-out (ticket 4, PDPL). */
+  guestDataRetentionMonths: integer('guest_data_retention_months').notNull().default(24),
   whatsappNumber: text('whatsapp_number'),
   whatsappTemplate: text('whatsapp_template'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -190,5 +192,6 @@ export const bookingSetting = pgTable('booking_setting', {
   check('booking_setting_child_side_check', oneOf(t.childDefaultSide, CHILD_SIDES)),
   check('booking_setting_passport_check', sql`${t.passportMinValidityMonths} between 0 and 24 and ${t.passportImageRetentionMonths} between 1 and 120`),
   check('booking_setting_reminder_check', sql`${t.detailsReminderDays} between 0 and 60`),
+  check('booking_setting_guest_retention_check', sql`${t.guestDataRetentionMonths} between 1 and 120`),
   check('booking_setting_whatsapp_check', sql`${t.whatsappNumber} is null or ${t.whatsappNumber} ~ '^[1-9][0-9]{7,14}$'`),
 ])

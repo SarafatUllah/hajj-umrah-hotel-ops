@@ -30,6 +30,8 @@ export const bookingGuestDetail = pgTable('booking_guest_detail', {
   detailsEncrypted: text('details_encrypted'),
   enteredByKind: text('entered_by_kind').notNull(),
   enteredById: uuid('entered_by_id'),
+  /** Erased by the retention sweep (ticket 4): the personal fields are cleared, the row stays for the slot's history. */
+  erasedAt: timestamp('erased_at', { withTimezone: true }),
   ...timestampColumns(),
 }, t => [
   unique('booking_guest_detail_org_id_unique').on(t.organizationId, t.id),

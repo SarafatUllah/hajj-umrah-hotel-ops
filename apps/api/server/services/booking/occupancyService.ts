@@ -164,7 +164,7 @@ export async function getOccupancyDay(ctx: AuthContext, hotelId: string, date: I
   const claimsByRoom = groupBy(claims, c => c.roomId)
   const nightByRoom = new Map(nights.map(n => [n.roomId, n]))
 
-  const toGuest = (g: NightGuest): OccupancyGuestDto => ({ guestId: g.guestId, slotNo: g.slotNo, ageGroup: g.ageGroup, status: g.status, name: showNames ? g.fullName : null, detailsComplete: g.status !== 'PENDING_DETAILS' })
+  const toGuest = (g: NightGuest): OccupancyGuestDto => ({ guestId: g.guestId, slotNo: g.slotNo, ageGroup: g.ageGroup, status: g.status, name: showNames ? g.fullName || null : null, detailsComplete: g.status !== 'PENDING_DETAILS' })
   const toClaim = (c: NightClaim): OccupancyClaimDto => ({
     bookingId: c.bookingId,
     bookingNo: c.bookingNo,

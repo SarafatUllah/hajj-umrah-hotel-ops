@@ -25,7 +25,7 @@ export interface NightClaim {
   checkOut: IsoDate
 }
 
-/** A pilgrim staying in a claim on one night; `fullName` from the booker's copy (null until entered). */
+/** A pilgrim staying in a claim on one night; `fullName` from the booker's copy (null until entered; '' once erased). */
 export interface NightGuest {
   bookingRoomId: string
   guestId: string

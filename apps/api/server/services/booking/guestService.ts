@@ -37,6 +37,8 @@ export interface GuestDetailsDto {
 
 export type GuestWarning =
   | { code: 'PASSPORT_EXPIRES_SOON' }
+  /** The retention sweep erased this copy (ticket 4): the slot keeps its history, not its personal data. */
+  | { code: 'DETAILS_ERASED' }
   /** Staff only: the same passport in another live booking on overlapping nights (in a hotel the viewer can see). */
   | { code: 'DUPLICATE_PASSPORT', bookingNo: string }
   /** Staff only, on save: the staff master of this passport says something else (it is not overwritten). */
@@ -91,6 +93,7 @@ function toSlotDto(row: GuestSlotRow, booking: BookingRow, settings: Settings, v
   const { guest, detail } = row
   const base = { id: guest.id, slotNo: guest.slotNo, gender: guest.gender as Gender | null, ageGroup: guest.ageGroup as AgeGroup, isExtraBed: guest.isExtraBed, status: guest.status, roomNumber: row.roomNumber }
   if (!detail) return { ...base, details: null, warnings: [] }
+  if (detail.erasedAt) return { ...base, details: null, warnings: [{ code: 'DETAILS_ERASED' }] }
   try {
     return { ...base, ...readDetails(row, booking, settings, viewer, overlaps, cipher) }
   }
@@ -133,7 +136,7 @@ async function slotsOf(db: Db, scope: OrganizationScope, booking: BookingRow, vi
   const slots = rows.map(row => toSlotDto(row, booking, settings, viewer, overlaps, cipher))
   if (viewer.full) {
     await repos.piiAccess.record(rows.flatMap(({ detail }) => {
-      const fields = [...(detail?.passportNoEncrypted ? ['passport_no'] : []), ...(detail?.detailsEncrypted ? ['details'] : [])]
+      const fields = detail?.erasedAt ? [] : [...(detail?.passportNoEncrypted ? ['passport_no'] : []), ...(detail?.detailsEncrypted ? ['details'] : [])]
       return detail && fields.length > 0 ? [{ actorKind: viewer.actor.kind, actorId: viewer.actor.id, subjectType: 'BOOKING_GUEST_DETAIL', subjectId: detail.id, fields, purpose: 'guest list' }] : []
     }))
   }
