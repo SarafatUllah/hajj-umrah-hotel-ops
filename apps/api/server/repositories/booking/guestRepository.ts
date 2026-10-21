@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
 import { booking, bookingGuest, bookingGuestDetail, bookingRoom, guestStay, piiAccessLog, pilgrim, room } from '@hajj/db/schema'
-import { type GuestStatus, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
+import { type GuestStatus, type Occupancy, SEAT_HOLDING_STATUSES } from '@hajj/contracts/constants/booking'
 import type { IsoDate } from '@hajj/contracts/utils/dates'
 import type { OrganizationScope } from '../../security/scope'
 import { OrgQuery } from '../base/scopedQuery'
@@ -71,6 +71,34 @@ export class GuestRepository {
     const [row] = await this.db.select({ first: sql<string | null>`min(${guestStay.checkIn})::text` }).from(guestStay)
       .where(this.#q.cond(guestStay, eq(guestStay.bookingId, bookingId), eq(guestStay.bookingGuestId, guestId)))
     return row?.first ?? null
+  }
+
+  /** The stays of these slots that still have nights from `day` on, with the room and side they sleep in. */
+  async staysFrom(bookingId: string, guestIds: readonly string[], day: IsoDate): Promise<Array<{ stayId: string, guestId: string, claimId: string, roomId: string, occupancy: Occupancy }>> {
+    if (guestIds.length === 0) return []
+    const rows = await this.db.select({ stayId: guestStay.id, guestId: guestStay.bookingGuestId, claimId: guestStay.bookingRoomId, roomId: bookingRoom.roomId, occupancy: bookingRoom.occupancy })
+      .from(guestStay)
+      .innerJoin(bookingRoom, and(eq(bookingRoom.organizationId, guestStay.organizationId), eq(bookingRoom.id, guestStay.bookingRoomId)))
+      .where(this.#q.cond(guestStay, eq(guestStay.bookingId, bookingId), inArray(guestStay.bookingGuestId, [...guestIds]), gt(guestStay.checkOut, day)))
+    return rows.map(r => ({ ...r, occupancy: r.occupancy as Occupancy }))
+  }
+
+  /**
+   * v7 §12 room move: from `day` on these slots sleep in the claim `toClaimId` — a stay that began before is split
+   * there (its earlier nights stay where they were), a later one moves whole. Returns the claims they left.
+   */
+  async moveStaysFrom(bookingId: string, guestIds: readonly string[], day: IsoDate, toClaimId: string): Promise<string[]> {
+    if (guestIds.length === 0) return []
+    const stays = await this.#q.select(guestStay, and(eq(guestStay.bookingId, bookingId), inArray(guestStay.bookingGuestId, [...guestIds]), gt(guestStay.checkOut, day))!)
+    for (const stay of stays) {
+      if (stay.checkIn >= day) {
+        await this.#q.update(guestStay, { bookingRoomId: toClaimId }, eq(guestStay.id, stay.id))
+        continue
+      }
+      await this.#q.update(guestStay, { checkOut: day }, eq(guestStay.id, stay.id))
+      await this.#q.insert(guestStay, { bookingId, bookingGuestId: stay.bookingGuestId, bookingRoomId: toClaimId, checkIn: day, checkOut: stay.checkOut })
+    }
+    return [...new Set(stays.map(s => s.bookingRoomId))]
   }
 
   /** The status of every slot of the booking. */

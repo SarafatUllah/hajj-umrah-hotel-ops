@@ -3,7 +3,7 @@ import type { PriceUnit } from '@hajj/contracts/constants/pricing'
 import type { StaySearchInput } from '@hajj/contracts/schemas/booking'
 import { eachDate, type IsoDate } from '@hajj/contracts/utils/dates'
 import type { MixRule, PlannerInput, PlannerRoom, StayHeadcount } from '../../domain/booking/allocation/planner'
-import { describeStayRooms, type StayRoom, stayNights } from '../../domain/booking/allocation/stayRooms'
+import { describeStayRooms, type Stay, type StayRoom, stayNights } from '../../domain/booking/allocation/stayRooms'
 import { defaultUnitFor, type ExtraBedPrice, type QuoteTerms, type RateRule, unitPriceFor } from '../../domain/booking/pricing'
 import { ValidationError } from '../../errors/domainError'
 import { bookingRepos, hotelRepos } from '../../repositories'
@@ -58,6 +58,40 @@ function stayPriceOfType(roomTypeId: string, nights: readonly IsoDate[], pricing
   return total
 }
 
+/** The owner key of a booking's own claims: its agency's in a GROUP made by an agency (v7 §16), otherwise its own. */
+export function claimsOwnerKey(row: { id: string, bookerType: string, bookingType: string, agencyId: string | null }): string {
+  return row.bookerType === 'AGENCY' && row.bookingType === 'GROUP' ? agencyOwnerKey(row.agencyId!) : `b:${row.id}`
+}
+
+/**
+ * The hotel's rooms for a stay (on active floors, in inventory) with their inventory, live claims, seat counts and
+ * extra-bed space — what planning and every change that takes seats checks against. `roomIds` restricts it.
+ */
+export async function loadStayRooms(args: { db: Db, hotelScope: HotelScope, stay: Stay, roomIds?: readonly string[] }) {
+  const nights = stayNights(args.stay)
+  const repos = bookingRepos(args.db, args.hotelScope)
+  const hotelScoped = hotelRepos(args.db, args.hotelScope)
+  const roomIds = args.roomIds ?? null
+  const [roomInputs, floors, claims, seats, policies, options] = await Promise.all([
+    hotelScoped.inventoryRead.loadRoomInputs(nights, { roomIds: args.roomIds, includeBlocks: true }),
+    hotelScoped.floors.list(),
+    repos.inventory.liveClaims(roomIds, nights.from, nights.to),
+    repos.inventory.seatsUsed(roomIds, nights),
+    repos.extraBedPolicies.list(),
+    calendarOptionsFor(hotelScoped),
+  ])
+  const levels = new Map(floors.map(f => [f.id, f.level]))
+  const rooms = describeStayRooms({
+    rooms: roomInputs.filter(r => levels.has(r.floorId)).map(r => ({ id: r.roomId, roomNumber: r.roomNumber, roomTypeId: r.roomTypeId, floorLevel: levels.get(r.floorId)!, calendar: r })),
+    stay: args.stay,
+    claims,
+    seats,
+    extraBedRules: policies,
+    options,
+  })
+  return { rooms, claims, policies }
+}
+
 /**
  * Loads what planning (or the hold re-check) needs for one hotel and stay: the rooms (on active floors, in
  * inventory) with their inventory, live claims and seat counts over the stay, the extra-bed policies, room-mix
@@ -77,30 +111,12 @@ export async function loadStayFacts(args: {
   ownerKey?: string | null
 }): Promise<StayFacts> {
   const stay = { checkIn: args.input.checkIn, checkOut: args.input.checkOut }
-  const nights = stayNights(stay)
   const repos = bookingRepos(args.db, args.hotelScope)
-  const hotelScoped = hotelRepos(args.db, args.hotelScope)
-  const roomIds = args.roomIds ?? null
-  const [roomInputs, floors, claims, seats, policies, mixRows, rateRows, options] = await Promise.all([
-    hotelScoped.inventoryRead.loadRoomInputs(nights, { roomIds: args.roomIds, includeBlocks: true }),
-    hotelScoped.floors.list(),
-    repos.inventory.liveClaims(roomIds, nights.from, nights.to),
-    repos.inventory.seatsUsed(roomIds, nights),
-    repos.extraBedPolicies.list(),
+  const [{ rooms, claims, policies }, mixRows, rateRows] = await Promise.all([
+    loadStayRooms({ db: args.db, hotelScope: args.hotelScope, stay, roomIds: args.roomIds }),
     repos.allocationRules.list(),
     repos.rates.list(),
-    calendarOptionsFor(hotelScoped),
   ])
-
-  const levels = new Map(floors.map(f => [f.id, f.level]))
-  const rooms = describeStayRooms({
-    rooms: roomInputs.filter(r => levels.has(r.floorId)).map(r => ({ id: r.roomId, roomNumber: r.roomNumber, roomTypeId: r.roomTypeId, floorLevel: levels.get(r.floorId)!, calendar: r })),
-    stay,
-    claims,
-    seats,
-    extraBedRules: policies,
-    options,
-  })
   const pricing: StayPricing = {
     unit: defaultUnitFor(args.input.bookingType),
     rates: rateRows.map(toRateRule),
@@ -108,7 +124,7 @@ export async function loadStayFacts(args: {
     agencyDefault: args.booker.kind === 'AGENCY',
     extraBedPrices: policies.map(p => ({ roomTypeId: p.roomTypeId, amountHalalas: p.amountHalalas, vatIncluded: p.vatIncluded })),
   }
-  const nightList = eachDate(nights)
+  const nightList = eachDate(stayNights(stay))
   const typePrices = new Map([...new Set(rooms.map(r => r.roomTypeId))].map(type => [type, stayPriceOfType(type, nightList, pricing)]))
   const perPerson = (args.quote?.unit ?? pricing.unit) === 'PER_PERSON_NIGHT'
   const priced: PlannerRoom[] = rooms.flatMap((room) => {

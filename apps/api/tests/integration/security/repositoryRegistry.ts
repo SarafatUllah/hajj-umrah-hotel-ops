@@ -1669,6 +1669,37 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     expect: 'empty',
   }),
   'HotelTaskRepository.cancelOpenForBooking': isolationCase({ arrange: arrangeConfirmedBooking, act: (db, scope, ids) => new HotelTaskRepository(db, scope).cancelOpenForBooking(ids.bookingId, new Date()), expect: 'zero-affected' }),
+  // Step 14c room move: org B never reads, moves or claims anything of org A's booking.
+  'GuestRepository.staysFrom': isolationCase({
+    arrange: async (db, orgA) => {
+      const ids = await arrangeConfirmedBooking(db, orgA)
+      const [stay] = await db.select().from(guestStay).where(eq(guestStay.bookingId, ids.bookingId))
+      return { ...ids, guestId: stay!.bookingGuestId }
+    },
+    act: (db, scope, ids) => new GuestRepository(db, scope).staysFrom(ids.bookingId, [ids.guestId], '2027-06-02'),
+    expect: 'empty',
+  }),
+  'GuestRepository.moveStaysFrom': isolationCase({
+    arrange: async (db, orgA) => {
+      const ids = await arrangeConfirmedBooking(db, orgA)
+      const [stay] = await db.select().from(guestStay).where(eq(guestStay.bookingId, ids.bookingId))
+      return { ...ids, guestId: stay!.bookingGuestId, claimId: stay!.bookingRoomId }
+    },
+    act: (db, scope, ids) => new GuestRepository(db, scope).moveStaysFrom(ids.bookingId, [ids.guestId], '2027-06-03', ids.claimId),
+    expect: 'empty',
+  }),
+  'BookingRecordRepository.claimForMove': isolationCase({
+    arrange: async (db, orgA) => {
+      const ids = await arrangeConfirmedBooking(db, orgA)
+      const [row] = await db.select().from(booking).where(eq(booking.id, ids.bookingId))
+      const { rooms } = await makeHotelWithRooms(db, orgA, 1)
+      return { ...ids, booking: row!, otherRoomId: rooms[0]!.id }
+    },
+    act: (db, scope, ids) => new BookingRecordRepository(db, scope).claimForMove(ids.booking, ids.roomId, 'MALE', '2027-06-03', true, new Date()),
+    expect: 'rejects',
+    // The claim's status guard (it reads the booking within org B: none) or the booking foreign key refuses it.
+    rejection: error => foreignKeyViolation(error) || pgCode(error) === '23514',
+  }),
   'GuestRepository.firstNight': isolationCase({
     arrange: async (db, orgA) => {
       const ids = await arrangeConfirmedBooking(db, orgA)

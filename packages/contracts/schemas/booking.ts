@@ -121,5 +121,17 @@ export const guestAdditionSearchSchema = z.object(additionFields).strict().super
 export type GuestAdditionSearchInput = z.infer<typeof guestAdditionSearchSchema>
 
 /** `POST /api/…/bookings/:id/guests`: add them, in the rooms of the chosen option (none when only infants join). */
-export const addGuestsSchema = z.object({ ...additionFields, rooms: z.array(chosenRoomSchema).max(MAX_BOOKING_ROOMS).default([]) }).strict().superRefine(additionRules)
+export const addGuestsSchema = z.object({ ...additionFields, rooms: z.array(chosenRoomSchema).max(MAX_BOOKING_ROOMS).default([]) }).strict().superRefine((body, ctx) => {
+  additionRules(body, ctx)
+  // Infants take no seat: they join the booking's own rooms, never claim new ones.
+  if (body.totalCount === 0 && body.rooms.length > 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['rooms'], message: 'Infants alone join the booking\'s rooms: choose no rooms' })
+})
 export type AddGuestsInput = z.infer<typeof addGuestsSchema>
+
+/** `POST /api/bookings/:id/guests/move` (v7 §12 room move): these pilgrims sleep in `roomId` from `from` (default: today, or the check-in). */
+export const moveGuestsSchema = z.object({
+  guestIds: z.array(uuid).min(1).max(MAX_BOOKING_PILGRIMS).refine(ids => new Set(ids).size === ids.length, 'Each pilgrim once'),
+  roomId: uuid,
+  from: isoDate.optional(),
+}).strict()
+export type MoveGuestsInput = z.infer<typeof moveGuestsSchema>

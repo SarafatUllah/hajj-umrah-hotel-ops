@@ -418,6 +418,39 @@ export class BookingRecordRepository {
     return added
   }
 
+  /**
+   * v7 §12 room move: the booking's claim on `roomId` covering `from` to its check-out — its own live claim there of the
+   * same side that reaches `from` (the latest, stretched when it covers less: one that merely ends on `from` was not
+   * among the nights checked, so its side must match), else a new one with the booking's owner (an agency's for a
+   * GROUP). The caller checked the room for those nights.
+   */
+  async claimForMove(row: BookingRow, roomId: string, occupancy: Occupancy, from: IsoDate, ownedByAgency: boolean, at: Date): Promise<string> {
+    const [own] = await this.#q.select(
+      bookingRoom,
+      and(eq(bookingRoom.bookingId, row.id), eq(bookingRoom.roomId, roomId), eq(bookingRoom.occupancy, occupancy), gte(bookingRoom.checkOut, from), inArray(bookingRoom.status, [...SEAT_HOLDING_STATUSES]))!,
+      { orderBy: [desc(bookingRoom.checkIn)], limit: 1 },
+    )
+    if (own) {
+      const checkIn = own.checkIn < from ? own.checkIn : from
+      const checkOut = own.checkOut > row.checkOut ? own.checkOut : row.checkOut
+      if (checkIn !== own.checkIn || checkOut !== own.checkOut) await this.#q.update(bookingRoom, { checkIn, checkOut, updatedAt: at }, eq(bookingRoom.id, own.id))
+      return own.id
+    }
+    const [claim] = await this.#q.insert(bookingRoom, {
+      hotelId: row.hotelId,
+      bookingId: row.id,
+      roomId,
+      ownerAgencyId: ownedByAgency ? row.agencyId : null,
+      ownerBookingId: ownedByAgency ? null : row.id,
+      occupancy,
+      checkIn: from,
+      checkOut: row.checkOut,
+      status: row.status,
+      extraBeds: 0,
+    }).returning({ id: bookingRoom.id })
+    return claim!.id
+  }
+
   /** v7 §12: the booking's head count after pilgrims joined or left (the caller holds the row lock). */
   async setCounts(id: string, counts: { maleCount: number, femaleCount: number, childCount: number, infantCount: number, totalCount: number }, at: Date): Promise<BookingRow | null> {
     const [row] = await this.#q.update(booking, { ...counts, updatedAt: at }, eq(booking.id, id)).returning()

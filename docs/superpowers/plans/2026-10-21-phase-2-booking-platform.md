@@ -35,7 +35,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify`, committed an
 | 11 | 2b: allocation engine (DP, property tests), locked holds, sweep, concurrency tests | done |
 | 12 | 2c: agency booking API (search, quote, hold, confirm, receipt/QR), staff on-behalf booking | done |
 | 13 | 2d: guest details, passport pipeline (MRZ, OCR worker, AI fallback, review), check-in, extra-bed tasks, reminders, occupancy calendar | done (13a guest details, 13b passport pipeline, 13c check-in/tasks/reminders, 13d occupancy calendar) |
-| 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims done |
+| 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move done |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | |
 | 17 | Final review (code, security, database, architecture) and docs | |
@@ -444,8 +444,24 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   §10's locks (quota, rooms, then the booking) and against the booking-wide limits, appends the slots and their stays
   (the booking's own claim when it has the room — extra beds only in new rooms — else a new claim), merges the price (a night already priced keeps its frozen
   unit price, only the quantity grows; anything else is priced now), updates the head count and logs `GUEST_ADDED`.
-  Infants alone need no rooms (they join the first room of their side). The shared stay checks (quota, option
+  Infants alone need no rooms (they join the first room of their side) and may not send any (422 `ROOMS_NOT_ALLOWED`:
+  every room taken goes through the plan check and the price — commit security review). The shared stay checks (quota, option
   errors, pricing) moved from the hold service to `stayChecks.ts`, so a hold and an addition apply the same ones.
+- **D-P2-48 (booking) Room move (v7 §12, step 14c).** Staff with `booking.edit` move chosen pilgrims (one side at
+  a time) into another room from a night on — `POST /api/bookings/:id/guests/move` `{ guestIds, roomId, from? }`; the
+  hotel's day, by default today (or the check-in when the stay has not begun), within the stay and never in the past.
+  In v7 §10's lock order (the rooms involved by id, then the booking) the target is checked for every night left with
+  the same room descriptions planning uses (`loadStayRooms`, extracted from `loadStayFacts`): sellable, claimed by
+  nobody but the booking's owner with the same occupancy (`ROOM_TAKEN`), a free seat for each mover who takes one
+  (`NOT_ENOUGH_SEATS`; infants take none). Their stays split at that night — the earlier nights stay where they were
+  (who slept where is history) — and move whole when they had not begun; the booking claims the room for the rest of
+  its stay (its own claim of the same side that reaches that night, stretched — one of the other side that ends on it
+  stays as it is and a new claim starts there — else a new one with its owner); a room nobody sleeps in any more from
+  then on ends there (RELEASED if not begun); `ROOM_MOVED` is logged with room ids and slot numbers. Under the
+  booking's lock the day and the stays are read again (409 `BOOKING_CHANGED` when another change moved them into a
+  room not locked: try again); every chosen pilgrim must still have a night to move (409 `GUEST_STATUS`). The price
+  does not change (the hotel's move); extra beds stay with their claim (a move fills regular seats). Pilgrims who
+  left, were removed or never came cannot be moved.
 - **D-P2-26 (deploy) RBAC sync.** New permissions (`agency.*`, `quote.manage`, `pilgrim.*`, `booking.checkIn`,
   `occupancy.view`, `booking.settings`) reach existing organizations through `pnpm rbac:sync` (additive,
   idempotent; run after migrations).

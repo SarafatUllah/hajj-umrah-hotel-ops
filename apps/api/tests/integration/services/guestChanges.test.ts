@@ -175,6 +175,10 @@ describe('adding pilgrims (v7 §12)', () => {
     await expect(addAgencyGuests(env.agency, env.bookingId, addGuestsSchema.parse({ maleCount: 1, totalCount: 1 }))).rejects.toMatchObject({ code: 'ROOMS_REQUIRED', httpStatus: 422 })
     await expect(addAgencyGuests(env.agency, env.bookingId, addGuestsSchema.parse({ maleCount: 1, totalCount: 1, rooms: [{ roomId: env.rooms['201']!, occupancy: 'FEMALE', seats: 1 }] }))).rejects.toMatchObject({ code: expect.stringMatching(/INVALID_OPTION|OPTION_UNAVAILABLE/) })
     await expect(addAgencyGuests(env.agency, env.bookingId, addGuestsSchema.parse({ femaleCount: 1, totalCount: 2 }))).rejects.toMatchObject({ code: 'INVALID_HEADCOUNT' })
+    // Infants take no seat: rooms sent with them are refused (they would otherwise be claimed without a check or price).
+    expect(addGuestsSchema.safeParse({ infantCount: 1, rooms: [{ roomId: env.rooms['103']!, occupancy: 'MALE', seats: 1 }] }).success).toBe(false)
+    await expect(addAgencyGuests(env.agency, env.bookingId, { maleCount: 0, femaleCount: 0, childCount: 0, totalCount: 0, infantCount: 1, rooms: [{ roomId: env.rooms['103']!, occupancy: 'MALE', seats: 1, extraBeds: 0 }] })).rejects.toMatchObject({ code: 'ROOMS_NOT_ALLOWED', httpStatus: 422 })
+    expect(await db.select().from(bookingRoom).where(and(eq(bookingRoom.bookingId, env.bookingId), eq(bookingRoom.roomId, env.rooms['103']!)))).toEqual([])
     const other = await agencyCtx(env.scope, (await makeAgency(db, env.scope)).id)
     await expect(searchAgencyGuestAdditions(other, env.bookingId, guestAdditionSearchSchema.parse({ maleCount: 1, totalCount: 1 }))).rejects.toMatchObject({ code: 'BOOKING_NOT_FOUND' })
     await db.update(booking).set({ status: 'IN_HOUSE' }).where(eq(booking.id, env.bookingId))

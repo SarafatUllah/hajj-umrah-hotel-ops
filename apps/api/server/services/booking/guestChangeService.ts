@@ -20,7 +20,7 @@ import type { HotelScope, OrganizationScope } from '../../security/scope'
 import { loadForAgency, loadForStaff } from './bookingAccess'
 import { type BookingDetailDto, bookingDetail } from './bookingService'
 import { loadBookingSettings } from './bookingSettingsService'
-import { agencyOwnerKey, type Booker, loadStayFacts, type StayFacts } from './stayFacts'
+import { type Booker, claimsOwnerKey, loadStayFacts, type StayFacts } from './stayFacts'
 import { assertQuota, checkInput, optionError, priceRooms, quotaHeadroomFor, type StaySearchResult, toOption } from './stayChecks'
 
 type Db = Parameters<typeof bookingRepos>[0]
@@ -94,8 +94,6 @@ function bookerOf(row: BookingRow, actor: Actor): Booker {
   return { kind: 'AGENCY', agencyId: row.agencyId!, agencyUserId: actor.kind === 'agency' ? actor.id : null, staffUserId: actor.kind === 'staff' ? actor.id : null }
 }
 
-/** Whose rooms are the booking's "own": its agency's in a GROUP (any of its bookings of the same dates), else its own. */
-const ownerKeyOf = (row: BookingRow): string => (row.bookerType === 'AGENCY' && row.bookingType === 'GROUP' ? agencyOwnerKey(row.agencyId!) : `b:${row.id}`)
 
 /** The joining pilgrims as a stay of the booking's own dates and type (its children sleep on its children's side). */
 function additionStay(row: BookingRow, counts: GuestAdditionSearchInput): { input: StaySearchInput, headcount: StayHeadcount } {
@@ -193,7 +191,7 @@ async function searchAdditions(db: Db, scope: OrganizationScope, row: BookingRow
   if (counts.totalCount === 0) return { options: [{ rooms: [], newRooms: 0, emptySeats: 0, extraBeds: 0, totalHalalas: 0, priceSource: row.priceSource as PriceSource }], quotaHeadroom: headroom }
   const settings = await loadBookingSettings(db, scope)
   const own = await claimedRooms(db, hotelScope, row)
-  const facts = withBookingLimits(await loadStayFacts({ db, hotelScope, booker, input, headcount, settings, quote: await bookingQuote(db, scope, row), ownerKey: ownerKeyOf(row) }), own)
+  const facts = withBookingLimits(await loadStayFacts({ db, hotelScope, booker, input, headcount, settings, quote: await bookingQuote(db, scope, row), ownerKey: claimsOwnerKey(row) }), own)
   const paid = new Set(own.map(c => c.roomId))
   return { options: planStay(facts.planner).flatMap(plan => toOption(plan, facts, input, paid)), quotaHeadroom: headroom }
 }
@@ -209,6 +207,8 @@ async function addPilgrims(db: Db, scope: OrganizationScope, row: BookingRow, ac
   assertCanAdd(row, counts, now)
   const { input, headcount } = additionStay(row, counts)
   if (counts.totalCount > 0 && chosen.length === 0) throw new ValidationError('ROOMS_REQUIRED', 'Choose where the joining pilgrims sleep (search first)')
+  // Every room taken goes through the plan check and the price below: infants alone (no seat) take none.
+  if (counts.totalCount === 0 && chosen.length > 0) throw new ValidationError('ROOMS_NOT_ALLOWED', 'Infants alone join the booking\'s rooms: choose no rooms')
   const { scope: hotelScope } = await bookableHotel(db, scope, row.hotelId)
   const booker = bookerOf(row, actor)
   const settings = await loadBookingSettings(db, scope)
@@ -229,7 +229,7 @@ async function addPilgrims(db: Db, scope: OrganizationScope, row: BookingRow, ac
     if (booker.kind === 'AGENCY') assertQuota(await quotaHeadroomFor(tx, hotelScope, booker.agencyId, input, held!), counts.totalCount)
 
     const own = await claimedRooms(tx, hotelScope, booking)
-    const ownerKey = ownerKeyOf(booking)
+    const ownerKey = claimsOwnerKey(booking)
     const ownRoomIds = ownerKey.startsWith('a:')
       ? (await repos.inventory.liveClaims(null, nights.from, nights.to)).filter(c => c.ownerKey === ownerKey).map(c => c.roomId)
       : own.map(c => c.roomId)
