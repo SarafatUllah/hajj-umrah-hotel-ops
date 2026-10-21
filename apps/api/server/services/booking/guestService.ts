@@ -2,6 +2,7 @@ import { type AgeGroup, type BookingType, type Gender, type Occupancy, SEAT_HOLD
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { GuestDetailsInput, ListGuestsQuery } from '@hajj/contracts/schemas/guest'
 import { checkGuest, isComplete, maskPassport, PASSPORT_LOOKUP_CONTEXT, passportLookupInput } from '../../domain/booking/guestRules'
+import { orgCan } from '../../domain/rbac/authorize'
 import { rethrowDbError } from '../../errors/dbErrors'
 import { ConflictError, NotFoundError, ValidationError } from '../../errors/domainError'
 import { bookingOrgRepos } from '../../repositories'
@@ -63,8 +64,12 @@ type Actor = { kind: ActorKind, id: string | null }
  */
 interface Viewer { actor: Actor, full: boolean, warnHotelIds?: readonly string[] | null }
 
-/** Who writes: agencies never touch the staff master and cannot change a slot once it has checked in. */
-interface Writer { actor: Actor, writesMaster: boolean, lockedStatuses: readonly string[], warnHotelIds?: readonly string[] | null }
+/**
+ * Who writes: agencies never touch the staff master and cannot change a slot once it has checked in. Staff create
+ * a master on first sight; only staff who may see passports (`mergesMaster`) link to an existing one and learn
+ * whether it differs — for anyone else the answer must not tell whether a master exists (no oracle).
+ */
+interface Writer { actor: Actor, writesMaster: boolean, mergesMaster: boolean, lockedStatuses: readonly string[], warnHotelIds?: readonly string[] | null }
 
 // Ciphertexts are bound to the row they belong to: a booker's copy is one per slot, a master one per passport.
 const passportContext = (guestId: string) => `booking_guest_detail.passport_no:${guestId}`
@@ -131,9 +136,9 @@ async function slotsOf(db: Db, scope: OrganizationScope, booking: BookingRow, vi
  * Staff link a slot to the master of its passport (v7 §16: staff merge, ticket 1). Complete details create the
  * master on first sight; an existing master is never overwritten — a difference comes back as MASTER_DIFFERS.
  */
-async function linkMaster(repos: Repos, lookup: string, input: GuestDetailsInput, cipher: PiiCipher): Promise<{ pilgrimId: string | null, differs: boolean }> {
+async function linkMaster(repos: Repos, lookup: string, input: GuestDetailsInput, cipher: PiiCipher, merges: boolean): Promise<{ pilgrimId: string | null, differs: boolean }> {
   if (!isComplete(input)) {
-    const existing = await repos.pilgrims.findByLookup(lookup)
+    const existing = merges ? await repos.pilgrims.findByLookup(lookup) : null
     return { pilgrimId: existing?.id ?? null, differs: false }
   }
   const { row, created } = await repos.pilgrims.createIfAbsent({
@@ -145,6 +150,7 @@ async function linkMaster(repos: Repos, lookup: string, input: GuestDetailsInput
     passportLookup: lookup,
     passportExpiry: input.passportExpiry!,
   })
+  if (!created && !merges) return { pilgrimId: null, differs: false }
   const differs = !created && (row.fullName !== input.fullName || row.gender !== input.gender || row.dateOfBirth !== input.dateOfBirth || row.passportExpiry !== input.passportExpiry)
   return { pilgrimId: row.id, differs }
 }
@@ -193,7 +199,7 @@ async function saveSlot(db: Db, scope: OrganizationScope, booking: BookingRow, g
     const complete = isComplete(input)
     // Agencies never link (a typed passport must not attach a slot to someone's master); their change of passport unlinks.
     const link = !lookup ? { pilgrimId: null, differs: false }
-      : writer.writesMaster ? await linkMaster(repos, lookup, input, cipher)
+      : writer.writesMaster ? await linkMaster(repos, lookup, input, cipher, writer.mergesMaster)
         : { pilgrimId: slot.detail?.passportLookup === lookup ? slot.guest.pilgrimId : null, differs: false }
     const status = DETAILS_STAGES.includes(slot.guest.status) ? (complete ? 'READY' : 'PENDING_DETAILS') : slot.guest.status
     await repos.guests.updateSlot(booking.id, guestId, { gender: input.gender ?? slot.guest.gender, ageGroup: checked.ageGroup, status, pilgrimId: link.pilgrimId })
@@ -219,7 +225,7 @@ export async function listAgencyGuests(ctx: AgencyContext, bookingId: string): P
 /** Agency portal: enter or correct a pilgrim's details (v7 §5 rule 16: never another agency's). */
 export async function saveAgencyGuest(ctx: AgencyContext, bookingId: string, guestId: string, input: GuestDetailsInput): Promise<GuestSlotDto> {
   const booking = await loadForAgency(ctx, bookingId)
-  return saveSlot(ctx.db, ctx.scope, booking, guestId, input, { actor: { kind: 'agency', id: ctx.identity.agencyUserId }, writesMaster: false, lockedStatuses: AGENCY_LOCKED })
+  return saveSlot(ctx.db, ctx.scope, booking, guestId, input, { actor: { kind: 'agency', id: ctx.identity.agencyUserId }, writesMaster: false, mergesMaster: false, lockedStatuses: AGENCY_LOCKED })
 }
 
 /**
@@ -241,5 +247,5 @@ const visibleHotels = (ctx: AuthContext): readonly string[] | null => (ctx.authz
 /** Staff (`booking.edit`: managers, reception at arrival): enter or correct details; complete details refresh the staff master. */
 export async function saveGuest(ctx: AuthContext, bookingId: string, guestId: string, input: GuestDetailsInput): Promise<GuestSlotDto> {
   const booking = await loadForStaff(ctx, bookingId, 'booking.edit')
-  return saveSlot(ctx.db, ctx.scope, booking, guestId, input, { actor: { kind: 'staff', id: ctx.identity.userId }, writesMaster: true, lockedStatuses: ['REMOVED'], warnHotelIds: visibleHotels(ctx) })
+  return saveSlot(ctx.db, ctx.scope, booking, guestId, input, { actor: { kind: 'staff', id: ctx.identity.userId }, writesMaster: true, mergesMaster: orgCan(ctx.authz, 'pilgrim.viewSensitive'), lockedStatuses: ['REMOVED'], warnHotelIds: visibleHotels(ctx) })
 }

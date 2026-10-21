@@ -121,6 +121,15 @@ describe('pilgrim details (v7 §7, §13, §16)', () => {
     expect(changed.warnings).toContainEqual({ code: 'MASTER_DIFFERS' })
     expect(await db.select().from(pilgrim)).toEqual([expect.objectContaining({ id: masters[0]!.id, dateOfBirth: '1980-01-01' })])
     expect((await db.select().from(bookingGuest).where(eq(bookingGuest.id, secondSlot!.id)))[0]!.pilgrimId).toBe(masters[0]!.id)
+
+    // Reception (no pilgrim.viewSensitive) learns nothing about an existing master: no link, no warning.
+    const atReception = await saveGuest(env.reception, env.bookingId, env.slot(2), { ...karim, fullName: 'Someone Else', passportNo: 'Z9999999' })
+    expect(atReception.warnings).toEqual([])
+    // (The agency's own Quad 102 for these dates still has seats: "own room first".)
+    const third = await holdAgencyStay(other, holdRequestSchema.parse({ hotelId: env.hotel.id, bookingType: 'GROUP', checkIn: '2027-06-02', checkOut: '2027-06-05', maleCount: 1, totalCount: 1, rooms: [{ roomId: env.rooms['102'], occupancy: 'MALE', seats: 1 }] }))
+    const [thirdSlot] = await listAgencyGuests(other, third.id)
+    expect((await saveGuest(env.reception, third.id, thirdSlot!.id, { ...karim, dateOfBirth: '1979-01-01' })).warnings).not.toContainEqual({ code: 'MASTER_DIFFERS' })
+    expect((await db.select().from(bookingGuest).where(eq(bookingGuest.id, thirdSlot!.id)))[0]!.pilgrimId).toBeNull()
   })
 
   it('an agency cannot turn a seated pilgrim into an infant (quota and price would drop)', async () => {

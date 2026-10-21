@@ -305,8 +305,9 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   someone older, or a seated slot for an infant — the latter would leave the quota and the price; the hotel changes
   the slot instead, step 14) and implausible dates are refused (born after check-in or before 1900, a passport
   valid 20+ years); only staff link a slot to the staff master (an agency's typed passport proves nothing; its
-  change of passport unlinks), and the master is created on first sight and never overwritten — a difference comes
-  back as `MASTER_DIFFERS`; duplicate-passport warnings name only bookings in hotels the viewer can see; full views
+  change of passport unlinks), and the master is created on first sight and never overwritten — linking to an
+  existing master, and its `MASTER_DIFFERS` warning, only for staff with `pilgrim.viewSensitive` (for anyone else
+  the answer must not reveal whether a master exists: no oracle); duplicate-passport warnings name only bookings in hotels the viewer can see; full views
   are rate limited (staff reveals 60/h, agency lists 300/h per user); saves lock the booking row first (duplicate
   checks cannot race, the status is current); one undecryptable row shows `DETAILS_UNREADABLE` instead of failing
   the list; passport numbers must be ASCII before case folding. Accepted: an agency may correct its READY details
