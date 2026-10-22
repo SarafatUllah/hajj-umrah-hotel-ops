@@ -27,7 +27,7 @@ let stagingEnabled: ReturnType<typeof apiClient>
 beforeAll(async () => {
   demoServer = await startExtraServer({ APP_ENV: 'demo', DEMO_SIGN_IN_ENABLED: 'true' })
   developmentServer = await startExtraServer({ APP_ENV: 'development', DEMO_SIGN_IN_ENABLED: 'true' })
-  productionServer = await startExtraServer({ APP_ENV: 'production', DEMO_SIGN_IN_ENABLED: 'false', STAFF_2FA_ENFORCEMENT: 'required-roles' })
+  productionServer = await startExtraServer({ APP_ENV: 'production', DEMO_SIGN_IN_ENABLED: 'false', STAFF_2FA_ENFORCEMENT: 'required-roles', NUXT_SESSION_COOKIE_SECURE: 'true' })
   stagingServer = await startExtraServer({ APP_ENV: 'staging', DEMO_SIGN_IN_ENABLED: 'false' })
   // Staging with the flag ON is a valid configuration: this server MUST start (startExtraServer rejects otherwise).
   stagingEnabledServer = await startExtraServer({ APP_ENV: 'staging', DEMO_SIGN_IN_ENABLED: 'true' })
@@ -94,7 +94,7 @@ describe('GET /api/public/demo-sign-in — disabled is indistinguishable from an
   })
 
   it('only production refuses to START with DEMO_SIGN_IN_ENABLED=true (startup configuration error)', async () => {
-    const result = await expectServerToFailStartup({ APP_ENV: 'production', DEMO_SIGN_IN_ENABLED: 'true', STAFF_2FA_ENFORCEMENT: 'required-roles' })
+    const result = await expectServerToFailStartup({ APP_ENV: 'production', DEMO_SIGN_IN_ENABLED: 'true', STAFF_2FA_ENFORCEMENT: 'required-roles', NUXT_SESSION_COOKIE_SECURE: 'true' })
     expect(result.code).not.toBe(0)
     expect(result.output).toMatch(/DEMO_SIGN_IN_ENABLED=true is not allowed with APP_ENV=production/)
   }, 30_000)

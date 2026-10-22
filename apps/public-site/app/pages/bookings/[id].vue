@@ -114,7 +114,9 @@ const saveDetails = useMutation({
         <p class="text-small text-(--fg-muted)">{{ t('bookings.askHotel') }}</p>
       </section>
 
-      <section v-if="receipt.data.value" aria-labelledby="receipt-heading" class="surface-panel flex flex-col items-center gap-4 p-6">
+      <!-- Only while the booking is confirmed: a receipt cached before a cancellation must not stay on screen. -->
+      <ErrorState v-if="confirmed && receipt.error.value" :error="receipt.error.value" @retry="receipt.refetch()" />
+      <section v-else-if="confirmed && receipt.data.value" aria-labelledby="receipt-heading" class="surface-panel flex flex-col items-center gap-4 p-6">
         <h2 id="receipt-heading" class="text-section self-start">{{ t('receipt.title') }}</h2>
         <ReceiptQr :token="receipt.data.value.qrToken" :booking-no="receipt.data.value.bookingNo" />
         <UButton color="neutral" variant="outline" icon="i-lucide-printer" class="print:hidden" @click="printReceipt">{{ t('receipt.print') }}</UButton>

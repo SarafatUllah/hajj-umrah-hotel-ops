@@ -1,8 +1,8 @@
 import type { H3Event } from 'h3'
-import { createError, defineEventHandler, getQuery, getRouterParams, isError, readBody, setResponseHeader } from 'h3'
+import { createError, defineEventHandler, getQuery, getRequestHeader, getRouterParams, isError, readBody, setResponseHeader } from 'h3'
 import { z, ZodError, type ZodIssue } from 'zod'
 import { DomainError, ForbiddenError, TooManyRequestsError, ValidationError } from '../errors/domainError'
-import { translateDbError } from '../errors/dbErrors'
+import { translateDbError, unregisteredConstraintOf } from '../errors/dbErrors'
 import type { AgencyContext } from '../security/agencyContext'
 import type { AuthContext } from '../security/authContext'
 import type { CustomerContext } from '../security/customerContext'
@@ -172,12 +172,39 @@ function handleError(event: H3Event, error: unknown): never {
   if (error instanceof ZodError) domainErrorToHttp(zodErrorToValidationError(error))
 
   const translated = translateDbError(error)
-  if (translated) domainErrorToHttp(translated)
+  if (translated) {
+    // A constraint without its own message is answered generically; the operators learn which one it was.
+    const constraint = unregisteredConstraintOf(error)
+    if (constraint) console.warn(`[api] ${requestLabel(event)}: constraint ${constraint} answered as ${translated.code}`)
+    domainErrorToHttp(translated)
+  }
 
   // Unknown error: never leak internals (message, stack, driver detail) to
-  // the client — the original is still logged here for operators.
-  console.error(error)
+  // the client — the original is still logged here for operators, with the route.
+  console.error(`[api] ${requestLabel(event)} failed:`, error)
   throw createError({ statusCode: 500, statusMessage: 'Internal server error', data: { code: 'INTERNAL_ERROR' } })
+}
+
+/** The request for a log line: its method and path, never its query (it may carry a search for a name). */
+function requestLabel(event: H3Event): string {
+  return `${event.method} ${event.path.split('?')[0]}`
+}
+
+/** The largest JSON body a route reads; the biggest legitimate ones (a 600-pilgrim booking, a bulk of rooms) are far below. */
+export const MAX_JSON_BODY_BYTES = 1024 * 1024
+
+/**
+ * `readBody` buffers the whole body before it parses, so its size is bounded first, from the declared length (HTTP
+ * framing makes that binding): above the limit is 413 `BODY_TOO_LARGE`, a chunked body without a length 411.
+ * Uploads have their own, larger bound (multipartUpload.ts).
+ */
+function assertBoundedBody(event: H3Event): void {
+  const length = getRequestHeader(event, 'content-length')
+  if (length === undefined) {
+    if (getRequestHeader(event, 'transfer-encoding') !== undefined) throw new DomainError('LENGTH_REQUIRED', 'Requests must declare their Content-Length', 411)
+    return
+  }
+  if (Number(length) > MAX_JSON_BODY_BYTES) throw new DomainError('BODY_TOO_LARGE', 'The request is too large', 413)
 }
 
 async function contextFor(event: H3Event, auth: AuthRequirement | undefined): Promise<AuthContext | AgencyContext | CustomerContext | undefined> {
@@ -210,13 +237,15 @@ export function defineApiHandler<P = void, Q = void, B = void, R = unknown, A ex
 
   return defineEventHandler(async (event: H3Event): Promise<R> => {
     try {
-      const params = paramsSchema ? parseOrThrow(paramsSchema, getRouterParams(event)) : (undefined as P)
-      const query = querySchema ? parseOrThrow(querySchema, getQuery(event)) : (undefined as Q)
-      const body = bodySchema ? parseOrThrow(bodySchema, await readBody(event)) : (undefined as B)
+      // Who is asking first: an anonymous caller learns nothing about the route's input and costs no body read.
       const ctx = await contextFor(event, opts.auth) as ApiHandlerArgs<P, Q, B, A>['ctx']
       if (ctx && 'twoFactorEnrollmentPending' in ctx && ctx.twoFactorEnrollmentPending && !opts.allowTwoFactorEnrollmentPending) {
         throw new ForbiddenError('TWO_FACTOR_ENROLLMENT_REQUIRED', 'Set up two-factor authentication to continue')
       }
+      const params = paramsSchema ? parseOrThrow(paramsSchema, getRouterParams(event)) : (undefined as P)
+      const query = querySchema ? parseOrThrow(querySchema, getQuery(event)) : (undefined as Q)
+      if (bodySchema) assertBoundedBody(event)
+      const body = bodySchema ? parseOrThrow(bodySchema, await readBody(event)) : (undefined as B)
       return await opts.handler({ event, params, query, body, ctx })
     }
     catch (error) {

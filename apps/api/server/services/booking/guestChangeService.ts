@@ -5,6 +5,7 @@ import { planStay, type StayHeadcount } from '../../domain/booking/allocation/pl
 import { checkStayPlan, type PlanProblem } from '../../domain/booking/allocation/stayPlanCheck'
 import { stayNights } from '../../domain/booking/allocation/stayRooms'
 import { effectiveBookingStatus } from '../../domain/booking/bookingView'
+import { bookingStatusAfter } from '../../domain/booking/guestMoves'
 import { guestSlots } from '../../domain/booking/guestSlots'
 import { type BookingCounts, countsOfSlots, countsWith, type RemovalRefusal, refuseHeadcount } from '../../domain/booking/headcountChanges'
 import { isUnpriced, type PriceLine, type QuoteTerms } from '../../domain/booking/pricing'
@@ -70,13 +71,20 @@ export async function removeGuest(ctx: AuthContext, bookingId: string, guestId: 
     if (refusal) throw REFUSALS[refusal]()
 
     await repos.guests.updateSlot(row.id, guestId, { status: 'REMOVED' })
-    const updated = (await repos.records.setCounts(row.id, after, now))!
+    // It never arrived (only those can be removed): it sleeps nowhere, so the booking's own rooms keep only the nights
+    // someone still sleeps in them (an agency's rooms stay the agency's).
+    const vacated = await repos.guests.endStaysFrom(row.id, guestId, booking.checkIn)
+    const counted = (await repos.records.setCounts(row.id, after, now))!
+    await repos.records.trimClaims(row.id, vacated, booking.checkIn, now, { ownedByBooking: true })
     await repos.records.releaseEmptyClaims(row.id, now)
+    // The booking's status follows its slots (v7 §7), as at the desk: removing the last pilgrim still due completes it.
+    const status = bookingStatusAfter(booking.status as BookingStatus, await repos.guests.statuses(row.id))
+    const updated = status === booking.status ? counted : (await repos.records.setStatus(row.id, status, now))!
     await repos.records.recordChange({
       bookingId: row.id,
       kind: 'GUEST_REMOVED',
-      before: { slotNo: slot.guest.slotNo, status: slot.guest.status, totalCount: booking.totalCount, infantCount: booking.infantCount },
-      after: { slotNo: slot.guest.slotNo, status: 'REMOVED', totalCount: after.totalCount, infantCount: after.infantCount, ageGroup: slot.guest.ageGroup },
+      before: { slotNo: slot.guest.slotNo, status: slot.guest.status, totalCount: booking.totalCount, infantCount: booking.infantCount, bookingStatus: booking.status },
+      after: { slotNo: slot.guest.slotNo, status: 'REMOVED', totalCount: after.totalCount, infantCount: after.infantCount, ageGroup: slot.guest.ageGroup, bookingStatus: status },
       actor: { kind: 'staff', id: ctx.identity.userId },
     })
     return updated

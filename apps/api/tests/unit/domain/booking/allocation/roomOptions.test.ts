@@ -133,5 +133,5 @@ describe('suggestRoomOptions (v7 §9.4)', () => {
     // The cases exercise both v6 bugs.
     expect(withExtra).toBeGreaterThan(500)
     expect(cappedSix).toBeGreaterThan(2_000)
-  })
+  }, 60_000) // ~2 s locally, 8 s on a CI runner: past Vitest's 5 s default
 })

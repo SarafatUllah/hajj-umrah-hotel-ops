@@ -116,6 +116,24 @@ describe('removing a pilgrim (v7 §12)', () => {
     expect((await db.select().from(bookingRoom).where(eq(bookingRoom.id, big.id)))[0]!.status).toBe('CONFIRMED')
     expect(await bookingRow(family.id)).toMatchObject({ totalCount: 2 })
   })
+
+  it('removing the pilgrim whose stay ran to the end of the booking\'s own room shortens its claim to the nights still slept', async () => {
+    const env = await setup()
+    const customer = await makeCustomer(db, env.scope)
+    const family = await makeBooking(db, env.scope, env.hotel.id, { bookerType: 'INDIVIDUAL', customerId: customer.id, bookingType: 'FAMILY', maleCount: 0, totalCount: 2, checkIn: '2027-06-01', checkOut: '2027-06-04' })
+    const quad = await makeBookingRoom(db, env.scope, family, env.rooms['102']!, { occupancy: 'FAMILY' })
+    const upstairs = await makeBookingRoom(db, env.scope, family, env.rooms['202']!, { occupancy: 'FAMILY', checkIn: '2027-06-02' })
+    const staying = await makeGuest(db, env.scope, family.id, 1, { gender: null })
+    const moved = await makeGuest(db, env.scope, family.id, 2, { gender: null })
+    await makeStay(db, env.scope, family.id, staying.id, quad.id, family.checkIn, family.checkOut)
+    // The second pilgrim moved upstairs from the second night.
+    await makeStay(db, env.scope, family.id, moved.id, quad.id, '2027-06-01', '2027-06-02')
+    await makeStay(db, env.scope, family.id, moved.id, upstairs.id, '2027-06-02', family.checkOut)
+
+    await removeGuest(env.manager, family.id, staying.id)
+    expect((await db.select().from(bookingRoom).where(eq(bookingRoom.id, quad.id)))[0]).toMatchObject({ status: 'CONFIRMED', checkIn: '2027-06-01', checkOut: '2027-06-02' })
+    expect((await db.select().from(bookingRoom).where(eq(bookingRoom.id, upstairs.id)))[0]).toMatchObject({ status: 'CONFIRMED', checkIn: '2027-06-02', checkOut: '2027-06-04' })
+  })
 })
 
 describe('adding pilgrims (v7 §12)', () => {

@@ -27,7 +27,13 @@ export function usePrincipalSession<T>() {
   }
 
   async function signOut(everywhere = false): Promise<void> {
-    await api(everywhere && paths.signOutEverywherePath ? paths.signOutEverywherePath : paths.signOutPath, { method: 'POST' })
+    try {
+      await api(everywhere && paths.signOutEverywherePath ? paths.signOutEverywherePath : paths.signOutPath, { method: 'POST' })
+    }
+    catch (error) {
+      // A session that had already ended is signed out all the same.
+      if (toApiError(error).status !== 401) throw error
+    }
     current.value = null
     $queryClient.clear()
   }

@@ -28,8 +28,8 @@ export interface EnqueueOptions {
 
 /** The job runtime is not running in this process (not started, failed to start, or stopping). */
 export class JobRuntimeUnavailableError extends Error {
-  constructor(message: string) {
-    super(message)
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
     this.name = 'JobRuntimeUnavailableError'
   }
 }
@@ -60,12 +60,45 @@ export function startJobRuntime(options: JobRuntimeOptions): Promise<Running> {
   return running
 }
 
+/** The waits between start attempts after a failed boot (the last one repeats). */
+const START_RETRY_DELAYS_MS = [5_000, 15_000, 60_000] as const
+
+/**
+ * Starts the runtime and, while that fails (e.g. the API came up before the database), tries again after a growing
+ * wait — a process that booted too early still ends up working its jobs instead of running without them until a
+ * restart. Returns a function that stops the retrying (Nitro `close`).
+ */
+export function startJobRuntimeWithRetry(options: JobRuntimeOptions, delaysMs: readonly number[] = START_RETRY_DELAYS_MS): () => void {
+  let stopped = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const attempt = (n: number): void => {
+    startJobRuntime(options).catch((error: unknown) => {
+      if (stopped) return
+      const delay = delaysMs[Math.min(n, delaysMs.length - 1)]!
+      console.error(`[jobs] runtime failed to start; trying again in ${delay / 1000}s`, error)
+      timer = setTimeout(() => attempt(n + 1), delay)
+      timer.unref?.()
+    })
+  }
+  const stop = () => {
+    stopped = true
+    clearTimeout(timer)
+  }
+  cancelStartRetries = stop
+  attempt(0)
+  return stop
+}
+
+/** Set while startJobRuntimeWithRetry may still try again; stopJobRuntime cancels it. */
+let cancelStartRetries: (() => void) | null = null
+
 async function boot(options: JobRuntimeOptions): Promise<Running> {
   const working = options.workTiers.length > 0
   const boss = new PgBoss({ connectionString: options.connectionString, max: options.poolMax ?? 3, supervise: working, schedule: working })
   boss.on('error', error => console.error('[jobs]', error))
-  await boss.start()
   try {
+    // Inside the try: a start that fails half-way leaves timers and a pool, which the catch stops (retries would pile them up).
+    await boss.start()
     for (const job of options.jobs) await boss.createQueue(job.name, job.queue ?? {})
     for (const job of options.jobs) {
       if (!options.workTiers.includes(job.tier)) continue
@@ -92,8 +125,10 @@ async function boot(options: JobRuntimeOptions): Promise<Running> {
   }
 }
 
-/** Stops the runtime (Nitro `close`, worker SIGTERM, test teardown), letting in-flight handlers finish. Idempotent. */
+/** Stops the runtime (Nitro `close`, worker SIGTERM, test teardown) and any start retries, letting in-flight handlers finish. Idempotent. */
 export async function stopJobRuntime(): Promise<void> {
+  cancelStartRetries?.()
+  cancelStartRetries = null
   if (!running) return
   const current = running
   running = null
@@ -111,7 +146,10 @@ export async function enqueue<T extends object>(job: JobDefinition<T>, data: T, 
     const cause = lastBootError ? `: it failed to start (${String(lastBootError)})` : ' (JOBS_MODE=off?)'
     throw new JobRuntimeUnavailableError(`Job runtime is not running${cause}; cannot enqueue ${job.name}`)
   }
-  const { boss, registered } = await running
+  // A boot still in progress that then fails is the runtime being unavailable, not an error of the caller's change.
+  const { boss, registered } = await running.catch((error: unknown) => {
+    throw new JobRuntimeUnavailableError(`Job runtime failed to start (${String(error)}); cannot enqueue ${job.name}`, { cause: error })
+  })
   if (!registered.has(job.name)) throw new Error(`Job ${job.name} is not registered with the job runtime`)
   const id = await boss.send(job.name, data, {
     ...(options.startAfter !== undefined ? { startAfter: options.startAfter } : {}),

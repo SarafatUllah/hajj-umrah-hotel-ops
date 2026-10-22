@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { OTP_CODE_LENGTH } from '../constants/accounts'
+import { toLatinDigits } from '../utils/digits'
 import { e164Phone, safeText, uuid } from './common'
 
 /** `POST /api/customer/auth/otp/request` (public site): text a one-time code to this phone. */
@@ -15,7 +16,7 @@ export type OtpRequestInput = z.infer<typeof otpRequestSchema>
 export const otpVerifySchema = z.object({
   organizationSlug: z.string().min(1).max(100),
   challengeId: uuid,
-  code: z.string().regex(new RegExp(`^\\d{${OTP_CODE_LENGTH}}$`), `Enter the ${OTP_CODE_LENGTH}-digit code`),
+  code: z.string().transform(toLatinDigits).pipe(z.string().regex(new RegExp(`^\\d{${OTP_CODE_LENGTH}}$`), `Enter the ${OTP_CODE_LENGTH}-digit code`)),
   fullName: safeText(200).refine(v => v.length > 0, 'Required').optional(),
 }).strict()
 export type OtpVerifyInput = z.infer<typeof otpVerifySchema>

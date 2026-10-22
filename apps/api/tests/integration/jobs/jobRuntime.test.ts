@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { defineJob, workTiersFor } from '../../../server/jobs/definition'
-import { enqueue, startJobRuntime, stopJobRuntime } from '../../../server/jobs/runtime'
+import { enqueue, JobRuntimeUnavailableError, startJobRuntime, startJobRuntimeWithRetry, stopJobRuntime } from '../../../server/jobs/runtime'
 import { closeTestDb, getTestDb } from '../support/testDb'
 import { requireTestDatabaseUrl } from '../support/testDatabase'
 
@@ -65,6 +65,27 @@ describe('job runtime boot failure and singletons', () => {
     await expect(startJobRuntime({ connectionString: requireTestDatabaseUrl(), db: getTestDb(), jobs: [badCron] as never, workTiers: ['light'] })).rejects.toThrow()
     await expect(enqueue(badCron, { n: 1 })).rejects.toThrow(/failed to start/)
   })
+
+  it('an enqueue waiting on a boot that fails gets JobRuntimeUnavailableError, so a side effect never blocks the change', async () => {
+    const badCron = defineJob<{ n: number }>({ name: 'test.bad-cron-waiting', tier: 'light', schedule: { cron: 'not a cron' }, handle: async () => {} })
+    const booting = startJobRuntime({ connectionString: requireTestDatabaseUrl(), db: getTestDb(), jobs: [badCron] as never, workTiers: ['light'] })
+    await expect(enqueue(badCron, { n: 1 })).rejects.toBeInstanceOf(JobRuntimeUnavailableError)
+    await expect(booting).rejects.toThrow()
+  })
+
+  it('startJobRuntimeWithRetry tries again after a failed boot until stopped', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const badCron = defineJob<{ n: number }>({ name: 'test.bad-cron-retry', tier: 'light', schedule: { cron: 'not a cron' }, handle: async () => {} })
+    const stop = startJobRuntimeWithRetry({ connectionString: requireTestDatabaseUrl(), db: getTestDb(), jobs: [badCron] as never, workTiers: ['light'] }, [10])
+    await vi.waitFor(() => expect(errors.mock.calls.filter(([message]) => String(message).includes('trying again')).length).toBeGreaterThanOrEqual(2), { timeout: 10_000 })
+    stop()
+    // A boot already under way finishes (and fails) here, so it cannot leak into the next test's start.
+    await stopJobRuntime()
+    const attempts = errors.mock.calls.length
+    await new Promise(resolve => setTimeout(resolve, 200))
+    expect(errors.mock.calls.length).toBe(attempts)
+    errors.mockRestore()
+  }, 20_000)
 
   it('a duplicate singleton send returns null instead of throwing', async () => {
     const single = defineJob<{ n: number }>({ name: `test.singleton-short-${Date.now()}`, tier: 'light', queue: { policy: 'short' }, handle: async () => {} })

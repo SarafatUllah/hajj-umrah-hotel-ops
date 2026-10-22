@@ -256,6 +256,7 @@
       "BLOCK_NOT_FOUND": "This block no longer exists.",
       "BLOCK_OVERLAP": "The room already has a block of this kind on some of these nights.",
       "BLOCK_TOO_LONG": "This block is too long: shorten it.",
+      "BODY_TOO_LARGE": "The request is too large.",
       "BOOKING_CHANGED": "The booking's dates changed meanwhile. Search again.",
       "BOOKING_CLOSED": "Details cannot change on this booking any more.",
       "BOOKING_CONFLICT": "This change conflicts with existing bookings. Move their pilgrims or cancel them first.",

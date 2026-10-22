@@ -38,7 +38,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify` and committed
 | 14 | 2e: changes & cancellation (add/remove guest, date change, room move, cancel, no-show, early checkout) | done: 14a cancellation, early checkout, no-show policy; 14b remove/add pilgrims; 14c room move; 14d date change |
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done; 16g quotes, agencies done; 16h booking settings, booking rules done |
-| 17 | Final review (code, security, database, architecture) and docs | done: 17a data protection, database, security; 17c agency passwords; 17d shared layer, typed contracts; 17e bookings on the room calendar; 17f docs |
+| 17 | Final review (code, security, database, architecture) and docs | done: 17a data protection, database, security; 17c agency passwords; 17d shared layer, typed contracts; 17e bookings on the room calendar; 17f docs; 17g pull request review (D-P2-66) |
 
 ## Local environment note
 
@@ -854,6 +854,31 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   frontends but does not build them); staff user management (no list endpoint: the HR phase); payments; agency
   invitations, 2FA and "sign out everywhere"; the cancellation charges policy (v7 §15: the client decides); Q28
   (Reception sees every occupancy view, D-P2-58) pending the client; transport after Phase 2.
+- **D-P2-66 (review) Pull request review of Phase 2 (dev → main).** Nine read-only reviews of the whole pull request
+  (booking logic, API plumbing, security, database, error handling, tests, types, the console, the layer and the two
+  other apps), a clean-checkout install and build of every app, and the three apps driven end to end in a browser.
+  Fixed: CI's unit job (the allocation property test's own timeout); sign-in codes and phones typed in Arabic digits
+  (`toLatinDigits`, also room numbers); a job runtime that failed to start is tried again and an enqueue meanwhile is
+  `JobRuntimeUnavailableError` (a side effect never blocks the change, D-P2-43), and the pool closes after the jobs
+  stop; Turnstile's configuration errors and outages are logged and `remoteip` is only an address; the API answers
+  401 before it reads or validates a body, bounds JSON bodies at 1 MiB (413 `BODY_TOO_LARGE`) and marks its answers
+  `Cache-Control: no-store`; the frontends' proxy bounds bodies and times out; production refuses the example session
+  password and a cookie without Secure; a new code's failed SMS leaves the previous code usable; unregistered
+  constraints and 500s are logged with their route; erasure dates a cancellation in UTC; removing the last pilgrim
+  still due completes an in-house booking, and a removed pilgrim no longer holds its room's claim; a GROUP's infants
+  need an adult on the children's side at hold too; released claims give no extra-bed tasks; the room calendar keeps
+  its ticked rooms on a cell click; the hotel switcher opens the section, not another hotel's room; a receipt shows
+  only while the booking is confirmed (and its load error with a retry); a booked quote refreshes the quote lists;
+  signing out of an expired session clears it. Open (recorded for the next steps, none blocks the merge): the
+  integration tests' fixed 2027-05-01 clock meets the database clock on 2027-05-01 10:10 UTC (hold tests then see
+  their holds lapse — move the test dates before then); booking edge cases (infants added after a room move, arrivals
+  counted per stay rather than per pilgrim, a no-show-only booking completing frees its seats, a confirm racing a
+  same-agency hold at the expiry instant, a quote re-offered while a hold uses it); database follow-ups for a 0022
+  migration (the deferred containment trigger is O(n²) per booking, partial indexes for the image purge and the
+  erasure sweep, purge indexes on `event_receipt` and `rate_limit_bucket`, a lock in the claim-status guard); type
+  hardening (`bookableHotel` mints a `HotelScope` without an authorization, enum columns typed in Drizzle,
+  discriminated DTOs); a plain "sign out" on the public site, hreflang and `Vary` for its two languages, passport
+  reader errors told apart from unreadable photos, agency pickers past 100 agencies, staff "sign out everywhere".
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on

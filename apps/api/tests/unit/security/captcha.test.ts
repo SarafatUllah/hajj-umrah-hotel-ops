@@ -33,4 +33,31 @@ describe('assertHuman', () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('down') }))
     await expect(assertHuman('token', '1.2.3.4')).rejects.toMatchObject({ code: 'CAPTCHA_FAILED' })
   })
+
+  it('sends remoteip only when it is an address (an IPv6 /64 rate-limit group or "unknown" is not)', async () => {
+    Object.assign(envState, { CAPTCHA_DRIVER: 'turnstile', CAPTCHA_SECRET: 'secret' })
+    const verify = vi.fn(async () => Response.json({ success: true }))
+    vi.stubGlobal('fetch', verify)
+    await assertHuman('token', '2001:db8:0:0::/64')
+    await assertHuman('token', 'unknown')
+    await assertHuman('token', '2001:db8::1')
+    const bodies = (verify.mock.calls as unknown as Array<[string, { body: URLSearchParams }]>).map(([, init]) => init.body)
+    expect(bodies.map(body => body.get('remoteip'))).toEqual([null, null, '2001:db8::1'])
+  })
+
+  it('a wrong secret or an HTTP error is logged for the operators; a visitor\'s refused token is not', async () => {
+    Object.assign(envState, { CAPTCHA_DRIVER: 'turnstile', CAPTCHA_SECRET: 'secret' })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ 'success': false, 'error-codes': ['invalid-input-response'] })))
+    await expect(assertHuman('token', '1.2.3.4')).rejects.toMatchObject({ code: 'CAPTCHA_FAILED' })
+    expect(errors).not.toHaveBeenCalled()
+
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ 'success': false, 'error-codes': ['invalid-input-secret'] })))
+    await expect(assertHuman('token', '1.2.3.4')).rejects.toMatchObject({ code: 'CAPTCHA_FAILED' })
+    expect(String(errors.mock.calls.at(-1))).toContain('invalid-input-secret')
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('busy', { status: 503 })))
+    await expect(assertHuman('token', '1.2.3.4')).rejects.toMatchObject({ code: 'CAPTCHA_FAILED' })
+    expect(String(errors.mock.calls.at(-1))).toContain('503')
+  })
 })

@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lt, sql } from 'drizzle-orm'
+import { and, eq, gt, isNull, lt, ne, sql } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
 import { otpChallenge } from '@hajj/db/schema'
 import type { OrganizationScope } from '../../security/scope'
@@ -30,9 +30,9 @@ export class OtpChallengeRepository {
     return row ?? null
   }
 
-  /** Closes every still-open challenge of `phone` (a new code replaces the older ones: one live code per phone). */
-  async closeOpenForPhone(phone: string, at: Date): Promise<void> {
-    await this.q.update(otpChallenge, { consumedAt: at }, eq(otpChallenge.phone, phone), isNull(otpChallenge.consumedAt))
+  /** Closes every still-open challenge of `phone` but `exceptId` (a new code replaces the older ones: one live code per phone). */
+  async closeOpenForPhone(phone: string, at: Date, exceptId?: string): Promise<void> {
+    await this.q.update(otpChallenge, { consumedAt: at }, eq(otpChallenge.phone, phone), isNull(otpChallenge.consumedAt), exceptId ? ne(otpChallenge.id, exceptId) : undefined)
   }
 
   /** Marks the challenge used; true only for the one caller that consumed it. */

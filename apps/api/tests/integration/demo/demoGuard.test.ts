@@ -64,8 +64,9 @@ describe('production seed guard (ALLOW_DEMO_SEED)', () => {
     const actor = { userId: demoIds.user('admin'), organizationId: DEMO_ORG_ID }
 
     process.env.APP_ENV = 'production'
-    // A valid production environment (env.ts refuses production without staff 2FA enforcement).
+    // A valid production environment (env.ts refuses production without staff 2FA enforcement or a Secure cookie).
     process.env.STAFF_2FA_ENFORCEMENT = 'required-roles'
+    process.env.NUXT_SESSION_COOKIE_SECURE = 'true'
     delete process.env.ALLOW_DEMO_SEED
     await expect(resetDemoData(actor)).rejects.toBeInstanceOf(DemoSeedForbiddenError)
     expect((await fingerprintOrganization(db, DEMO_ORG_ID)).hash).toBe(before.hash)

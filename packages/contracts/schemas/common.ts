@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isValidIsoDate, toEpochDay } from '../utils/dates'
+import { toLatinDigits } from '../utils/digits'
 import { MAX_CALENDAR_DAYS } from '../constants/inventory'
 
 export const uuid = z.string().uuid()
@@ -77,8 +78,8 @@ export function uniqueIds(max: number, opts: { required?: boolean } = {}) {
     .refine(ids => !required || ids.length > 0, { message: 'At least one id is required' })
 }
 
-/** A phone number in E.164 form (`+` and 8–15 digits); spaces, dashes and brackets are stripped first. */
-export const e164Phone = z.string().transform(value => value.replace(/[\s\-()]/g, '')).refine(value => /^\+[1-9]\d{7,14}$/.test(value), { message: 'Enter the number in international form, e.g. +9665XXXXXXXX' })
+/** A phone number in E.164 form (`+` and 8–15 digits); Arabic digits become Latin, spaces, dashes and brackets are stripped first. */
+export const e164Phone = z.string().transform(value => toLatinDigits(value).replace(/[\s\-()]/g, '')).refine(value => /^\+[1-9]\d{7,14}$/.test(value), { message: 'Enter the number in international form, e.g. +9665XXXXXXXX' })
 
 /** A new password (accounts created in Phase 2: agency users). Upper bound keeps Argon2 input bounded. */
 export const newPassword = z.string().min(10, 'Use at least 10 characters').max(256)

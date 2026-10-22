@@ -127,6 +127,14 @@ describe('customer sign-in by SMS code', () => {
     }
   })
 
+  it('a new code whose SMS fails to send leaves the previous code usable', async () => {
+    const { organization } = await makeOrg(db)
+    const first = await issue(organization.slug)
+    setSmsSenderForTests({ send: async () => { throw new Error('gateway down') } })
+    await expect(requestCustomerOtp({ organizationSlug: organization.slug, phone: first.phone }, request(undefined, new Date(Date.now() + 61_000)))).rejects.toThrow('gateway down')
+    await expect(verifyCustomerOtp({ organizationSlug: organization.slug, challengeId: first.challengeId, code: first.code, fullName: 'X' }, request())).resolves.toMatchObject({ phone: first.phone })
+  })
+
   it('refuses countries outside SMS_ALLOWED_CALLING_CODES (422) before any SMS; an unknown organization is 422; no SMS gateway is 503', async () => {
     const { organization } = await makeOrg(db)
     await expect(requestCustomerOtp({ organizationSlug: organization.slug, phone: '+88017000000001' }, request())).rejects.toMatchObject({ code: 'PHONE_NOT_SUPPORTED', httpStatus: 422 })

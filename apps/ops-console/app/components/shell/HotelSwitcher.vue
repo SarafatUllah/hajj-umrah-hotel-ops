@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
- * The hotel switcher (§6.2–§6.3). On a hotel's page another hotel opens the same page for it (hotel-specific filters
- * and selections dropped); on a portfolio page it sets `?hotel=` (or "All hotels"); elsewhere it only remembers the
+ * The hotel switcher (§6.2–§6.3). On a hotel's page another hotel opens the same section for it (a room or season
+ * page falls back to its list; hotel-specific filters and selections dropped); on a portfolio page it sets `?hotel=`
+ * (or "All hotels"); elsewhere it only remembers the
  * choice for the hotel links. One hotel: a static label. No hotel: nothing.
  */
 const ALL = '__all__'
@@ -21,7 +22,7 @@ const value = computed(() => (isPortfolio.value && !current.value ? ALL : shown.
 async function choose(code: string | undefined): Promise<void> {
   if (!code) return
   if (isHotelPage.value) {
-    await navigateTo(route.path.replace(/^\/hotels\/[^/]+/, `/hotels/${encodeURIComponent(code)}`))
+    await navigateTo(sameHotelPage(route.path, code))
     return
   }
   if (isPortfolio.value) {

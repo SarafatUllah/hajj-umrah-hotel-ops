@@ -186,6 +186,9 @@ describe('search and hold (v7 §9–10)', () => {
     await expect(placeHold(db, env.scope, env.agency, spread, NOW)).rejects.toMatchObject({ code: 'INVALID_OPTION', details: { problems: [{ code: 'IDLE_ROOMS', occupancy: 'MALE' }] } })
     await expect(searchStay(db, env.scope, env.agency, stay(env.hotel.id, { maleCount: 2, femaleCount: 0, childCount: 1, totalCount: 3 }), NOW))
       .rejects.toMatchObject({ code: 'CHILDREN_NEED_AN_ADULT', httpStatus: 422 })
+    // Infants too: they sleep on the children's side (later removals and additions apply the same rule).
+    await expect(searchStay(db, env.scope, env.agency, stay(env.hotel.id, { maleCount: 2, femaleCount: 0, infantCount: 1, totalCount: 2 }), NOW))
+      .rejects.toMatchObject({ code: 'CHILDREN_NEED_AN_ADULT', httpStatus: 422 })
 
     const july = stay(env.hotel.id, { checkIn: '2027-07-01', checkOut: '2027-07-03', maleCount: 4, femaleCount: 0, totalCount: 4 })
     expect((await searchStay(db, env.scope, env.agency, july, NOW)).options).toEqual([])

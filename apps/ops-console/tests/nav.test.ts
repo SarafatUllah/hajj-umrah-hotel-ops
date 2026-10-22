@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Permission } from '@hajj/contracts/constants/permissions'
-import { homeOf, linkOf, NAVIGATION, type NavItem, visibleNavigation } from '../app/utils/nav'
+import { homeOf, linkOf, NAVIGATION, type NavItem, sameHotelPage, visibleNavigation } from '../app/utils/nav'
 
 const accessWith = (...permissions: Permission[]) => ({ can: (p: Permission) => permissions.includes(p) })
 
@@ -16,6 +16,13 @@ describe('the navigation (§2.2, §6.2)', () => {
     const admin = visibleNavigation(NAVIGATION, accessWith('hotel.view', 'room.view', 'organization.resetDemo'), true)
     expect(admin.map(g => g.key)).toContain('admin')
     expect(visibleNavigation(NAVIGATION, accessWith('hotel.view', 'room.view', 'organization.resetDemo'), false).map(g => g.key)).not.toContain('admin')
+  })
+
+  it('another hotel opens on the same section; a room or season of one hotel is not one of another', () => {
+    expect(sameHotelPage('/hotels/MKK-GRAND', 'MED-CENT')).toBe('/hotels/MED-CENT')
+    expect(sameHotelPage('/hotels/MKK-GRAND/calendar', 'MED-CENT')).toBe('/hotels/MED-CENT/calendar')
+    expect(sameHotelPage('/hotels/MKK-GRAND/rooms/6a0f3c1e-0000-4000-8000-000000000001', 'MED-CENT')).toBe('/hotels/MED-CENT/rooms')
+    expect(sameHotelPage('/hotels/MKK-GRAND/seasons/6a0f3c1e-0000-4000-8000-000000000002/apply', 'A B')).toBe('/hotels/A%20B/seasons')
   })
 
   it('a hotel page opens for the last hotel used, else through the hotel chooser', () => {

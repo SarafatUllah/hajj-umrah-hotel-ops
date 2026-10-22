@@ -65,6 +65,15 @@ export function homeOf(access: { can: (permission: Permission) => boolean }): st
   return access.can('booking.view') ? '/bookings' : '/hotels'
 }
 
+/**
+ * The same page of another hotel (the switcher, §6.3): its section only — a room or a season of one hotel is not one
+ * of another, so `/hotels/A/rooms/<id>` becomes `/hotels/B/rooms`.
+ */
+export function sameHotelPage(path: string, code: string): string {
+  const section = path.split('/')[3]
+  return `/hotels/${encodeURIComponent(code)}${section ? `/${section}` : ''}`
+}
+
 /** An item's link: a hotel page opens for the last hotel used, else the hotel chooser asks which (§6.2). */
 export function linkOf(item: NavItem, lastHotelCode: string | null): string {
   if (item.scope !== 'hotel') return item.path

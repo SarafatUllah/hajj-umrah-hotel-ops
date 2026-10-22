@@ -54,7 +54,8 @@ function assertSupportedDestination(phone: string): void {
  * anything is created or sent: the destination country must be allowed, the bot check pass (when configured),
  * and the limits hold — per client address, one code per phone per minute, 3 per phone per 15 minutes, and the
  * organization's hourly and daily SMS budget. The answer is the same whether or not the phone has an account.
- * A new code closes the phone's older ones; only a hash of the code is stored.
+ * A new code closes the phone's older ones once it is sent (a failed SMS leaves them usable); only a hash of the
+ * code is stored.
  */
 export async function requestCustomerOtp(input: OtpRequestInput, request: LoginRequest): Promise<OtpChallengeIssued> {
   const db = useDb()
@@ -75,9 +76,9 @@ export async function requestCustomerOtp(input: OtpRequestInput, request: LoginR
   const challengeId = randomUUID()
   const code = generateOtpCode()
   const challenges = accountsRepos(db, scope).otpChallenges
-  await challenges.closeOpenForPhone(input.phone, request.now)
   await challenges.insert({ id: challengeId, phone: input.phone, codeHash: hashOtpCode(challengeId, code), expiresAt: new Date(request.now.getTime() + OTP_TTL_SECONDS * 1000) })
   await useSmsSender().send({ to: input.phone, text: `Your verification code is ${code}. It expires in ${OTP_TTL_SECONDS / 60} minutes. Do not share it.` })
+  await challenges.closeOpenForPhone(input.phone, request.now, challengeId)
   return { challengeId, expiresInSeconds: OTP_TTL_SECONDS }
 }
 

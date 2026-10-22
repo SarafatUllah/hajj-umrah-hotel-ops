@@ -85,8 +85,9 @@ const tooMany = computed(() => calendar.error.value && toApiError(calendar.error
 
 const canBlock = computed(() => ready.value && access.value.canInHotel('room.block', hotelId.value) && !isInactive.value)
 const selected = ref<Set<string>>(new Set())
-// The ticked rooms are kept across ranges, and cleared when the filters change.
-watch(filters, () => { selected.value = new Set() })
+// The ticked rooms are kept across ranges, and cleared when the filters change — compared by value: `filters` is a
+// new object whenever the URL changes (a cell chosen, another range), which must not clear them.
+watch(() => JSON.stringify(filters.value), () => { selected.value = new Set() })
 const toggle = (roomId: string, on: boolean) => {
   const next = new Set(selected.value)
   if (on) next.add(roomId)

@@ -45,13 +45,14 @@ export interface StayFacts {
 }
 
 /**
- * The head count as the allocator reads it; a GROUP's children sit on the requested side, else the default
- * (§23 Q16) — and that side needs an adult (children never get a room of their own: 422 `CHILDREN_NEED_AN_ADULT`).
+ * The head count as the allocator reads it; a GROUP's children and infants sit on the requested side, else the
+ * default (§23 Q16) — and that side needs an adult (they never get a room of their own: 422 `CHILDREN_NEED_AN_ADULT`,
+ * the rule removals and additions apply too).
  */
 export function headcountOf(input: StaySearchInput, settings: Pick<BookingSettingRow, 'childDefaultSide'>): StayHeadcount {
   const childSide = input.bookingType === 'GROUP' ? (input.childSide ?? settings.childDefaultSide as ChildSide) : null
   const adultsWithChildren = childSide === 'FATHER' ? input.maleCount : input.femaleCount
-  if (input.childCount > 0 && adultsWithChildren === 0) {
+  if (childSide && (input.childCount > 0 || input.infantCount > 0) && adultsWithChildren === 0) {
     throw new ValidationError('CHILDREN_NEED_AN_ADULT', `Children sleep on the ${childSide === 'FATHER' ? 'men' : 'women'}'s side, which has no adult`)
   }
   return { bookingType: input.bookingType, maleCount: input.maleCount, femaleCount: input.femaleCount, childCount: input.childCount, totalCount: input.totalCount, childSide }

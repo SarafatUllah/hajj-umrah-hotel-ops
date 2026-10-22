@@ -36,6 +36,9 @@ const refresh = () => Promise.all([
   queryClient.invalidateQueries({ queryKey: ['agency-booking', id.value] }),
   queryClient.invalidateQueries({ queryKey: ['agency-guests', id.value] }),
   queryClient.invalidateQueries({ queryKey: ['agency-bookings'] }),
+  // A confirmation accepts the booking's quote: it is no longer an open offer (the list, its page, the booking form).
+  queryClient.invalidateQueries({ queryKey: ['agency-quotes'] }),
+  queryClient.invalidateQueries({ queryKey: ['agency-quote'] }),
 ])
 
 const confirm = useMutation({
@@ -99,7 +102,9 @@ const printReceipt = () => window.print()
         </div>
       </dl>
 
-      <section v-if="receipt.data.value" aria-labelledby="receipt-heading" class="surface-panel flex flex-col items-center gap-4 p-6">
+      <!-- Only while the booking is confirmed: a receipt cached before a cancellation must not stay on screen. -->
+      <ErrorState v-if="confirmedStatus && receipt.error.value" :error="receipt.error.value" @retry="receipt.refetch()" />
+      <section v-else-if="confirmedStatus && receipt.data.value" aria-labelledby="receipt-heading" class="surface-panel flex flex-col items-center gap-4 p-6">
         <h2 id="receipt-heading" class="text-section self-start">{{ t('receipt.title') }}</h2>
         <ReceiptQr :token="receipt.data.value.qrToken" :booking-no="receipt.data.value.bookingNo" />
         <UButton color="neutral" variant="outline" icon="i-lucide-printer" class="print:hidden" @click="printReceipt">{{ t('receipt.print') }}</UButton>

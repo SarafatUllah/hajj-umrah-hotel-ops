@@ -41,6 +41,8 @@ const envBase = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(50).default(10),
   NUXT_SESSION_PASSWORD: z.string().min(32, 'NUXT_SESSION_PASSWORD must be at least 32 characters'),
+  // Read by nuxt.config.ts (unset = true); validated here only so production can refuse `false`.
+  NUXT_SESSION_COOKIE_SECURE: z.string().optional(),
   // Task 19: where document bytes live. Only `local` exists in Phase 1 (S3-compatible is Phase 9); any
   // other value is a configuration error, never a silent fallback. The directory is resolved against
   // the process working directory.
@@ -110,13 +112,25 @@ function refineDemoSignIn(env: { APP_ENV: string, DEMO_SIGN_IN_ENABLED: boolean 
   }
 }
 
+/** The start of `.env.example`'s session password: copied unchanged it is a publicly known key that seals every session. */
+const EXAMPLE_SESSION_PASSWORD_PREFIX = 'change-this'
+
 /**
- * Production may not run without staff two-factor enforcement (design v7 §21: a launch prerequisite), and no
- * shared environment (anything but development) may write sign-in codes to the log.
+ * Production may not run without staff two-factor enforcement (design v7 §21: a launch prerequisite) or with a
+ * session cookie that is not Secure; no shared environment (anything but development) may write sign-in codes to the
+ * log or seal sessions with the example password.
  */
-function refineProductionSecurity(env: { APP_ENV: string, STAFF_2FA_ENFORCEMENT: string, SMS_DRIVER: string, CAPTCHA_DRIVER: string }, ctx: z.RefinementCtx): void {
+function refineProductionSecurity(env: { APP_ENV: string, STAFF_2FA_ENFORCEMENT: string, SMS_DRIVER: string, CAPTCHA_DRIVER: string, NUXT_SESSION_PASSWORD: string, NUXT_SESSION_COOKIE_SECURE?: string }, ctx: z.RefinementCtx): void {
   if (env.APP_ENV === 'production' && env.STAFF_2FA_ENFORCEMENT !== 'required-roles') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['STAFF_2FA_ENFORCEMENT'], message: 'STAFF_2FA_ENFORCEMENT must be required-roles with APP_ENV=production' })
+  }
+  // Nuxt reads the override leniently (`False`, `0` … turn Secure off too): production accepts only unset, true or 1.
+  const cookieSecure = env.NUXT_SESSION_COOKIE_SECURE?.trim().toLowerCase()
+  if (env.APP_ENV === 'production' && cookieSecure !== undefined && cookieSecure !== 'true' && cookieSecure !== '1') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['NUXT_SESSION_COOKIE_SECURE'], message: 'NUXT_SESSION_COOKIE_SECURE=false is not allowed with APP_ENV=production (unset it or set true)' })
+  }
+  if (env.APP_ENV !== 'development' && env.NUXT_SESSION_PASSWORD.startsWith(EXAMPLE_SESSION_PASSWORD_PREFIX)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['NUXT_SESSION_PASSWORD'], message: 'NUXT_SESSION_PASSWORD is still the example value: generate one (openssl rand -base64 48)' })
   }
   if (env.APP_ENV !== 'development' && env.SMS_DRIVER === 'log') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['SMS_DRIVER'], message: 'SMS_DRIVER=log is allowed only with APP_ENV=development' })

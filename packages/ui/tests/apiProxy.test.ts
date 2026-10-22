@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { forwardablePath, visitorAddress } from '../server/utils/apiProxy'
+import { bodyRefusal, forwardablePath, MAX_PROXIED_BODY_BYTES, visitorAddress } from '../server/utils/apiProxy'
 
 const allow = ['/api/public/', '/api/customer/']
 
@@ -28,5 +28,12 @@ describe('the frontends\' API proxy', () => {
     expect(visitorAddress('6.6.6.6, 198.51.100.7', '10.0.0.2', true)).toBe('198.51.100.7')
     expect(visitorAddress(undefined, '10.0.0.2', true)).toBe('10.0.0.2')
     expect(visitorAddress(undefined, undefined, false)).toBe('unknown')
+  })
+
+  it('a body is refused before it is read when its declared length is over the largest upload, or a chunked one has none', () => {
+    expect(bodyRefusal(undefined, undefined)).toBeNull()
+    expect(bodyRefusal(String(MAX_PROXIED_BODY_BYTES), undefined)).toBeNull()
+    expect(bodyRefusal(String(MAX_PROXIED_BODY_BYTES + 1), undefined)).toEqual({ statusCode: 413, code: 'BODY_TOO_LARGE' })
+    expect(bodyRefusal(undefined, 'chunked')).toEqual({ statusCode: 411, code: 'LENGTH_REQUIRED' })
   })
 })

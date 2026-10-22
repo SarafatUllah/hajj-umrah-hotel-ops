@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { ConflictError, ValidationError } from '../../../server/errors/domainError'
-import { CONSTRAINT_MESSAGES, extractPgError, translateDbError } from '../../../server/errors/dbErrors'
+import { CONSTRAINT_MESSAGES, extractPgError, translateDbError, unregisteredConstraintOf } from '../../../server/errors/dbErrors'
 
 /** Mirrors Drizzle's own error: no `.code` of its own, the real driver error sits on `.cause`. */
 class FakeDrizzleQueryError extends Error {
@@ -123,5 +123,14 @@ describe('translateDbError — constraint registry can never override the SQLSTA
     const e = translateDbError(fakePostgresError({ code: '23505', constraint_name: MISMATCHED_CONSTRAINT }))
 
     expect(e).toBeNull()
+  })
+})
+
+describe('unregisteredConstraintOf (for the operators\' log)', () => {
+  it('names a constraint the registry has no message for; null for a registered one or a non-database error', () => {
+    const registered = Object.keys(CONSTRAINT_MESSAGES)[0]!
+    expect(unregisteredConstraintOf(fakePostgresError({ code: '23505', constraint_name: 'some_unregistered_unique' }))).toBe('some_unregistered_unique')
+    expect(unregisteredConstraintOf(fakePostgresError({ code: '23505', constraint_name: registered }))).toBeNull()
+    expect(unregisteredConstraintOf(new Error('plain'))).toBeNull()
   })
 })

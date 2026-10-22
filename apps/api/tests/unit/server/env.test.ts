@@ -20,6 +20,7 @@ describe('getEnv', () => {
     delete process.env.ALLOW_DEMO_SEED
     delete process.env.DEMO_ANCHOR_DATE
     delete process.env.DEMO_SIGN_IN_ENABLED
+    delete process.env.NUXT_SESSION_COOKIE_SECURE
   })
 
   afterEach(() => {
@@ -279,6 +280,27 @@ describe('getEnv: Phase 2a security settings', () => {
     resetEnvCache()
     Object.assign(process.env, { CAPTCHA_DRIVER: 'turnstile', CAPTCHA_SECRET: 'turnstile-secret' })
     expect(getEnv().SMS_DRIVER).toBe('webhook')
+  })
+
+  it('refuses the example session password outside development, and a cookie without Secure in production', () => {
+    Object.assign(process.env, REQUIRED_VARS, { APP_ENV: 'staging', NUXT_SESSION_PASSWORD: 'change-this-to-a-random-32-plus-character-secret' })
+    expect(() => getEnv()).toThrow(/NUXT_SESSION_PASSWORD is still the example value/)
+    resetEnvCache()
+    Object.assign(process.env, { APP_ENV: 'production', STAFF_2FA_ENFORCEMENT: 'required-roles', NUXT_SESSION_PASSWORD: REQUIRED_VARS.NUXT_SESSION_PASSWORD, NUXT_SESSION_COOKIE_SECURE: 'false' })
+    expect(() => getEnv()).toThrow(/NUXT_SESSION_COOKIE_SECURE=false is not allowed with APP_ENV=production/)
+    for (const off of ['FALSE', ' False ', '0', 'no']) {
+      resetEnvCache()
+      process.env.NUXT_SESSION_COOKIE_SECURE = off
+      expect(() => getEnv(), off).toThrow(/NUXT_SESSION_COOKIE_SECURE/)
+    }
+    for (const on of ['true', 'TRUE', '1']) {
+      resetEnvCache()
+      process.env.NUXT_SESSION_COOKIE_SECURE = on
+      expect(getEnv().APP_ENV).toBe('production')
+    }
+    resetEnvCache()
+    delete process.env.NUXT_SESSION_COOKIE_SECURE
+    expect(getEnv().APP_ENV).toBe('production')
   })
 
   it('refuses production without staff 2FA enforcement', () => {

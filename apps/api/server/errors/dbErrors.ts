@@ -152,6 +152,12 @@ export function translateDbError(err: unknown): DomainError | null {
   return generic.kind === 'conflict' ? new ConflictError(code, message) : new ValidationError(code, message)
 }
 
+/** The constraint a database error names when the registry has no message of its own for it (for the operators' log). */
+export function unregisteredConstraintOf(err: unknown): string | null {
+  const constraint = extractPgError(err)?.constraint
+  return constraint && !CONSTRAINT_MESSAGES[constraint] ? constraint : null
+}
+
 /** For a `.catch()` around a write: a known constraint violation becomes its DomainError, anything else is rethrown unchanged. */
 export function rethrowDbError(error: unknown): never {
   throw translateDbError(error) ?? error

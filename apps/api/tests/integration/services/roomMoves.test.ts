@@ -3,12 +3,12 @@ import { asc, eq } from 'drizzle-orm'
 import { agencyUser, booking, bookingChange, bookingRoom, guestStay } from '@hajj/db/schema'
 import type { Database } from '@hajj/db/client'
 import type { Permission } from '@hajj/contracts/constants/permissions'
-import { holdRequestSchema, moveGuestsSchema } from '@hajj/contracts/schemas/booking'
+import { addGuestsSchema, guestAdditionSearchSchema, holdRequestSchema, moveGuestsSchema } from '@hajj/contracts/schemas/booking'
 import { bookingRepos } from '../../../server/repositories'
 import { type AgencyContext, resolveAgencyContext } from '../../../server/security/agencyContext'
 import type { AuthContext } from '../../../server/security/authContext'
 import type { OrganizationScope } from '../../../server/security/scope'
-import { confirmAgencyBooking, holdAgencyStay, listAgencyGuests, moveGuests } from '../../../server/services/booking'
+import { addAgencyGuests, confirmAgencyBooking, holdAgencyStay, listAgencyGuests, moveGuests, searchAgencyGuestAdditions } from '../../../server/services/booking'
 import { makeAgency } from '../../support/bookingFixtures'
 import { makeOrg, makeUser } from '../../support/fixtures'
 import { makeStayHotel } from '../../support/stayFixtures'
@@ -89,6 +89,30 @@ describe('room move (v7 §12)', () => {
       { occupancy: 'FEMALE', status: 'CONFIRMED', checkIn: '2027-06-01', checkOut: '2027-06-02' },
       { occupancy: 'MALE', status: 'CONFIRMED', checkIn: '2027-06-02', checkOut: '2027-06-04' },
     ])
+  })
+
+  it('a man added after the men moved from the second night sleeps in one men\'s room for the whole stay; a partly claimed room is refused', async () => {
+    const env = await setup()
+    await moveGuests(env.manager(BOOKED_AT), env.bookingId, moveGuestsSchema.parse({ guestIds: [env.man1, env.man2], roomId: env.rooms['103'], from: '2027-06-02' }))
+    // The men's two claims now each cover part of the stay: 101 the first night, 103 the rest.
+    expect((await claimsOf(env.bookingId)).filter(c => c.occupancy === 'MALE')).toMatchObject([
+      { roomId: env.rooms['101'], checkIn: '2027-06-01', checkOut: '2027-06-02' },
+      { roomId: env.rooms['103'], checkIn: '2027-06-02', checkOut: '2027-06-04' },
+    ])
+
+    const counts = guestAdditionSearchSchema.parse({ maleCount: 1, totalCount: 1 })
+    const { options } = await searchAgencyGuestAdditions(env.agency, env.bookingId, counts)
+    const rooms = options[0]!.rooms.map(r => ({ roomId: r.roomId, occupancy: r.occupancy, seats: r.seats, extraBeds: r.extraBeds }))
+    await addAgencyGuests(env.agency, env.bookingId, addGuestsSchema.parse({ ...counts, rooms }))
+
+    const added = (await listAgencyGuests(env.agency, env.bookingId)).at(-1)!
+    const [stay] = await staysOf(added.id)
+    expect(stay).toMatchObject({ checkIn: '2027-06-01', checkOut: '2027-06-04' })
+    expect((await claimsOf(env.bookingId)).find(c => c.id === stay!.bookingRoomId)).toMatchObject({ occupancy: 'MALE', status: 'CONFIRMED', checkIn: '2027-06-01', checkOut: '2027-06-04' })
+
+    // Chosen by hand, the room the men moved into (claimed for part of the stay only) is refused before anything is written.
+    await expect(addAgencyGuests(env.agency, env.bookingId, addGuestsSchema.parse({ ...counts, rooms: [{ roomId: env.rooms['103']!, occupancy: 'MALE', seats: 1 }] })))
+      .rejects.toMatchObject({ code: 'OPTION_UNAVAILABLE', httpStatus: 409 })
   })
 
   it('refuses when one of the chosen pilgrims has no night left to move', async () => {

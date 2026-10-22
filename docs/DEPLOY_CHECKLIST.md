@@ -57,6 +57,9 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
       refuses otherwise (`server/utils/env.ts`).
 - [ ] The public site, agency portal and ops console reach the API on the same site (same domain behind one proxy, or
       sibling subdomains of one registrable domain): sessions are `SameSite=Lax` cookies.
+- [ ] The reverse proxy in front caps request bodies at about 11 MB (`client_max_body_size` or equivalent) and has
+      timeouts of at least 60 s: the API refuses JSON bodies over 1 MiB and uploads over 10 MB from their declared
+      length, the frontends' proxy refuses bodies over an upload's size and gives up on the API after 60 s.
 
 ## Database and migrations
 

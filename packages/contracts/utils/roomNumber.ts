@@ -12,21 +12,15 @@
  * column, so a number can never be "freed up").
  */
 
-const ARABIC_INDIC_DIGITS = '٠١٢٣٤٥٦٧٨٩'
+import { toLatinDigits } from './digits'
+
 /** First character must be alphanumeric (so a leading hyphen is rejected); up to 20 characters total. */
 const ROOM_NUMBER_PATTERN = /^[A-Z0-9][A-Z0-9./-]{0,19}$/
-
-function mapArabicIndicDigits(value: string): string {
-  return [...value].map((ch) => {
-    const idx = ARABIC_INDIC_DIGITS.indexOf(ch)
-    return idx === -1 ? ch : String(idx)
-  }).join('')
-}
 
 export function normalizeRoomNumber(input: string): string | null {
   const trimmed = input.trim()
   if (trimmed.length === 0) return null
-  const mapped = mapArabicIndicDigits(trimmed).toUpperCase()
+  const mapped = toLatinDigits(trimmed).toUpperCase()
   return ROOM_NUMBER_PATTERN.test(mapped) ? mapped : null
 }
 

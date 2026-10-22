@@ -21,6 +21,19 @@ describe('GET /api/health (proof 9)', () => {
     expect(res.headers.get('x-content-type-options')).toBe('nosniff')
     expect(res.headers.get('strict-transport-security')).toContain('max-age=')
     expect(res.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin')
+    expect(res.headers.get('cache-control')).toBe('no-store')
+  })
+})
+
+describe('Request bodies', () => {
+  it('an anonymous request is refused (401) before its body is read or validated', async () => {
+    const res = await client.request('/api/bookings', { method: 'POST', body: { nonsense: true } })
+    expectStandardError(res, { status: 401, code: 'UNAUTHENTICATED' })
+  })
+
+  it('a JSON body over 1 MiB is 413 BODY_TOO_LARGE, refused from its declared length', async () => {
+    const res = await client.request('/api/auth/login', { method: 'POST', body: { organizationSlug: 'x'.repeat(1024 * 1024), email: 'a@example.test', password: 'p' } })
+    expectStandardError(res, { status: 413, code: 'BODY_TOO_LARGE' })
   })
 })
 

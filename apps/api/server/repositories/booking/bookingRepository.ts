@@ -367,7 +367,8 @@ export class BookingRecordRepository {
         and (s.extracted_encrypted is not null or s.delete_after is null or s.delete_after > ${today}::date))
       or exists (select 1 from public.hotel_task t where t.organization_id = "booking"."organization_id" and t.booking_id = "booking"."id" and t.notes is not null))`
     // A booking that will not happen counts from the day it ended (cancelled, or lapsed), when that came before its stay's end.
-    const ended = sql`coalesce(${booking.cancelledAt}, ${booking.holdExpiresAt}, ${booking.updatedAt})::date`
+    // The UTC day, whatever the session's time zone (as the hold sweep and migration 0021 date the scans).
+    const ended = sql`(coalesce(${booking.cancelledAt}, ${booking.holdExpiresAt}, ${booking.updatedAt}) at time zone 'UTC')::date`
     const retentionOver = or(lte(booking.checkOut, cutoff), and(inArray(booking.status, ['CANCELLED', 'EXPIRED']), sql`${ended} <= ${cutoff}::date`))
     return this.db.select({ id: booking.id, checkOut: booking.checkOut }).from(booking)
       .where(this.#q.cond(
@@ -395,11 +396,13 @@ export class BookingRecordRepository {
   /**
    * v7 §12 early departure / no-show: the booking's claims `claimIds` no longer hold the nights from `day` on that no
    * stay of theirs uses — a claim nobody sleeps in after `day` ends that day (one that had not begun is RELEASED), so
-   * the room is free for others. The claims' stays were ended first (containment).
+   * the room is free for others. The claims' stays were ended first (containment). `ownedByBooking` leaves an agency's
+   * claims alone (a removal: the agency keeps its rooms for its other bookings).
    */
-  async trimClaims(bookingId: string, claimIds: readonly string[], day: IsoDate, at: Date): Promise<void> {
+  async trimClaims(bookingId: string, claimIds: readonly string[], day: IsoDate, at: Date, options: { ownedByBooking?: boolean } = {}): Promise<void> {
     for (const claimId of claimIds) {
-      const [claim] = await this.#q.select(bookingRoom, and(eq(bookingRoom.bookingId, bookingId), eq(bookingRoom.id, claimId))!, { limit: 1 })
+      const own = options.ownedByBooking ? isNotNull(bookingRoom.ownerBookingId) : undefined
+      const [claim] = await this.#q.select(bookingRoom, and(eq(bookingRoom.bookingId, bookingId), eq(bookingRoom.id, claimId), own)!, { limit: 1 })
       if (!claim || claim.checkOut <= day) continue
       const [last] = await this.db.select({ end: sql<string | null>`max(${guestStay.checkOut})::text` }).from(guestStay).where(this.#q.cond(guestStay, eq(guestStay.bookingRoomId, claimId)))
       const end = last?.end ?? null

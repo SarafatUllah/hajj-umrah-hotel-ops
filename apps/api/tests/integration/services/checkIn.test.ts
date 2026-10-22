@@ -10,7 +10,7 @@ import { bookingOrgRepos, bookingRepos } from '../../../server/repositories'
 import { type AgencyContext, resolveAgencyContext } from '../../../server/security/agencyContext'
 import type { AuthContext } from '../../../server/security/authContext'
 import type { OrganizationScope } from '../../../server/security/scope'
-import { agencyBookingReceipt, checkInGuest, checkOutGuest, completeHotelTask, confirmAgencyBooking, holdAgencyStay, listAgencyGuests, listHotelTasks, lookupReceipt, markGuestNoShow, saveAgencyGuest, sendDetailsReminders } from '../../../server/services/booking'
+import { agencyBookingReceipt, checkInGuest, checkOutGuest, completeHotelTask, confirmAgencyBooking, holdAgencyStay, listAgencyGuests, listHotelTasks, lookupReceipt, markGuestNoShow, removeGuest, saveAgencyGuest, sendDetailsReminders } from '../../../server/services/booking'
 import { makeAgency, makeBooking, makeBookingRoom, makeGuest } from '../../support/bookingFixtures'
 import { makeOrg, makeUser } from '../../support/fixtures'
 import { makeStayHotel } from '../../support/stayFixtures'
@@ -119,6 +119,18 @@ describe('leaving early and not coming (v7 §12)', () => {
     expect(await inventory.liveClaims([env.rooms['101']!], '2027-06-01', '2027-06-01')).toHaveLength(1) // the first night stays theirs
   })
 
+  it('a removed pilgrim does not keep the room: when its roommate leaves early the room is free from that day', async () => {
+    const env = await setup()
+    const inventory = bookingRepos(db, env.hotelScope).inventory
+    const manager = staff(env.scope, env.desk.identity.userId, ['booking.view', 'booking.checkIn', 'booking.cancel'])
+    await removeGuest(manager, env.bookingId, env.man2)
+    await checkInGuest(manager, env.bookingId, env.man1)
+    const nextDay = staff(env.scope, env.desk.identity.userId, ['booking.checkIn'], new Date('2027-06-02T09:00:00Z'))
+    await checkOutGuest(nextDay, env.bookingId, env.man1)
+    expect(await inventory.liveClaims([env.rooms['101']!], '2027-06-02', '2027-06-03')).toEqual([])
+    expect(await inventory.liveClaims([env.rooms['101']!], '2027-06-01', '2027-06-01')).toHaveLength(1) // the night slept stays theirs
+  })
+
   it('leaving on the day of arriving keeps that night: the room, and who slept in it, stay on record', async () => {
     const env = await setup()
     const inventory = bookingRepos(db, env.hotelScope).inventory
@@ -129,6 +141,16 @@ describe('leaving early and not coming (v7 §12)', () => {
     expect(await inventory.seatsUsed([env.rooms['101']!], { from: '2027-06-01', to: '2027-06-03' })).toEqual([{ roomId: env.rooms['101'], night: '2027-06-01', seatsUsed: 2 }])
     expect(await inventory.liveClaims([env.rooms['101']!], '2027-06-01', '2027-06-01')).toHaveLength(1)
     expect((await listAgencyGuests(env.agency, env.bookingId))[0]).toMatchObject({ roomNumber: '101', status: 'CHECKED_OUT' })
+  })
+
+  it('removing the last pilgrim still due on an in-house booking completes it (it never stays IN_HOUSE with nobody to come)', async () => {
+    const env = await setup()
+    const manager = staff(env.scope, env.desk.identity.userId, ['booking.view', 'booking.checkIn', 'booking.cancel'])
+    await checkInGuest(manager, env.bookingId, env.man1)
+    await checkOutGuest(manager, env.bookingId, env.man1)
+    expect((await removeGuest(manager, env.bookingId, env.woman)).status).toBe('IN_HOUSE')
+    expect((await removeGuest(manager, env.bookingId, env.man2)).status).toBe('COMPLETED')
+    expect((await db.select().from(booking).where(eq(booking.id, env.bookingId)))[0]!.status).toBe('COMPLETED')
   })
 
   it('a no-show keeps the seat by default; with noShowReleasesSeats the room is let go from that day', async () => {
