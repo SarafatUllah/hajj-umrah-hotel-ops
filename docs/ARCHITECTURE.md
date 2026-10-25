@@ -294,7 +294,7 @@ Direction (unchanged): a `StorageDriver` abstraction, metadata in PostgreSQL, by
 ## 17. Deployment Architecture
 
 - **Processes (as shipped in Phase 2):** the API (Nitro; the light job tier by default, `JOBS_MODE=light`), the worker (`pnpm --filter @hajj/api worker`, heavy tier by default, every queue with `WORKER_JOBS=all`) and the three frontends. `Dockerfile.worker` builds the worker's image (repository root as context); the API and the frontends build with `nuxt build`.
-- **Free MVP hosting (D-P2-67, `docs/DEPLOY_VERCEL.md`):** one Vercel project (`vercel.json`): the three frontends and the API as Vercel Services (functions; the API private, reached through service bindings that fill `NUXT_API_PROXY_TARGET`; each frontend chosen by the start of its host name), the background jobs as a **job tick** (`POST /api/jobs/tick`, the API's one public path, secret-protected: Supabase Cron calls it every 5 minutes and one job pass runs every due schedule and queued job, `server/jobs/pass.ts`; the functions only enqueue, `JOBS_MODE=send`), PostgreSQL and the files on Supabase (session pooler, TLS verified with `DATABASE_SSL=verify`, `STORAGE_DRIVER=s3`). The free plan's Daemons are metered by the hour, too little for an always-on worker; on Vercel Pro the worker can run as a Daemon instead. Demo data only (no backups, free-plan quotas).
+- **Free MVP hosting (D-P2-67, `docs/DEPLOY_VERCEL.md`):** one Vercel project (`vercel.json`): the three frontends and the API as Vercel Services (functions; the API private, reached through service bindings that fill `NUXT_API_PROXY_TARGET`; each frontend chosen by the start of its host name), the background jobs as a **job tick** (`POST /api/jobs/tick`, the API's one public path, secret-protected: Supabase Cron calls it every 5 minutes and one job pass runs every due schedule and queued job, `server/jobs/pass.ts`; the functions only enqueue, `JOBS_MODE=send`), PostgreSQL on Supabase (session pooler, TLS verified with `DATABASE_SSL=verify`), the files in a private Cloudflare R2 bucket (`STORAGE_DRIVER=s3`; Supabase Storage the fallback without a Cloudflare account, settings only). The free plan's Daemons are metered by the hour, too little for an always-on worker; on Vercel Pro the worker can run as a Daemon instead. Demo data only (no backups, free-plan quotas).
 - **Managed PostgreSQL** (Neon or Supabase recommended — see §18) rather than self-hosted, for automated backups/PITR without ops burden.
 - **Object storage**: Cloudflare R2 (S3-compatible, no egress fees).
 - **Reverse proxy/TLS/CDN**: handled by the hosting platform (Railway/Render/Fly all provide this) rather than custom nginx config.
@@ -304,8 +304,9 @@ Direction (unchanged): a `StorageDriver` abstraction, metadata in PostgreSQL, by
 ## 18. Low-Cost Deployment Options
 
 Free MVP stack (D-P2-67): Vercel (free plan: non-commercial use only; jobs on a 5-minute tick, its Daemons being
-metered by the hour) and Supabase (500 MB database, 1 GB files, Cron for the tick, no backups) — `docs/DEPLOY_VERCEL.md`;
-Vercel Pro lifts the limits (and can run the worker as a Daemon) without code changes.
+metered by the hour), Supabase (500 MB database, Cron for the tick, no backups) and Cloudflare R2 (10 GB of files,
+free downloads) — `docs/DEPLOY_VERCEL.md`; Vercel Pro lifts the limits (and can run the worker as a Daemon) without
+code changes.
 
 Recommended starting stack for real customers (re-evaluate only if usage outgrows it):
 - **App hosting:** Railway or Fly.io — container-native, cheap always-on small instances (needed since background jobs require a persistent process, ruling out pure serverless functions for the worker).

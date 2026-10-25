@@ -2,7 +2,7 @@
 
 Work through every item before a staging or production deployment. Variables are documented in `apps/api/.env.example`
 and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and `docs/MIGRATIONS.md`. The free demo
-deployment on Vercel and Supabase has its own step-by-step guide, `docs/DEPLOY_VERCEL.md`.
+deployment on Vercel, Supabase and Cloudflare R2 has its own step-by-step guide, `docs/DEPLOY_VERCEL.md`.
 
 ## Configuration
 
@@ -91,12 +91,17 @@ deployment on Vercel and Supabase has its own step-by-step guide, `docs/DEPLOY_V
 
 ## Document storage
 
-- [ ] `STORAGE_DRIVER=local` (the only driver; S3-compatible storage is not implemented).
-- [ ] `STORAGE_LOCAL_DIR` is writable by the server process and on **persistent** storage (a mounted volume, not the
-      container's ephemeral filesystem), shared by every server process that serves downloads.
-- [ ] Acknowledged: document bytes and the encrypted passport images live only in that directory (metadata in PostgreSQL). Database backups do not
-      contain them; include the directory in the deployment's backup/restore plan, or accept that lost files make
-      their documents fail to download (500 `DOCUMENT_FILE_MISSING`). The application ships no backup mechanism of its own.
+- [ ] `STORAGE_DRIVER` chosen for the host: `local` where the servers have a lasting disk, `s3` where they do not
+      (functions, containers without a volume).
+- [ ] With `local`: `STORAGE_LOCAL_DIR` is writable by the server process and on **persistent** storage (a mounted
+      volume, not the container's ephemeral filesystem), shared by every server process that serves downloads.
+- [ ] With `s3`: one **private** bucket (no public or `r2.dev` address), all five `S3_*` settings, an https endpoint,
+      and a key limited to that bucket (Cloudflare R2: an Object Read & Write token for the bucket only; Supabase
+      Storage keys reach every bucket of the project). `docs/DEPLOY_VERCEL.md` step 2 has both.
+- [ ] Acknowledged: document bytes and the encrypted passport images live only in that directory or bucket (metadata
+      in PostgreSQL). Database backups do not contain them; include them in the deployment's backup/restore plan, or
+      accept that lost files make their documents fail to download (500 `DOCUMENT_FILE_MISSING`). The application
+      ships no backup mechanism of its own.
 
 ## Background jobs (Phase 2)
 

@@ -144,6 +144,45 @@ describe('createS3Client', () => {
     expect(await client.config.requestChecksumCalculation()).toBe('WHEN_REQUIRED')
     expect(await client.config.responseChecksumValidation()).toBe('WHEN_REQUIRED')
   })
+
+  interface CapturedRequest { hostname: string, path: string, headers: Record<string, string> }
+
+  /** The signed HTTP request the client would send for `command`, captured by a stand-in handler instead of sent. */
+  async function signedRequest(config: S3StorageConfig, command: HeadObjectCommand): Promise<CapturedRequest> {
+    const client = createS3Client(config)
+    let captured: CapturedRequest | undefined
+    Object.assign(client.config, {
+      requestHandler: {
+        handle: async (request: CapturedRequest) => {
+          captured = request
+          throw new Error('captured')
+        },
+      },
+    })
+    await expect(client.send(command)).rejects.toThrow('captured')
+    return captured!
+  }
+
+  // The two stores the deploy guide names (docs/DEPLOY_VERCEL.md), with the settings it gives for each.
+  it.each([
+    {
+      store: 'Cloudflare R2',
+      config: { ...S3_CONFIG, endpoint: 'https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com', region: 'auto' },
+      hostname: '0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com',
+      path: `/${BUCKET}/${KEY}`,
+    },
+    {
+      store: 'Supabase Storage',
+      config: { ...S3_CONFIG, endpoint: 'https://abcdefghijklmnop.storage.supabase.co/storage/v1/s3', region: 'ap-south-1' },
+      hostname: 'abcdefghijklmnop.storage.supabase.co',
+      path: `/storage/v1/s3/${BUCKET}/${KEY}`,
+    },
+  ])('addresses $store as it expects: its endpoint, the bucket in the path, signed for its region', async ({ config, hostname, path }) => {
+    const request = await signedRequest(config, new HeadObjectCommand({ Bucket: BUCKET, Key: KEY }))
+    expect(request.hostname).toBe(hostname)
+    expect(request.path).toBe(path)
+    expect(request.headers.authorization).toMatch(new RegExp(`Credential=key-id/\\d{8}/${config.region}/s3/aws4_request`))
+  })
 })
 
 describe('createStorageDriver (s3)', () => {

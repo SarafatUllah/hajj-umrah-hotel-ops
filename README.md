@@ -17,7 +17,8 @@ Documentation:
   (§28) and the Phase 2 section (§29).
 - `docs/MIGRATIONS.md` — migration policy, the migration chain and the `btree_gist` prerequisite.
 - `docs/DEPLOY_CHECKLIST.md` — what must hold before a deployment.
-- `docs/DEPLOY_VERCEL.md` — the free MVP deployment: Vercel (the apps, the API, the worker as a daemon) and Supabase.
+- `docs/DEPLOY_VERCEL.md` — the free MVP deployment: Vercel (the apps and the API; background jobs on a 5-minute
+  tick), Supabase (the database and the tick's scheduler) and Cloudflare R2 (the files).
 - `docs/UI-UX-MASTER-DIRECTION.md` — the UI/UX direction (implemented; see its status note).
 - `docs/phase-2-open-questions.md` — the client questions of the Phase 2 design, with the working assumptions.
 - `docs/superpowers/plans/` — the phase implementation plans, including the Phase 2 build plan and its decision records
@@ -205,4 +206,4 @@ secure cookies and a strong session password, PII keys from a secret manager, st
 (`STAFF_2FA_ENFORCEMENT=required-roles`, mandatory in production), the demo seed and demo sign-in off, `btree_gist`
 available, migrations applied before the new version takes traffic, `pnpm rbac:sync` run, a worker beside the API, and
 lasting, backed-up file storage for documents and passport images (a persistent directory, or a private S3-compatible
-bucket with `STORAGE_DRIVER=s3`). For a free demo on Vercel and Supabase, follow `docs/DEPLOY_VERCEL.md`.
+bucket with `STORAGE_DRIVER=s3`). For a free demo on Vercel, Supabase and Cloudflare R2, follow `docs/DEPLOY_VERCEL.md`.

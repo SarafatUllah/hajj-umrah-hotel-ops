@@ -39,7 +39,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify` and committed
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done; 16g quotes, agencies done; 16h booking settings, booking rules done |
 | 17 | Final review (code, security, database, architecture) and docs | done: 17a data protection, database, security; 17c agency passwords; 17d shared layer, typed contracts; 17e bookings on the room calendar; 17f docs; 17g pull request review (D-P2-66) |
-| 18 | Free MVP hosting: Vercel + Supabase (D-P2-67) | done: 18a S3-compatible storage driver; 18b 4 MB uploads, photos shrunk in the browser; 18c worker works every queue, polling interval; 18d `vercel.json`, worker image, deploy guide; 18e review: job tick instead of a daemon, database TLS, guide corrections |
+| 18 | Free MVP hosting: Vercel + Supabase (D-P2-67) | done: 18a S3-compatible storage driver; 18b 4 MB uploads, photos shrunk in the browser; 18c worker works every queue, polling interval; 18d `vercel.json`, worker image, deploy guide; 18e review: job tick instead of a daemon, database TLS, guide corrections; 18f the files on Cloudflare R2 |
 
 ## Local environment note
 
@@ -883,7 +883,10 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
 - **D-P2-67 (deploy) Free MVP hosting on Vercel and Supabase.** For a demo at no cost (`docs/DEPLOY_VERCEL.md`):
   one Vercel project (`vercel.json`) runs the three frontends and the API as Services (functions; the API private,
   reached through service bindings that fill `NUXT_API_PROXY_TARGET`, each frontend chosen by the start of its host
-  name); PostgreSQL, the files and the scheduler are on Supabase. Background jobs run as a **job tick**: Supabase Cron
+  name); PostgreSQL and the scheduler are on Supabase, the files in a private Cloudflare R2 bucket (10 GB free and free
+  downloads, against Supabase Storage's 1 GB with every download counted in the project's 5 GB a month; Supabase
+  Storage stays the fallback without a Cloudflare account — settings only, the driver is the same S3 client, and a
+  unit test pins the signed request for both). Background jobs run as a **job tick**: Supabase Cron
   (`pg_cron` + `pg_net`) calls `POST /api/jobs/tick` every 5 minutes with a bearer secret (`JOBS_TICK_SECRET`; the
   API's one public path, 404 when unset), and one job pass (`server/jobs/pass.ts`) works every tier and runs the cron
   pass once, until no job is ready or running (3-20 s; about 0.03-0.15 s of CPU, measured). Schedules now make up for
