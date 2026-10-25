@@ -141,6 +141,23 @@ describe('getEnv', () => {
     expect(() => getEnv()).toThrow(/STORAGE_LOCAL_DIR/)
   })
 
+  it('defaults the worker to the heavy queues and both kinds of process to a 2 s polling interval', () => {
+    Object.assign(process.env, REQUIRED_VARS)
+    delete process.env.WORKER_JOBS
+    delete process.env.JOBS_POLL_SECONDS
+    expect(getEnv()).toMatchObject({ WORKER_JOBS: 'heavy', JOBS_POLL_SECONDS: 2 })
+  })
+
+  it('lets the worker work every queue (a host where the API only enqueues) and poll less often', () => {
+    Object.assign(process.env, REQUIRED_VARS, { WORKER_JOBS: 'all', JOBS_POLL_SECONDS: '30' })
+    expect(getEnv()).toMatchObject({ WORKER_JOBS: 'all', JOBS_POLL_SECONDS: 30 })
+  })
+
+  it.each([['WORKER_JOBS', 'light'], ['WORKER_JOBS', 'ALL'], ['JOBS_POLL_SECONDS', '0'], ['JOBS_POLL_SECONDS', '301'], ['JOBS_POLL_SECONDS', 'often']])('rejects %s=%j', (name, value) => {
+    Object.assign(process.env, REQUIRED_VARS, { [name]: value })
+    expect(() => getEnv()).toThrow(new RegExp(name))
+  })
+
   it('caches the parsed result until resetEnvCache is called', () => {
     Object.assign(process.env, REQUIRED_VARS)
     const first = getEnv()

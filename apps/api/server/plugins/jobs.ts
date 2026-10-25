@@ -13,7 +13,7 @@ export default defineNitroPlugin((nitro) => {
   const env = getEnv()
   const workTiers = workTiersFor(env.JOBS_MODE)
   if (workTiers === null) return
-  startJobRuntimeWithRetry({ connectionString: env.DATABASE_URL, db: useDb(), jobs: JOBS, workTiers, poolMax: env.JOBS_POOL_MAX })
+  startJobRuntimeWithRetry({ connectionString: env.DATABASE_URL, db: useDb(), jobs: JOBS, workTiers, poolMax: env.JOBS_POOL_MAX, pollingIntervalSeconds: env.JOBS_POLL_SECONDS })
   // Wired at once: `enqueue` waits for the boot, so a request served while it boots loses nothing.
   wirePassportReading()
   wireDomainEvents()

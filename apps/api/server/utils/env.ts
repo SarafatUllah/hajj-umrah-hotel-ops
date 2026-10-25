@@ -93,6 +93,13 @@ const envBase = z.object({
   // deployment; `send` = enqueue only; `off` = no job runtime (enqueueing then fails loudly).
   JOBS_POOL_MAX: z.coerce.number().int().min(1).max(20).default(3),
   JOBS_MODE: z.enum(['off', 'send', 'light', 'all'], { errorMap: () => ({ message: 'JOBS_MODE must be off, send, light or all' }) }).default('light'),
+  // The worker process (`pnpm --filter @hajj/api worker`): `heavy` (default) = only the CPU-heavy queues, next to API
+  // processes that work the light ones; `all` = every queue, for hosts where the API only enqueues (serverless
+  // functions with JOBS_MODE=send, D-P2-67).
+  WORKER_JOBS: z.enum(['heavy', 'all'], { errorMap: () => ({ message: 'WORKER_JOBS must be heavy or all' }) }).default('heavy'),
+  // How often each queue a process works is polled for new jobs (seconds). Longer = less database and CPU time while
+  // idle (a quota-metered host), at the cost of a job starting up to that much later; schedules are not affected.
+  JOBS_POLL_SECONDS: z.coerce.number({ invalid_type_error: 'JOBS_POLL_SECONDS must be a number of seconds' }).int().min(1, 'JOBS_POLL_SECONDS must be 1-300').max(300, 'JOBS_POLL_SECONDS must be 1-300').default(2),
   // Phase 2d: reading passport images (v7 §13), in the worker. `PASSPORT_OCR=tesseract` reads the MRZ on our own
   // server (the worker image must have the `tesseract.js` package and its English data installed); `none` (default)
   // sends every scan straight to manual review. `PASSPORT_AI=anthropic` is the external fallback (Claude vision) when
