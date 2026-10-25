@@ -1,0 +1,160 @@
+import { z } from 'zod'
+import { BOOKING_STATUSES, BOOKING_TYPES, CHILD_SIDES, HOTEL_TASK_STATUSES, OCCUPANCIES } from '../constants/booking'
+import { isoDate, pagination, safeText, uuid } from './common'
+import { leadPilgrimSchema } from './guest'
+import { addStayDateIssues } from './stay'
+
+/** The most seated pilgrims in one booking (two 300-pilgrim sides; keeps the allocator well under 100 ms per side). */
+export const MAX_BOOKING_PILGRIMS = 600
+/** The most rooms one booking may claim. */
+export const MAX_BOOKING_ROOMS = 200
+
+const counts = z.number().int().min(0).max(MAX_BOOKING_PILGRIMS)
+
+/**
+ * Who stays where and when (v7 §5–7): GROUP gives men, women and children under the child age (each on a parent's
+ * side, default the mother's); FAMILY gives only the seated total. Infants (under 2) take no seat and are counted
+ * apart. `quoteId`: the agency's offered quote to book at (v7 §8).
+ */
+const stayFields = {
+  hotelId: uuid,
+  bookingType: z.enum(BOOKING_TYPES),
+  checkIn: isoDate,
+  checkOut: isoDate,
+  maleCount: counts.default(0),
+  femaleCount: counts.default(0),
+  childCount: counts.default(0),
+  infantCount: z.number().int().min(0).max(100).default(0),
+  totalCount: z.number().int().min(1).max(MAX_BOOKING_PILGRIMS),
+  childSide: z.enum(CHILD_SIDES).optional(),
+  quoteId: uuid.optional(),
+}
+
+function stayRules(body: { bookingType: string, checkIn: string, checkOut: string, maleCount: number, femaleCount: number, childCount: number, totalCount: number }, ctx: z.RefinementCtx): void {
+  addStayDateIssues(body, ctx)
+  if (body.bookingType === 'GROUP' && body.maleCount + body.femaleCount + body.childCount !== body.totalCount) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['totalCount'], message: 'For a group, men + women + children must equal the total' })
+  }
+  if (body.bookingType === 'FAMILY' && (body.maleCount !== 0 || body.femaleCount !== 0 || body.childCount !== 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['maleCount'], message: 'A family gives only the total' })
+  }
+}
+
+/** The room options for a stay (v7 §9): agency portal, staff on an agency's behalf, public site. */
+export const staySearchSchema = z.object(stayFields).strict().superRefine(stayRules)
+export type StaySearchInput = z.infer<typeof staySearchSchema>
+
+/** One room of the chosen option, as the search returned it. */
+export const chosenRoomSchema = z.object({
+  roomId: uuid,
+  occupancy: z.enum(OCCUPANCIES),
+  seats: z.number().int().min(1).max(30),
+  extraBeds: z.number().int().min(0).max(5).default(0),
+}).strict()
+
+const holdFields = {
+  ...stayFields,
+  rooms: z.array(chosenRoomSchema).min(1).max(MAX_BOOKING_ROOMS),
+  notes: safeText(1000).optional(),
+}
+
+/** Hold the chosen option (v7 §9.2 step 7, §10): the rooms are locked and checked again before anything is saved. */
+export const holdRequestSchema = z.object(holdFields).strict().superRefine(stayRules)
+export type HoldRequestInput = z.infer<typeof holdRequestSchema>
+
+/** `POST /api/stays/search` (staff on an agency's behalf, v7 §6): the same search for the named agency. */
+export const staffStaySearchSchema = z.object({ ...stayFields, agencyId: uuid }).strict().superRefine(stayRules)
+export type StaffStaySearchInput = z.infer<typeof staffStaySearchSchema>
+
+/** `POST /api/bookings` (staff on an agency's behalf). */
+export const staffHoldRequestSchema = z.object({ ...holdFields, agencyId: uuid }).strict().superRefine(stayRules)
+export type StaffHoldRequestInput = z.infer<typeof staffHoldRequestSchema>
+
+/** `GET /api/bookings` (staff) and `GET /api/agency/bookings` (agency; `agencyId` ignored there). Newest first. */
+export const listBookingsQuerySchema = z.object({
+  status: z.enum(BOOKING_STATUSES).optional(),
+  hotelId: uuid.optional(),
+  agencyId: uuid.optional(),
+  /** The start of a booking number (`B-2027-00`). */
+  q: z.string().trim().min(1).max(30).optional(),
+}).merge(pagination({ maxPageSize: 100 }))
+export type ListBookingsQuery = z.infer<typeof listBookingsQuerySchema>
+
+/** `POST /api/check-in/lookup` (v7 §17): the receipt's QR code content (24 random bytes, base64url). */
+export const checkInLookupSchema = z.object({
+  receiptToken: z.string().regex(/^[\w-]{32}$/, 'This is not a receipt code'),
+}).strict()
+export type CheckInLookupInput = z.infer<typeof checkInLookupSchema>
+
+/** `GET /api/hotels/:hotelId/tasks` (v7 §11): open work by default, the soonest due first. */
+export const hotelTaskQuerySchema = z.object({
+  status: z.enum(HOTEL_TASK_STATUSES).default('OPEN'),
+  from: isoDate.optional(),
+  to: isoDate.optional(),
+}).refine(q => !q.from || !q.to || q.from <= q.to, { message: '"to" must not be before "from"', path: ['to'] })
+export type HotelTaskQuery = z.infer<typeof hotelTaskQuerySchema>
+
+/** `POST /api/bookings/:id/cancel` (v7 §12): staff cancel with a reason (kept on the booking, erased with it later). */
+export const cancelBookingSchema = z.object({
+  reason: safeText(500).refine(value => value.length >= 3, 'Give the reason for the cancellation'),
+}).strict()
+export type CancelBookingInput = z.infer<typeof cancelBookingSchema>
+
+/**
+ * v7 §12 "add a pilgrim": who joins an existing booking — in a GROUP men, women and children (each counted in the
+ * total), in a FAMILY only the seated total — infants apart (at least one person). Checked against the booking's type
+ * by the service.
+ */
+const additionFields = {
+  maleCount: counts.default(0),
+  femaleCount: counts.default(0),
+  childCount: counts.default(0),
+  infantCount: z.number().int().min(0).max(100).default(0),
+  totalCount: counts.default(0),
+}
+
+function additionRules(body: { totalCount: number, infantCount: number }, ctx: z.RefinementCtx): void {
+  if (body.totalCount + body.infantCount === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['totalCount'], message: 'Add at least one pilgrim' })
+}
+
+/** `POST /api/…/bookings/:id/guests/search`: where the joining pilgrims can sleep (the booking's own rooms first). */
+export const guestAdditionSearchSchema = z.object(additionFields).strict().superRefine(additionRules)
+export type GuestAdditionSearchInput = z.infer<typeof guestAdditionSearchSchema>
+
+/** `POST /api/…/bookings/:id/guests`: add them, in the rooms of the chosen option (none when only infants join). */
+export const addGuestsSchema = z.object({ ...additionFields, rooms: z.array(chosenRoomSchema).max(MAX_BOOKING_ROOMS).default([]) }).strict().superRefine((body, ctx) => {
+  additionRules(body, ctx)
+  // Infants take no seat: they join the booking's own rooms, never claim new ones.
+  if (body.totalCount === 0 && body.rooms.length > 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['rooms'], message: 'Infants alone join the booking\'s rooms: choose no rooms' })
+})
+export type AddGuestsInput = z.infer<typeof addGuestsSchema>
+
+/** `POST /api/bookings/:id/guests/move` (v7 §12 room move): these pilgrims sleep in `roomId` from `from` (default: today, or the check-in). */
+export const moveGuestsSchema = z.object({
+  guestIds: z.array(uuid).min(1).max(MAX_BOOKING_PILGRIMS).refine(ids => new Set(ids).size === ids.length, 'Each pilgrim once'),
+  roomId: uuid,
+  from: isoDate.optional(),
+}).strict()
+export type MoveGuestsInput = z.infer<typeof moveGuestsSchema>
+
+/** v7 §12 date change: the whole booking on new dates — at the rates, or at the agency's quote for those dates. */
+const dateChangeFields = { checkIn: isoDate, checkOut: isoDate, quoteId: uuid.optional() }
+
+/** `POST /api/bookings/:id/dates/search`: the options for the booking's pilgrims on the new dates. */
+export const dateChangeSearchSchema = z.object(dateChangeFields).strict().superRefine(addStayDateIssues)
+export type DateChangeSearchInput = z.infer<typeof dateChangeSearchSchema>
+
+/** `POST /api/bookings/:id/dates`: move the booking to the new dates, in the rooms of the chosen option. */
+export const changeDatesSchema = z.object({ ...dateChangeFields, rooms: z.array(chosenRoomSchema).min(1).max(MAX_BOOKING_ROOMS) }).strict().superRefine(addStayDateIssues)
+export type ChangeDatesInput = z.infer<typeof changeDatesSchema>
+
+/** `POST /api/customer/stays/search` (public site, v7 §6): the options for a customer's stay, at the public price. */
+export const customerStaySearchSchema = z.object(stayFields).omit({ quoteId: true }).strict().superRefine(stayRules)
+export type CustomerStaySearchInput = z.infer<typeof customerStaySearchSchema>
+
+/**
+ * `POST /api/customer/bookings` (public site, v7 §6): request the chosen option (REQUESTED until the hotel confirms),
+ * with the lead pilgrim's passport.
+ */
+export const customerRequestSchema = z.object(holdFields).omit({ quoteId: true }).extend({ lead: leadPilgrimSchema }).strict().superRefine(stayRules)
+export type CustomerRequestInput = z.infer<typeof customerRequestSchema>

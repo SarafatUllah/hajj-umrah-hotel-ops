@@ -1,0 +1,1 @@
+ALTER TABLE "booking_setting" ADD COLUMN "no_show_releases_seats" boolean DEFAULT false NOT NULL;

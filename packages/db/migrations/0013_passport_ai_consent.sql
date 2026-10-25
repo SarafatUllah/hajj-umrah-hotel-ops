@@ -1,0 +1,1 @@
+ALTER TABLE "booking_setting" ADD COLUMN "passport_ai_allowed" boolean DEFAULT false NOT NULL;

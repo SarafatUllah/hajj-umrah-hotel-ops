@@ -1,0 +1,20 @@
+import type { JobDefinition } from './definition'
+import { detailsReminderJob, guestDataRetentionJob, holdExpiryJob, quoteExpiryJob } from './bookingJobs'
+import { EVENT_JOBS } from './eventJobs'
+import { passportReadJob, passportRetentionJob } from './passportJobs'
+import { securityCleanupJob } from './securityJobs'
+
+/**
+ * Every job the application knows about. Modules register their jobs here as they land (hold sweep,
+ * reminders, passport OCR, retention). Order is irrelevant.
+ */
+export const JOBS: readonly JobDefinition<never>[] = [
+  securityCleanupJob,
+  quoteExpiryJob,
+  holdExpiryJob,
+  detailsReminderJob,
+  guestDataRetentionJob,
+  passportReadJob,
+  passportRetentionJob,
+  ...EVENT_JOBS,
+]

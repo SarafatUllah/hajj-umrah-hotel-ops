@@ -1,0 +1,30 @@
+/**
+ * The booking module's PUBLIC service API (ticket 5): other modules — the Phase 1 inventory services, later
+ * transport — import only from here, never from the module's internal files (enforced by
+ * tests/unit/architecture/layering.test.ts).
+ */
+export { assertBookingsStillFit, type InventoryChange } from './inventoryGuard'
+export { createBookingRule, deleteBookingRule, listBookingRules, updateBookingRule } from './bookingRulesService'
+export { getBookingSettings, updateBookingSettings } from './bookingSettingsService'
+export { createQuoteForAgency, declineQuote, expireOfferedQuotes, getAgencyQuote, getQuote, listAgencyQuotes, listQuotes, offerQuote, requestQuote, type OfferedQuote, type QuoteDto, type QuotePage, type RequestedQuote } from './quoteService'
+export { expireLapsedBookings, placeHold, searchStay, type HeldBooking } from './holdService'
+export type { StayOption, StayOptionRoom, StaySearchResult } from './stayChecks'
+export type { Booker } from './stayFacts'
+export { agencyBookingReceipt, bookingReceipt, confirmAgencyBooking, confirmBooking, getAgencyBooking, getBooking, holdAgencyStay, holdStayForAgency, listAgencyBookings, listBookings, searchAgencyStay, searchStayForAgency, type BookingDetailDto, type BookingDto, type BookingPage, type ReceiptDto } from './bookingService'
+export { listAgencyGuests, listCustomerGuests, listGuests, saveAgencyGuest, saveCustomerGuest, saveGuest, type GuestDetailsDto, type GuestSlotDto, type GuestWarning } from './guestService'
+export { agencyScanImage, confirmAgencyScan, confirmScan, discardAgencyScan, discardScan, listAgencyScans, listScans, scanImage, setPassportReadQueue, uploadAgencyScan, uploadScan, type PassportScanDto, type ScanUpload } from './passportScanService'
+export { purgeExpiredPassportImages } from './passportImages'
+export { readPassportScan } from './passportReading'
+export { checkInGuest, checkOutGuest, lookupReceipt, markGuestNoShow, type CheckInLookupDto, type GuestMoveDto } from './checkInService'
+export { completeHotelTask, listHotelTasks, type HotelTaskDto } from './hotelTaskService'
+export { sendDetailsReminders } from './detailsReminder'
+export { getOccupancy, getOccupancyDay, type OccupancyDayViewDto, type OccupancyRangeDto } from './occupancyService'
+export { roomCalendarClaims, type RoomCalendarClaim } from './calendarClaims'
+export { notifyBookingCancelled, notifyBookingConfirmed } from './bookingEvents'
+export { cancelBooking, releaseAgencyHold, releaseCustomerBookings, withdrawCustomerRequest } from './cancellationService'
+export { readAgencyGuests, readBookingSlots, type AgencyGuestView, type BookingSlotsView } from './publicRead'
+export { eraseExpiredGuestData } from './guestRetention'
+export { addAgencyGuests, addGuests, removeGuest, searchAgencyGuestAdditions, searchGuestAdditions } from './guestChangeService'
+export { moveGuests } from './roomMoveService'
+export { changeDates, searchDateChange } from './dateChangeService'
+export { customerBookingReceipt, getCustomerBooking, listCustomerBookings, requestCustomerStay, searchCustomerStay } from './customerBookingService'

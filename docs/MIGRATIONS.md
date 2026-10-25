@@ -4,9 +4,9 @@ Migrations are **forward-only**. There is no down-migration tooling and none
 should be added: fixing a mistake means writing a new forward migration, not
 reverting an old one.
 
-## The current chain (end of Phase 1)
+## The current chain
 
-Migrations live in `db/migrations/` (SQL files plus Drizzle's
+Migrations live in `packages/db/migrations/` (SQL files plus Drizzle's
 `meta/_journal.json` and snapshots) and are applied in journal order:
 
 | File | Phase / task | Contents |
@@ -19,6 +19,22 @@ Migrations live in `db/migrations/` (SQL files plus Drizzle's
 | `0005_capacity_periods.sql` | Task 15 | `capacity_period`, `room_capacity_override` + exclusion constraint `room_override_no_overlap` + the dates-sync composite FK (`ON UPDATE CASCADE`) |
 | `0006_room_blocks.sql` | Task 16 | `room_operational_block` (incl. the ended-early columns) + partial exclusion constraint `room_block_no_overlap` |
 | `0007_documents.sql` | Task 19 | `document_asset`, `hotel_document` |
+| `0008_security_prerequisites.sql` | Phase 2a, security prerequisites | `rate_limit_bucket`; `app_user.totp_*` and `session_version` (+ check `app_user_totp_consistency`); `role.requires_two_factor` (backfilled for SUPER_ADMIN / HOTEL_MANAGER) |
+| `0009_booking_platform.sql` | Phase 2a, booking schema | the booking-platform tables of `ARCHITECTURE.md` §6.2; hand-appended exclusion constraints (`booking_room_one_owner`, `booking_room_one_occupancy`, `booking_room_no_duplicate`, `guest_stay_one_bed_per_night`, `rate_no_overlap`, `agency_quota_no_overlap`, `allocation_rule_no_overlap`), the booking→claim status-sync and claim-status guard triggers, the deferred containment constraint triggers, the `forbid_row_update` trigger on `booking_change` / `pii_access_log`, the `room_night_occupancy(...)` seat-counting function; plus `role_permission_permission_idx` (an FK without a covering index, found by `schemaInvariants.test.ts`) |
+| `0010_customer_otp.sql` | Phase 2a, customers | `otp_challenge` (hashed SMS sign-in codes) |
+| `0011_document_sequence.sql` | Phase 2a, quotes | `document_sequence` (per-organization, per-year reference counters: `Q-2027-0001`, later `B-…`) |
+| `0012_booking_agency_live_index.sql` | Phase 2b, holds | `booking_agency_live_idx`: an agency's live bookings per hotel (the quota count under the hold's quota lock) |
+| `0013_passport_ai_consent.sql` | Phase 2 | `booking_setting.passport_ai_allowed` (default `false`): the organization's opt-in to the external passport reader |
+| `0014_details_reminder.sql` | Phase 2 | `booking.details_reminded_at`: set when the details reminder is sent |
+| `0015_event_receipt.sql` | Phase 2 | `event_receipt`: one row per (organization, event, handler), the guard that lets a domain-event handler run at most once per event |
+| `0016_guest_data_retention.sql` | Phase 2 | `booking_setting.guest_data_retention_months` (1–120, default 24); `booking_guest_detail.erased_at` |
+| `0017_no_show_policy.sql` | Phase 2 | `booking_setting.no_show_releases_seats` (default `false`) |
+| `0018_room_occupancy_except_booking.sql` | Phase 2 | `room_night_occupancy(...)` gains `p_except_booking_id` (the function is dropped and recreated; five-argument calls keep their meaning) |
+| `0019_customer_account_closure.sql` | Phase 2 | `customer.phone` becomes nullable; `customer.closed_at` (a closed account keeps its row without phone, name or e-mail) and its check constraint |
+| `0020_review_indexes.sql` | Phase 2 (review) | indexes on `booking`, `hotel_task` and `passport_scan` (three old indexes dropped); **data:** existing passport image filenames become `passport.<ext>` |
+| `0021_ended_booking_scans.sql` | Phase 2 (review) | **data:** scans of cancelled or expired bookings lose their reading and become due for deletion at once |
+
+`0020` and `0021` rewrite existing rows; `docs/DEPLOY_CHECKLIST.md` says what to check before release.
 
 ## Committed migrations are immutable
 
@@ -37,14 +53,14 @@ commit**, and only to:
 
 ## Making a schema change
 
-1. Change the Drizzle schema in `db/schema/**`.
+1. Change the Drizzle schema in `packages/db/schema/**`.
 2. Generate exactly one migration for the task:
 
    ```sh
    pnpm db:generate --name <task-slug>
    ```
 
-3. **Read the generated SQL** in `db/migrations/` before committing: check
+3. **Read the generated SQL** in `packages/db/migrations/` before committing: check
    for unintended drops/renames, table rewrites on large tables, missing
    backfills for `NOT NULL` columns, and add any raw SQL the schema DSL
    cannot express (rule (c) above).
@@ -52,22 +68,27 @@ commit**, and only to:
 5. Prove the whole chain on an empty database: `pnpm test:integration:fresh`.
 6. A migration that touches existing rows (a backfill or a column narrowing)
    also needs a data-preserving test written against the migration harness
-   (`tests/integration/support/migrationHarness.ts`, see
-   `tests/integration/db/tenancyHardening.migration.test.ts`).
+   (`apps/api/tests/integration/support/migrationHarness.ts`, see
+   `apps/api/tests/integration/db/tenancyHardening.migration.test.ts`).
 
 ## Drift and schema checks
 
 - `pnpm db:check` runs `drizzle-kit check` — validates the migration
   history itself (no gaps, no conflicting revisions).
-- `pnpm db:drift` runs [`db/scripts/checkDrift.ts`](../db/scripts/checkDrift.ts) —
-  fails if `db/schema/**` has diverged from `db/migrations/**`, i.e. if
+- `pnpm db:drift` runs [`packages/db/scripts/checkDrift.ts`](../packages/db/scripts/checkDrift.ts) —
+  fails if `packages/db/schema/**` has diverged from `packages/db/migrations/**`, i.e. if
   `pnpm db:generate` would produce a new migration right now. It removes
   whatever it generated and restores the journal, so it never leaves files
   behind. Run it after any schema change and before committing.
 
 Neither connects to a database (they diff files, not a running instance),
-but `drizzle.config.ts` requires `DATABASE_URL` to be set, so CI passes a
+but `packages/db/drizzle.config.ts` requires `DATABASE_URL` to be set, so CI passes a
 placeholder value.
+
+The database CLIs run inside `packages/db` and load their environment through
+`packages/db/env.ts`: variables already in the process win, then `packages/db/.env`, then
+`apps/api/.env` (the file local development already has). Every root `pnpm db:*` command
+therefore works unchanged after the monorepo split.
 
 ## Fresh-database verification
 
@@ -80,11 +101,11 @@ applies from zero.
 
 ## The `btree_gist` extension
 
-The three exclusion constraints combine an equality column (`room_id`, and
-`kind` for blocks) with a `daterange` overlap, which needs the `btree_gist`
+The exclusion constraints combine equality columns (`room_id`, `kind`,
+`owner_key`, …) with a range overlap, which needs the `btree_gist`
 extension. Migration `0001_tenancy_hardening` creates it as its first
 statement (`CREATE EXTENSION IF NOT EXISTS btree_gist`), and `0004`, `0005`
-and `0006` repeat the same idempotent statement before their constraints, so
+and `0006` and `0009` repeat the same idempotent statement before their constraints, so
 applying the chain from an empty database creates it automatically.
 
 Consequences for operators:
@@ -97,12 +118,12 @@ Consequences for operators:
   target database). The statements in the migrations are then no-ops.
 - Never edit an old migration to remove or change these statements; handle
   privilege problems by pre-creating the extension.
-- The local Docker setup (`db/docker/init.sql`) pre-creates it in both the
+- The local Docker setup (`packages/db/docker/init.sql`) pre-creates it in both the
   dev and test databases.
 
 ## Applying migrations in an environment
 
-`pnpm db:migrate` (`db/migrate.ts`) applies every pending migration to the
+`pnpm db:migrate` (`packages/db/migrate.ts`) applies every pending migration to the
 database named by `DATABASE_URL`. In a deployment, migrations run **before**
 the new application version receives traffic, and a failed migration stops
 the deploy (see `docs/DEPLOY_CHECKLIST.md`). Migrations are forward-only:

@@ -4,49 +4,29 @@
   "type": "module",
   "packageManager": "pnpm@9.4.0",
   "engines": {
-    "node": ">=22.11.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "nuxt dev",
-    "build": "nuxt build",
-    "generate": "nuxt generate",
-    "preview": "nuxt preview",
-    "postinstall": "nuxt prepare",
-    "lint": "eslint .",
-    "typecheck": "nuxt typecheck",
-    "typecheck:types": "tsc -p tsconfig.typetests.json",
-    "test": "vitest run --config vitest.config.ts",
-    "test:unit": "vitest run --config vitest.config.ts",
-    "test:watch": "vitest --config vitest.config.ts",
-    "db:generate": "drizzle-kit generate",
-    "db:check": "drizzle-kit check",
-    "db:drift": "tsx db/scripts/checkDrift.ts",
-    "db:migrate": "tsx db/migrate.ts",
-    "db:seed": "tsx db/seed/index.ts",
-    "db:test:reset": "dotenv run -f .env.test -- tsx db/scripts/resetTestDb.ts",
-    "test:integration": "dotenv run -f .env.test -- tsx db/migrate.ts && dotenv run -f .env.test -- vitest run --config vitest.integration.config.ts",
-    "test:integration:fresh": "pnpm db:test:reset && pnpm test:integration",
-    "test:http": "dotenv run -f .env.test -- tsx db/migrate.ts && dotenv run -f .env.test -- vitest run --config vitest.http.config.ts",
-    "verify": "pnpm lint && pnpm typecheck && pnpm typecheck:types && pnpm db:check && pnpm db:drift && pnpm test:unit && pnpm test:integration && pnpm test:http"
-  },
-  "dependencies": {
-    "@node-rs/argon2": "^2.2.1",
-    "drizzle-orm": "^0.45.3",
-    "h3": "1.15.11",
-    "nuxt": "^4.5.2",
-    "nuxt-auth-utils": "^0.5.30",
-    "postgres": "^3.4.9",
-    "vue": "^3.5.43",
-    "zod": "^3.25.0"
+    "dev": "pnpm --filter @hajj/api dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "typecheck:types": "pnpm --filter @hajj/api typecheck:types",
+    "test": "turbo run test:unit",
+    "test:unit": "turbo run test:unit",
+    "test:integration": "pnpm --filter @hajj/api test:integration",
+    "test:integration:fresh": "pnpm --filter @hajj/api test:integration:fresh",
+    "test:http": "pnpm --filter @hajj/api test:http",
+    "db:generate": "pnpm --filter @hajj/db generate",
+    "db:check": "pnpm --filter @hajj/db check",
+    "db:drift": "pnpm --filter @hajj/db drift",
+    "db:migrate": "pnpm --filter @hajj/db migrate",
+    "db:seed": "pnpm --filter @hajj/api db:seed",
+    "db:test:reset": "pnpm --filter @hajj/api db:test:reset",
+    "verify": "pnpm lint && pnpm typecheck && pnpm typecheck:types && pnpm db:check && pnpm db:drift && pnpm test:unit && pnpm test:integration && pnpm test:http",
+    "rbac:sync": "pnpm --filter @hajj/api rbac:sync"
   },
   "devDependencies": {
-    "@nuxt/eslint": "^1.17.0",
-    "dotenv": "^18.0.3",
-    "drizzle-kit": "^0.31.11",
-    "eslint": "^10.11.0",
-    "tsx": "^4.23.15",
-    "typescript": "^6.0.0",
-    "vitest": "^5.0.1",
-    "vue-tsc": "^3.3.11"
+    "turbo": "^2.11.10"
   }
 }

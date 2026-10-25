@@ -1,0 +1,31 @@
+{
+  "name": "@hajj/agency-portal",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The agency portal (v7 §6, §8–§13): search and hold at the agency's price, quotes, confirmation, pilgrims, passport photos, receipts.",
+  "scripts": {
+    "dev": "nuxt dev --port 3002",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "typecheck": "nuxt typecheck",
+    "test:unit": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@hajj/contracts": "workspace:^",
+    "@hajj/ui": "workspace:^",
+    "@tanstack/vue-query": "^5.104.5",
+    "nuxt": "^4.5.2",
+    "vue": "^3.5.43",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@nuxt/eslint-config": "1.17.0",
+    "eslint": "^10.11.0",
+    "typescript": "^6.0.0",
+    "vitest": "^5.0.1",
+    "vue-tsc": "^3.3.11"
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "portal": {
+    "name": "Agency portal",
+    "nav": {
+      "main": "Main",
+      "bookings": "Bookings",
+      "book": "New booking",
+      "quotes": "Quotes"
+    }
+  },
+  "login": {
+    "title": "Sign in to the agency portal",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Sign in",
+    "newAgency": "New agency? Register"
+  },
+  "register": {
+    "title": "Register your agency",
+    "lead": "The hotel checks your licence before you can book. You can sign in once it approves your agency.",
+    "agency": "Agency",
+    "user": "Your sign-in",
+    "submit": "Register",
+    "received": "Thank you. The hotel will check your registration; you can sign in once it is approved.",
+    "toLogin": "Back to sign in"
+  },
+  "pending": {
+    "title": {
+      "PENDING": "Your agency is not approved yet",
+      "SUSPENDED": "Your agency is suspended",
+      "REJECTED": "Your agency was not approved"
+    },
+    "text": {
+      "PENDING": "The hotel checks your licence first. You can book as soon as your agency is approved.",
+      "SUSPENDED": "The hotel has paused bookings for your agency. Contact the hotel to resume them.",
+      "REJECTED": "The hotel did not approve your agency. Contact the hotel if you think this is a mistake."
+    },
+    "check": "Check again"
+  },
+  "bookings": {
+    "title": "Bookings",
+    "none": "No bookings yet.",
+    "number": "Booking {no}",
+    "allStatuses": "All statuses",
+    "column": "Booking",
+    "status": "Status",
+    "stay": "Stay",
+    "pilgrims": "Pilgrims",
+    "rooms": "Rooms",
+    "price": "Price",
+    "detailsProgress": "{done} of {total} with full details",
+    "confirm": "Confirm booking",
+    "confirmed": "Booking confirmed.",
+    "release": "Release hold",
+    "releaseTitle": "Release this hold?",
+    "releaseText": "Booking {no} will be cancelled and its rooms let go.",
+    "released": "Hold released.",
+    "askHotel": "To cancel or change a confirmed booking, contact the hotel.",
+    "details": "Details"
+  },
+  "book": {
+    "title": "New booking",
+    "quote": "Price",
+    "agencyPrice": "Agency price",
+    "quoteOption": "Quote {ref} · {amount} {unit}",
+    "quoteHelp": "A quote fits exactly its hotel, dates and pilgrims.",
+    "quota": "Your agency can still hold {count} pilgrims on these nights.",
+    "hold": "Hold this option",
+    "holdNote": "The rooms are held for a short time: confirm the booking before the hold ends."
+  },
+  "quotes": {
+    "title": "Quotes",
+    "none": "No quotes yet.",
+    "ask": "Ask for a price",
+    "askHelp": "For a large group: the hotel answers with a price for exactly this stay.",
+    "notes": "Notes for the hotel",
+    "send": "Send request",
+    "sent": "Request sent. Agree the price with the hotel on WhatsApp.",
+    "whatsapp": "Open WhatsApp",
+    "reference": "Reference",
+    "amount": "Price",
+    "validUntil": "Valid until",
+    "book": "Book at this price",
+    "pilgrims": "Pilgrims"
+  },
+  "account": {
+    "title": "Your account",
+    "open": "Account",
+    "agency": "Agency",
+    "password": "Password",
+    "passwordHelp": "After the change, every other place you are signed in is signed out.",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "changePassword": "Change the password",
+    "passwordChanged": "Password changed. Other sessions were signed out."
+  }
+}

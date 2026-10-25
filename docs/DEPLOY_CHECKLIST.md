@@ -1,6 +1,6 @@
-# Deploy checklist (Phase 1)
+# Deploy checklist
 
-Work through every item before a staging or production deployment. Variables are documented in `.env.example`
+Work through every item before a staging or production deployment. Variables are documented in `apps/api/.env.example`
 and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and `docs/MIGRATIONS.md`.
 
 ## Configuration
@@ -24,6 +24,43 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
       and the health check below answers 200 (the first database use validates `DATABASE_URL` and
       `NUXT_SESSION_PASSWORD`; an invalid value shows up there as 503).
 
+- [ ] `PII_ENCRYPTION_KEYS` (key ring `id:base64key[,…]`, each 32 random bytes: `openssl rand -base64 32`) and `PII_LOOKUP_KEY` (≥ 32 random
+      bytes) come from the secret manager, are unique per environment and are **backed up separately from the
+      database**: encrypted personal data and TOTP secrets cannot be read without them. Rotation = prepend a new key
+      and keep the old one until every value has been re-encrypted. Never change `PII_LOOKUP_KEY` (blind indexes
+      would no longer match).
+- [ ] `STAFF_2FA_ENFORCEMENT=required-roles` (production refuses to start otherwise). Users holding Super Admin or
+      Hotel Manager (migration 0008 marks these roles in existing organizations) must enrol an authenticator app at
+      their first login; plan who enrols first, and who holds `user.manage` to reset a lost device
+      (`POST /api/users/:userId/2fa/reset`).
+- [ ] `TRUST_PROXY=true` **only** when exactly one reverse proxy in front of the API sets `X-Forwarded-For`/`-Host`
+      (the client IP for rate limiting is then the last `X-Forwarded-For` entry), and the API port is **not reachable
+      except through that proxy** (otherwise a client could choose its own address). Without a proxy: `false`. Behind
+      a proxy with `false`, every client shares one address and the per-address login limit applies to all of them.
+- [ ] `ALLOWED_ORIGINS` lists the exact origins of the separate frontends (ops console, agency portal, public site)
+      when they are not served from the API host; unset = same host only.
+- [ ] Each frontend runs with `NUXT_API_PROXY_TARGET` = the API's internal origin (its allowed `/api/**` prefixes are
+      forwarded there, so the session cookie stays first-party) and `NUXT_API_PROXY_TRUST_PROXY=true` only behind one
+      proxy that sets `X-Forwarded-For`; the public site and the agency portal with `NUXT_PUBLIC_ORGANIZATION_SLUG` = the organization they
+      sell for (the default is the demo organization: set it). The frontends set `X-Forwarded-For` to the visitor's address themselves, so the API runs with
+      `TRUST_PROXY=true` and is reachable only through them (otherwise every visitor shares one address for the
+      per-address limits).
+
+- [ ] Customer sign-in (public site) needs an SMS gateway: `SMS_DRIVER=webhook` with an `https` `SMS_WEBHOOK_URL`
+      (and `SMS_WEBHOOK_TOKEN`); until then `disabled` makes the code request answer 503. `log` is refused outside
+      development. The gateway receives `{ "to": "+9665…", "text": "…" }` and must answer 2xx (redirects are not
+      followed). Set `SMS_ALLOWED_CALLING_CODES` to the countries actually served, size `SMS_HOURLY_LIMIT` /
+      `SMS_DAILY_LIMIT` to the SMS budget (watch for the `[sms] … reached its … SMS budget` warning), and enable the
+      bot check (`CAPTCHA_DRIVER=turnstile` + `CAPTCHA_SECRET`) before the public site opens.
+- [ ] The public site needs `NUXT_PUBLIC_TURNSTILE_SITE_KEY` (its Turnstile site key). Whenever SMS is enabled outside
+      `APP_ENV=development` (`SMS_DRIVER=webhook`), the API needs `CAPTCHA_DRIVER=turnstile` and `CAPTCHA_SECRET`; startup
+      refuses otherwise (`server/utils/env.ts`).
+- [ ] The public site, agency portal and ops console reach the API on the same site (same domain behind one proxy, or
+      sibling subdomains of one registrable domain): sessions are `SameSite=Lax` cookies.
+- [ ] The reverse proxy in front caps request bodies at about 11 MB (`client_max_body_size` or equivalent) and has
+      timeouts of at least 60 s: the API refuses JSON bodies over 1 MiB and uploads over 10 MB from their declared
+      length, the frontends' proxy refuses bodies over an upload's size and gives up on the API after 60 s.
+
 ## Database and migrations
 
 - [ ] The migrating role can run `CREATE EXTENSION btree_gist` — on PostgreSQL 13+ `btree_gist` is a trusted
@@ -33,16 +70,37 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
 - [ ] `pnpm db:check` and `pnpm db:drift` are clean on the commit being deployed (CI `static` job green).
 - [ ] `pnpm db:migrate` has **succeeded before the new application version receives traffic**; a failed migration
       stops the deploy (the script exits non-zero). Migrations are forward-only.
+- [ ] `pnpm rbac:sync` has run after the migrations: it upserts the permission catalog and gives every organization's
+      built-in roles the permissions and 2FA flags of this release (additive and idempotent — it never removes a
+      grant). Without it, permissions added by a release (e.g. Phase 2's `agency.manage`) are missing everywhere.
+      It also resets the built-in roles' `requires_two_factor` flags to their definitions.
+- [ ] Migrations `0020_review_indexes` and `0021_ended_booking_scans` rewrite existing rows: passport image filenames
+      become `passport.<ext>`, and the scans of bookings already cancelled or expired lose their reading and become due for deletion at once. They
+      run with the normal migrations.
+- [ ] No stored price exceeds 20,000 SAR per unit (`MAX_UNIT_HALALAS` = 2,000,000 halalas in
+      `packages/contracts/schemas/bookingRules.ts`: the API refuses higher prices, the database does not). Run
+      `select count(*) from rate where amount_halalas > 2000000;`, and the same on `price_quote` and `extra_bed_policy`;
+      each must return 0 before the release.
 - [ ] Database backups/point-in-time recovery are enabled by the database provider (`ARCHITECTURE.md` §19).
 
 ## Document storage
 
-- [ ] `STORAGE_DRIVER=local` (the only Phase 1 driver; S3-compatible storage is not implemented).
+- [ ] `STORAGE_DRIVER=local` (the only driver; S3-compatible storage is not implemented).
 - [ ] `STORAGE_LOCAL_DIR` is writable by the server process and on **persistent** storage (a mounted volume, not the
       container's ephemeral filesystem), shared by every server process that serves downloads.
-- [ ] Acknowledged: document bytes live only in that directory (metadata in PostgreSQL). Database backups do not
+- [ ] Acknowledged: document bytes and the encrypted passport images live only in that directory (metadata in PostgreSQL). Database backups do not
       contain them; include the directory in the deployment's backup/restore plan, or accept that lost files make
-      their documents fail to download (500 `DOCUMENT_FILE_MISSING`). Phase 1 ships no backup mechanism of its own.
+      their documents fail to download (500 `DOCUMENT_FILE_MISSING`). The application ships no backup mechanism of its own.
+
+## Background jobs (Phase 2)
+
+- [ ] `JOBS_MODE` is set deliberately: `light` (default) in every API process **plus** at least one worker process
+      (`pnpm --filter @hajj/api worker`, which works only the CPU-heavy tier, e.g. passport OCR), or `all` in a
+      single-process deployment. `off`/`send` only where another process works the queues.
+- [ ] The worker runs from source through `tsx` (a runtime dependency of `@hajj/api`): its deployment needs the sources and
+      `node_modules`, not only the Nitro output.
+- [ ] pg-boss creates and migrates its own `pgboss` schema on start: the database role must be allowed to create a
+      schema in the application database (or the schema is created once by an administrator).
 
 ## Verification after the deploy
 
@@ -50,3 +108,23 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
       is unreachable or the environment is invalid).
 - [ ] The session cookie set by `POST /api/auth/login` carries `Secure`, `HttpOnly` and `SameSite=Lax`.
 - [ ] Production and staging: `GET /api/public/demo-sign-in` answers 404.
+- [ ] A state-changing request with a foreign `Origin` (e.g. `curl -X POST -H 'Origin: https://example.org'
+      …/api/auth/logout`) answers 403 `CSRF_ORIGIN_MISMATCH`.
+
+## Passport reading (Phase 2d)
+
+- The worker process (`pnpm --filter @hajj/api worker`, it works the heavy tier only, whatever `JOBS_MODE` says) runs `booking.passport-read`. The API
+  processes must be able to enqueue (`JOBS_MODE` light, send or all) or uploads answer 409 `PASSPORT_READING_UNAVAILABLE`.
+- `PASSPORT_OCR=tesseract` in the worker only: install `tesseract.js` (and its English language data, or allow the
+  first download) in the worker image. Without it every scan goes to manual entry.
+- `PASSPORT_AI=anthropic` (+ `ANTHROPIC_API_KEY`, optional `PASSPORT_AI_MODEL`) sends unreadable passport images to
+  an external service: enable only after the contract and data-region review (v7 §23 Q24), including zero-data
+  retention and the server-side fallback models. Each organization must then also opt in
+  (`PATCH /api/booking-settings {"passportAiAllowed": true}`); every sending is logged in `pii_access_log`.
+- The daily `booking.details-reminder` job texts bookers whose pilgrims' details are missing close to check-in: it
+  needs `SMS_DRIVER` configured (it does nothing while disabled) and the light tier worked somewhere.
+- The daily `booking.guest-data-retention` job erases pilgrims' details `guestDataRetentionMonths` (booking settings,
+  default 24) after check-out: agree the period with the client's legal advice before go-live.
+- The daily `booking.passport-retention` job (light tier) deletes passport images after their retention: some
+  process must work the light tier (`JOBS_MODE` light or all), or images are kept beyond the PDPL period.
+- Passport images are encrypted with `PII_ENCRYPTION_KEYS` like the other personal data: rotate keys by prepending.

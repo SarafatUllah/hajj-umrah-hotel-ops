@@ -1,0 +1,63 @@
+/** Lower index = higher display precedence: a block outranks a booking, a booking outranks an available night. */
+export const INVENTORY_STATUSES = ['NOT_IN_INVENTORY', 'OUT_OF_SERVICE', 'MAINTENANCE', 'OPERATIONAL_BLOCK', 'OCCUPIED', 'BOOKED', 'HELD', 'AVAILABLE'] as const
+export type InventoryStatus = typeof INVENTORY_STATUSES[number]
+
+/** How a booking shows on the room calendar (UI-UX §19, §31.2): in the house, confirmed, or held or requested. */
+export const BOOKING_INVENTORY_STATUSES = ['OCCUPIED', 'BOOKED', 'HELD'] as const satisfies readonly InventoryStatus[]
+export type BookingInventoryStatus = typeof BOOKING_INVENTORY_STATUSES[number]
+
+/** Operational block kinds, highest display precedence first. */
+export const BLOCK_KINDS = ['OUT_OF_SERVICE', 'MAINTENANCE', 'OPERATIONAL_BLOCK'] as const
+export type BlockKind = typeof BLOCK_KINDS[number]
+
+export const CAPACITY_PERIOD_KINDS = ['HAJJ', 'RAMADAN', 'SPECIAL'] as const
+export type CapacityPeriodKind = typeof CAPACITY_PERIOD_KINDS[number]
+
+/** A season's phase against the hotel's today (computed, never stored): Upcoming, Running, Ended. */
+export const PERIOD_PHASES = ['FUTURE', 'ACTIVE', 'ENDED'] as const
+export type PeriodPhase = typeof PERIOD_PHASES[number]
+
+/** A block's phase against the hotel's today (computed, never stored); an early end is its own phase (S11). */
+export const BLOCK_PHASES = ['UPCOMING', 'RUNNING', 'ENDED', 'CANCELLED', 'ENDED_EARLY'] as const
+export type BlockPhase = typeof BLOCK_PHASES[number]
+
+export const HOTEL_STATUSES = ['ACTIVE', 'INACTIVE'] as const
+export type HotelStatus = typeof HOTEL_STATUSES[number]
+export const OWNERSHIP_TYPES = ['OWNED', 'LEASED', 'CONTRACTED'] as const
+export type OwnershipType = typeof OWNERSHIP_TYPES[number]
+export const BASE_CONFIG_ORIGINS = ['ROOM_TYPE_DEFAULT', 'MANUAL', 'BULK', 'SEED'] as const
+export type BaseConfigOrigin = typeof BASE_CONFIG_ORIGINS[number]
+
+/** Room feature tags (Task 14). */
+export const ROOM_FEATURES = ['ACCESSIBLE', 'CONNECTING', 'CITY_VIEW', 'HARAM_VIEW'] as const
+export type RoomFeature = typeof ROOM_FEATURES[number]
+
+/** Hard limits that bound every list/range endpoint (DoS guards). */
+export const MAX_CALENDAR_DAYS = 400
+export const MAX_ROOMS_PER_PAGE = 200
+export const MAX_BEDS_PER_ROOM = 30
+export const MAX_CAPACITY_PERIOD_DAYS = 366
+export const MAX_BULK_ROOMS = 200
+/** Cap on a `roomIds` override selector, after de-duplication (S9, Task 15). */
+export const MAX_OVERRIDE_SELECTOR_ROOMS = 1000
+/** Longest stay (in nights) the Available-Stay Average accepts (Task 17). */
+export const MAX_AVERAGE_STAY_NIGHTS = 90
+/** Cap on `availableStay.eligibleRoomIds` when `includeRoomIds=true` (Task 17); `eligibleRoomCount` is always exact (capped exactly when the list is shorter than the count). */
+export const MAX_ELIGIBLE_ROOM_IDS = 2000
+/** Cap on an explicit `hotelIds` list for the organization averages (Task 17). */
+export const MAX_AVERAGE_HOTEL_IDS = 200
+/** The statuses the room calendar shows and filters by (Task 18; the bookings' since step 17e). */
+export const CALENDAR_FILTER_STATUSES = ['AVAILABLE', 'HELD', 'BOOKED', 'OCCUPIED', 'OPERATIONAL_BLOCK', 'MAINTENANCE', 'OUT_OF_SERVICE', 'NOT_IN_INVENTORY'] as const satisfies readonly InventoryStatus[]
+export type CalendarFilterStatus = typeof CALENDAR_FILTER_STATUSES[number]
+/** Most candidate rooms one room-calendar / daily-summary request derives (Task 18): more is a 422 `TOO_MANY_ROOMS`, never a truncated answer. */
+export const MAX_CALENDAR_ROOMS = 5000
+/** Default room-calendar page size (Task 18); at most `MAX_ROOMS_PER_PAGE`. */
+export const DEFAULT_CALENDAR_PAGE_SIZE = 50
+/**
+ * Largest room-calendar response body (UTF-8 JSON bytes, as sent) the API serves: 2 MiB (Task 18: "a
+ * 2,000-room response stays under 2 MB"). A page whose body would exceed it is a 422
+ * `CALENDAR_RESPONSE_TOO_LARGE` — never truncated; narrow `pageSize` or the date range. The size of a
+ * page depends on its data (segments and referenced blocks per room), so it is checked on the real
+ * body, not predicted from `pageSize` x days.
+ */
+export const MAX_CALENDAR_RESPONSE_BYTES = 2 * 1024 * 1024

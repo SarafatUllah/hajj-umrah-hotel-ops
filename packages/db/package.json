@@ -1,0 +1,35 @@
+{
+  "name": "@hajj/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Drizzle schema, migrations, the database client factory and the migration runner.",
+  "exports": {
+    "./schema": "./schema/index.ts",
+    "./schema/*": "./schema/*.ts",
+    "./client": "./client.ts",
+    "./migrations": "./migrations.ts"
+  },
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "check": "drizzle-kit check",
+    "drift": "tsx scripts/checkDrift.ts",
+    "migrate": "tsx migrate.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@hajj/contracts": "workspace:*",
+    "dotenv": "^18.0.3",
+    "drizzle-orm": "^0.45.3",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@nuxt/eslint-config": "1.17.0",
+    "@types/node": "^26.6.2",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^10.11.0",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.0"
+  }
+}

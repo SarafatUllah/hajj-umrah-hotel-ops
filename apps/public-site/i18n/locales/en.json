@@ -1,0 +1,69 @@
+{
+  "site": {
+    "nav": {
+      "main": "Main",
+      "hotels": "Hotels",
+      "book": "Book a stay",
+      "bookings": "My bookings",
+      "account": "Account"
+    },
+    "footer": "Prices in Saudi riyals. Requests are confirmed by the hotel."
+  },
+  "home": {
+    "title": "Stays for pilgrims, near the Haram",
+    "lead": "Choose a hotel and your dates, see the rooms that fit your family or group, and send a request. The hotel confirms it.",
+    "hotels": "Our hotels",
+    "bookHere": "Book a stay here",
+    "noHotels": "No hotels are open for booking yet."
+  },
+  "signIn": {
+    "title": "Sign in with your phone",
+    "lead": "We text you a code. New here? The same code creates your account.",
+    "phone": "Mobile number",
+    "phoneHelp": "With the country code, for example +966 50 123 4567.",
+    "sendCode": "Text me a code",
+    "code": "Code",
+    "codeHelp": "The 6-digit code we texted to {phone}.",
+    "fullName": "Your full name",
+    "fullNameHelp": "As on your passport. Needed once, to create your account.",
+    "verify": "Sign in",
+    "otherPhone": "Use another number",
+    "resend": "Send a new code",
+    "checkFailed": "The check could not load.",
+    "checkRetry": "Try again"
+  },
+  "book": {
+    "title": "Book a stay",
+    "lead": "The lead pilgrim",
+    "leadHelp": "An adult of the booking, with their passport. You can add the others' details later.",
+    "request": "Send the request",
+    "requestNote": "The hotel confirms or declines within a day. You can have one open request at a time."
+  },
+  "bookings": {
+    "title": "My bookings",
+    "askHotel": "To correct complete details, contact the hotel.",
+    "none": "No bookings yet.",
+    "number": "Booking {no}",
+    "stay": "Stay",
+    "rooms": "Rooms",
+    "price": "Price",
+    "pilgrims": "Pilgrims",
+    "detailsProgress": "{done} of {total} with full details",
+    "requestedNote": "Waiting for the hotel to confirm. If it does not answer in time, the request expires by itself.",
+    "withdraw": "Withdraw request",
+    "withdrawTitle": "Withdraw this request?",
+    "withdrawText": "Booking {no} will be cancelled and its rooms let go.",
+    "withdrawn": "Request withdrawn."
+  },
+  "account": {
+    "title": "Account",
+    "name": "Name",
+    "phone": "Mobile number",
+    "signOutEverywhere": "Sign out on every device",
+    "close": "Close account",
+    "closeTitle": "Close your account?",
+    "closeText": "Your open request is withdrawn, your name and number are removed, and you are signed out everywhere. Past stays stay with the hotel.",
+    "stepUp": "For your safety, confirm with a new code before closing the account.",
+    "closed": "Your account is closed."
+  }
+}

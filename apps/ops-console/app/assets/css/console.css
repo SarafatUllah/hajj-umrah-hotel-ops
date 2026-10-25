@@ -1,0 +1,14 @@
+/*
+ * The hotel marker hues (§8.4): only in hotel monograms, never for status or charts. The index comes from
+ * `hotelMarker(...).hue`; dark mode uses lighter variants on dark tiles.
+ */
+:root {
+  --marker-0: #2f6fae; --marker-1: #b5542f; --marker-2: #6b7f1f; --marker-3: #8e3f86;
+  --marker-4: #1f8a87; --marker-5: #a8761a; --marker-6: #4f5bb8; --marker-7: #9c3a4b;
+  --marker-fg: #ffffff;
+}
+.dark {
+  --marker-0: #86b2e0; --marker-1: #e59a7c; --marker-2: #b4c76b; --marker-3: #d08fc8;
+  --marker-4: #74cbc8; --marker-5: #e2b866; --marker-6: #a3acef; --marker-7: #e08c9a;
+  --marker-fg: #0f1416;
+}

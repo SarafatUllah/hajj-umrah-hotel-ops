@@ -1,0 +1,22 @@
+{
+  "name": "@hajj/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared Zod schemas, constants, business-rule registries and pure utilities used by the API and every frontend.",
+  "exports": {
+    "./*": "./*.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@nuxt/eslint-config": "1.17.0",
+    "eslint": "^10.11.0",
+    "typescript": "^6.0.0"
+  }
+}
