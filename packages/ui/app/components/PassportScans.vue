@@ -44,10 +44,12 @@ interface UploadOutcome { sent: number, refused: Array<{ name: string, message: 
 /** One photo after the other; each failure is noted and the rest still go — unless the booking takes no more (409). */
 async function uploadAll(files: File[]): Promise<UploadOutcome> {
   const outcome: UploadOutcome = { sent: 0, refused: [] }
-  for (const [index, file] of files.entries()) {
+  for (const [index, picked] of files.entries()) {
+    // A phone photo over the limit is redrawn smaller first (utils/photos); failures still name the file as picked.
+    const file = await shrinkPhoto(picked)
     const code = uploadRefusal(file, IMAGE_TYPES)
     if (code) {
-      outcome.refused.push({ name: file.name, message: t(`errors.codes.${code}`) })
+      outcome.refused.push({ name: picked.name, message: t(`errors.codes.${code}`) })
       continue
     }
     try {
@@ -59,7 +61,7 @@ async function uploadAll(files: File[]): Promise<UploadOutcome> {
     catch (error) {
       const message = errorMessage(error)
       if (toApiError(error).status !== 409) {
-        outcome.refused.push({ name: file.name, message })
+        outcome.refused.push({ name: picked.name, message })
         continue
       }
       outcome.refused.push(...files.slice(index).map(rest => ({ name: rest.name, message })))

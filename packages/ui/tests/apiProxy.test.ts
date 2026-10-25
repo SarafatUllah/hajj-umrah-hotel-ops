@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bodyRefusal, forwardablePath, MAX_PROXIED_BODY_BYTES, visitorAddress } from '../server/utils/apiProxy'
+import { bodyRefusal, forwardablePath, forwardedHeaders, MAX_PROXIED_BODY_BYTES, proxyTargetUrl, visitorAddress } from '../server/utils/apiProxy'
 
 const allow = ['/api/public/', '/api/customer/']
 
@@ -30,10 +30,30 @@ describe('the frontends\' API proxy', () => {
     expect(visitorAddress(undefined, undefined, false)).toBe('unknown')
   })
 
+  it('hands the API the visitor\'s address twice: in X-Forwarded-For and in its own header, which no hop on the way rewrites', () => {
+    expect(forwardedHeaders('198.51.100.7', 'agency.example.com', 'https')).toEqual({
+      'x-forwarded-for': '198.51.100.7',
+      'x-hajj-visitor-ip': '198.51.100.7',
+      'x-forwarded-host': 'agency.example.com',
+      'x-forwarded-proto': 'https',
+    })
+  })
+
   it('a body is refused before it is read when its declared length is over the largest upload, or a chunked one has none', () => {
     expect(bodyRefusal(undefined, undefined)).toBeNull()
     expect(bodyRefusal(String(MAX_PROXIED_BODY_BYTES), undefined)).toBeNull()
     expect(bodyRefusal(String(MAX_PROXIED_BODY_BYTES + 1), undefined)).toEqual({ statusCode: 413, code: 'BODY_TOO_LARGE' })
     expect(bodyRefusal(undefined, 'chunked')).toEqual({ statusCode: 411, code: 'LENGTH_REQUIRED' })
+  })
+})
+
+describe('proxyTargetUrl', () => {
+  it('appends the forwarded path to the API origin', () => {
+    expect(proxyTargetUrl('http://localhost:3100', '/api/public/hotels?organization=demo')).toBe('http://localhost:3100/api/public/hotels?organization=demo')
+  })
+
+  it('joins a base that ends in a slash or carries a path (a host-generated service URL) without doubling the slash', () => {
+    expect(proxyTargetUrl('https://api.internal/', '/api/customer/me')).toBe('https://api.internal/api/customer/me')
+    expect(proxyTargetUrl('https://edge.internal/svc/api//', '/api/customer/me')).toBe('https://edge.internal/svc/api/api/customer/me')
   })
 })

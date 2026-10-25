@@ -39,6 +39,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify` and committed
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done; 16g quotes, agencies done; 16h booking settings, booking rules done |
 | 17 | Final review (code, security, database, architecture) and docs | done: 17a data protection, database, security; 17c agency passwords; 17d shared layer, typed contracts; 17e bookings on the room calendar; 17f docs; 17g pull request review (D-P2-66) |
+| 18 | Free MVP hosting: Vercel + Supabase (D-P2-67) | done: 18a S3-compatible storage driver; 18b 4 MB uploads, photos shrunk in the browser; 18c worker works every queue, polling interval; 18d `vercel.json`, worker image, deploy guide; 18e review: job tick instead of a daemon, database TLS, guide corrections; 18f the files on Cloudflare R2; 18g pre-deploy review fixes |
 
 ## Local environment note
 
@@ -879,6 +880,40 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   hardening (`bookableHotel` mints a `HotelScope` without an authorization, enum columns typed in Drizzle,
   discriminated DTOs); a plain "sign out" on the public site, hreflang and `Vary` for its two languages, passport
   reader errors told apart from unreadable photos, agency pickers past 100 agencies, staff "sign out everywhere".
+- **D-P2-67 (deploy) Free MVP hosting on Vercel and Supabase.** For a demo at no cost (`docs/DEPLOY_VERCEL.md`):
+  one Vercel project (`vercel.json`) runs the three frontends and the API as Services (functions; the API private,
+  reached through service bindings that fill `NUXT_API_PROXY_TARGET`, each frontend chosen by the start of its host
+  name); PostgreSQL and the scheduler are on Supabase, the files in a private Cloudflare R2 bucket (10 GB free and free
+  downloads, against Supabase Storage's 1 GB with every download counted in the project's 5 GB a month; Supabase
+  Storage stays the fallback without a Cloudflare account — settings only, the driver is the same S3 client, and a
+  unit test pins the signed request for both). Background jobs run as a **job tick**: Supabase Cron
+  (`pg_cron` + `pg_net`) calls `POST /api/jobs/tick` every 5 minutes with a bearer secret (`JOBS_TICK_SECRET`; the
+  API's one public path, 404 when unset), and one job pass (`server/jobs/pass.ts`) works every tier and runs the cron
+  pass once, until no job is ready or running (3-20 s; about 0.03-0.15 s of CPU, measured). Schedules now make up for
+  missed occurrences with one run (`missed: 'once'`, all of them idempotent sweeps). A worker as an always-on Vercel
+  Daemon was built first and dropped for the free plan: Daemons are a beta, and on Hobby a team gets 5 active
+  CPU-hours a month for them (idle time not counted; at the quota Vercel stops the daemons — only them — until the
+  1st), which a worker polling the queue all month eats into every minute; on Pro or a server it remains the option (`Dockerfile.worker`, `WORKER_JOBS=all`, the guide shows the `daemons` block). What else it
+  needed: an S3-compatible `StorageDriver` (`STORAGE_DRIVER=s3`, brought forward from Phase 9: functions have no
+  lasting disk), uploads capped at 4 MB (a function takes at most 4.5 MB per request; the frontends shrink a larger
+  photo in the browser), TLS for every database connection (`DATABASE_SSL` off/require/verify + `DATABASE_SSL_CA`:
+  the app's pool, pg-boss, the migrations and the scripts — nothing turned TLS on before), `WORKER_JOBS` and
+  `JOBS_POLL_SECONDS`, Node 22 pinned for Vercel (`engines`), and the proxy joining a host-generated target URL.
+  Checked: unit and integration tests, the S3 driver against a real S3-compatible server (SeaweedFS), TLS against a
+  TLS-only PostgreSQL with its own CA (plain refused, verify with and without the CA, pg-boss and the migrations), the
+  tick over HTTP, the worker image, `vercel.json` against Vercel's schema and a local `vercel build` of the four
+  services, and in a browser a 25.6 MB photo shrunk to 1.37 MB, stored encrypted in the bucket and read by a pass.
+  Limits accepted for the demo: the free plan is non-commercial only; jobs every 5 minutes; no backups on Supabase's
+  free plan; customer SMS sign-in off; Supabase runs PostgreSQL 17 (CI 16). Not verifiable before a deployment: whether
+  Vercel's calls between services keep the forwarded visitor address (the guide checks it; `ALLOWED_ORIGINS` covers
+  the CSRF check either way). A pre-deploy review (18g) then fixed: the guide's key line (`k1:` doubled made a
+  33-byte key the API refuses) and the CA certificate, now pasted on one line and refused at startup without its END
+  line; the visitor's address handed over in the proxy's own header (`x-hajj-visitor-ip`, trusted with
+  `TRUST_VISITOR_HEADER=true`) since a binding hop may rewrite `X-Forwarded-For`; a send-only runtime whose start
+  failed starts again on the next enqueue (a serverless retry timer sleeps with its instance) and registers no pg-boss
+  instance (no heartbeat per function); Node 22 pinned in each app's `engines` and the pinned pnpm through
+  `ENABLE_EXPERIMENTAL_COREPACK=1`; a second, smaller try (2200 px) for photos still over 4 MB; the Daemon reasoning
+  and stale lines in the docs.
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on

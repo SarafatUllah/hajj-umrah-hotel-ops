@@ -96,7 +96,9 @@ describe('security.cleanup job', () => {
   })
 
   it('purges buckets older than the retention period and keeps recent ones', async () => {
-    const now = new Date('2026-10-22T12:00:00.000Z')
+    // The real clock, not a fixed date: the job reads `new Date()` itself, and a fixed date drifts out of its
+    // retention window a day later (this test began failing on 2026-10-23).
+    const now = new Date()
     await repo.hit('old', new Date(now.getTime() - RATE_LIMIT_RETENTION_MS - 1000))
     await repo.hit('recent', new Date(now.getTime() - 60_000))
 

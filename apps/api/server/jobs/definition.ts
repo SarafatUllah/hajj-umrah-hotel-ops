@@ -32,6 +32,7 @@ export function defineJob<T extends object>(definition: JobDefinition<T>): JobDe
 }
 
 export type JobsMode = 'off' | 'send' | 'light' | 'all'
+export type WorkerJobs = 'heavy' | 'all'
 
 /** The tiers a process works for a `JOBS_MODE` (`null` = no runtime at all). */
 export function workTiersFor(mode: JobsMode): readonly JobTier[] | null {
@@ -41,4 +42,9 @@ export function workTiersFor(mode: JobsMode): readonly JobTier[] | null {
     case 'light': return ['light']
     case 'all': return ['light', 'heavy']
   }
+}
+
+/** The tiers the worker process works for a `WORKER_JOBS` (`all` when the API processes only enqueue). */
+export function workerTiersFor(jobs: WorkerJobs): readonly JobTier[] {
+  return jobs === 'all' ? ['light', 'heavy'] : ['heavy']
 }

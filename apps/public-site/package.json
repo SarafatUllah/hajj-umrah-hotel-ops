@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.12.0 <23"
+  },
   "description": "The public site (v7 §6): hotels, phone sign-in, a family's or group's request at the public price, its bookings and receipts.",
   "scripts": {
     "dev": "nuxt dev --port 3001",

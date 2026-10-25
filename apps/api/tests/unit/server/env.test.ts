@@ -8,6 +8,15 @@ const REQUIRED_VARS = {
   PII_LOOKUP_KEY: Buffer.alloc(32, 2).toString('base64'),
 }
 
+const S3_VARS = {
+  STORAGE_DRIVER: 's3',
+  S3_ENDPOINT: 'https://project.storage.example.com/storage/v1/s3',
+  S3_REGION: 'ap-south-1',
+  S3_BUCKET: 'hotel-files',
+  S3_ACCESS_KEY_ID: 'key-id',
+  S3_SECRET_ACCESS_KEY: 'secret',
+}
+
 describe('getEnv', () => {
   const originalEnv = { ...process.env }
 
@@ -17,6 +26,8 @@ describe('getEnv', () => {
     delete process.env.APP_ENV
     delete process.env.STORAGE_DRIVER
     delete process.env.STORAGE_LOCAL_DIR
+    for (const key of Object.keys(S3_VARS)) Reflect.deleteProperty(process.env, key)
+    delete process.env.S3_FORCE_PATH_STYLE
     delete process.env.ALLOW_DEMO_SEED
     delete process.env.DEMO_ANCHOR_DATE
     delete process.env.DEMO_SIGN_IN_ENABLED
@@ -82,7 +93,7 @@ describe('getEnv', () => {
     expect(getEnv()).toMatchObject({ STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: '/var/lib/hotel-uploads' })
   })
 
-  it.each(['s3', 'LOCAL', 'azure', ''])('rejects the unsupported STORAGE_DRIVER=%j explicitly (no silent fallback to local)', (value) => {
+  it.each(['S3', 'LOCAL', 'azure', ''])('rejects the unsupported STORAGE_DRIVER=%j explicitly (no silent fallback to local)', (value) => {
     Object.assign(process.env, REQUIRED_VARS, { STORAGE_DRIVER: value })
     expect(() => getEnv()).toThrow(/STORAGE_DRIVER/)
   })
@@ -90,14 +101,110 @@ describe('getEnv', () => {
   it('getStorageEnv validates only the storage settings (database settings may be absent) and rejects an unsupported driver', () => {
     delete process.env.DATABASE_URL
     delete process.env.STORAGE_DRIVER
-    expect(getStorageEnv()).toEqual({ STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: '.data/uploads' })
-    process.env.STORAGE_DRIVER = 's3'
+    expect(getStorageEnv()).toMatchObject({ STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: '.data/uploads' })
+    process.env.STORAGE_DRIVER = 'azure'
     expect(() => getStorageEnv()).toThrow(/STORAGE_DRIVER/)
+  })
+
+  it('accepts the s3 driver with all of its settings; path-style addressing is off unless asked for', () => {
+    Object.assign(process.env, REQUIRED_VARS, S3_VARS)
+    expect(getEnv()).toMatchObject({ ...S3_VARS, S3_FORCE_PATH_STYLE: false })
+    resetEnvCache()
+    process.env.S3_FORCE_PATH_STYLE = 'true'
+    expect(getEnv().S3_FORCE_PATH_STYLE).toBe(true)
+  })
+
+  it.each(['S3_ENDPOINT', 'S3_REGION', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'])('refuses the s3 driver without %s', (missing) => {
+    Object.assign(process.env, REQUIRED_VARS, S3_VARS)
+    Reflect.deleteProperty(process.env, missing)
+    expect(() => getEnv()).toThrow(new RegExp(`${missing}: ${missing} is required with STORAGE_DRIVER=s3`))
+  })
+
+  it('refuses a plain-http S3 endpoint outside development (files would travel in clear text); development may use a local one', () => {
+    Object.assign(process.env, REQUIRED_VARS, S3_VARS, { S3_ENDPOINT: 'http://127.0.0.1:9000', APP_ENV: 'demo' })
+    expect(() => getEnv()).toThrow(/S3_ENDPOINT must be https outside APP_ENV=development/)
+    resetEnvCache()
+    process.env.APP_ENV = 'development'
+    expect(getEnv().S3_ENDPOINT).toBe('http://127.0.0.1:9000')
+  })
+
+  it('getStorageEnv applies the s3 rules too, without the database settings', () => {
+    delete process.env.DATABASE_URL
+    Object.assign(process.env, S3_VARS)
+    expect(getStorageEnv()).toMatchObject({ STORAGE_DRIVER: 's3', S3_BUCKET: 'hotel-files' })
+    delete process.env.S3_BUCKET
+    expect(() => getStorageEnv()).toThrow(/S3_BUCKET is required/)
   })
 
   it('rejects a blank STORAGE_LOCAL_DIR', () => {
     Object.assign(process.env, REQUIRED_VARS, { STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: '   ' })
     expect(() => getEnv()).toThrow(/STORAGE_LOCAL_DIR/)
+  })
+
+  it('defaults the worker to the heavy queues and both kinds of process to a 2 s polling interval', () => {
+    Object.assign(process.env, REQUIRED_VARS)
+    delete process.env.WORKER_JOBS
+    delete process.env.JOBS_POLL_SECONDS
+    expect(getEnv()).toMatchObject({ WORKER_JOBS: 'heavy', JOBS_POLL_SECONDS: 2 })
+  })
+
+  it('lets the worker work every queue (a host where the API only enqueues) and poll less often', () => {
+    Object.assign(process.env, REQUIRED_VARS, { WORKER_JOBS: 'all', JOBS_POLL_SECONDS: '30' })
+    expect(getEnv()).toMatchObject({ WORKER_JOBS: 'all', JOBS_POLL_SECONDS: 30 })
+  })
+
+  it.each([['WORKER_JOBS', 'light'], ['WORKER_JOBS', 'ALL'], ['JOBS_POLL_SECONDS', '0'], ['JOBS_POLL_SECONDS', '301'], ['JOBS_POLL_SECONDS', 'often']])('rejects %s=%j', (name, value) => {
+    Object.assign(process.env, REQUIRED_VARS, { [name]: value })
+    expect(() => getEnv()).toThrow(new RegExp(name))
+  })
+
+  it('connects without TLS by default; DATABASE_SSL takes off, require or verify, and the CA must be a PEM certificate', () => {
+    Object.assign(process.env, REQUIRED_VARS)
+    delete process.env.DATABASE_SSL
+    delete process.env.DATABASE_SSL_CA
+    expect(getEnv().DATABASE_SSL).toBe('off')
+    resetEnvCache()
+    Object.assign(process.env, { DATABASE_SSL: 'verify', DATABASE_SSL_CA: '-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----' })
+    expect(getEnv()).toMatchObject({ DATABASE_SSL: 'verify' })
+    resetEnvCache()
+    process.env.DATABASE_SSL = 'true'
+    expect(() => getEnv()).toThrow(/DATABASE_SSL must be off, require or verify/)
+    resetEnvCache()
+    Object.assign(process.env, { DATABASE_SSL: 'verify', DATABASE_SSL_CA: 'not a certificate' })
+    expect(() => getEnv()).toThrow(/DATABASE_SSL_CA must be a PEM certificate/)
+  })
+
+  it('refuses a CA certificate cut short (a multi-line paste that kept only its first line), accepts one pasted on one line', () => {
+    Object.assign(process.env, REQUIRED_VARS, { DATABASE_SSL: 'verify', DATABASE_SSL_CA: '-----BEGIN CERTIFICATE-----' })
+    expect(() => getEnv()).toThrow(/DATABASE_SSL_CA must be a whole PEM certificate/)
+    resetEnvCache()
+    process.env.DATABASE_SSL_CA = '-----BEGIN CERTIFICATE-----\\nabc\\n-----END CERTIFICATE-----\\n'
+    expect(getEnv()).toMatchObject({ DATABASE_SSL: 'verify' })
+  })
+
+  it('trusts the frontends\' visitor-address header only when TRUST_VISITOR_HEADER is "true"', () => {
+    Object.assign(process.env, REQUIRED_VARS)
+    delete process.env.TRUST_VISITOR_HEADER
+    expect(getEnv().TRUST_VISITOR_HEADER).toBe(false)
+    resetEnvCache()
+    process.env.TRUST_VISITOR_HEADER = 'true'
+    expect(getEnv().TRUST_VISITOR_HEADER).toBe(true)
+    resetEnvCache()
+    process.env.TRUST_VISITOR_HEADER = 'yes'
+    expect(() => getEnv()).toThrow(/TRUST_VISITOR_HEADER must be "true" or "false"/)
+    delete process.env.TRUST_VISITOR_HEADER
+  })
+
+  it('leaves the job tick off unless JOBS_TICK_SECRET is set, and refuses a short secret', () => {
+    Object.assign(process.env, REQUIRED_VARS)
+    delete process.env.JOBS_TICK_SECRET
+    expect(getEnv().JOBS_TICK_SECRET).toBeUndefined()
+    resetEnvCache()
+    process.env.JOBS_TICK_SECRET = 'x'.repeat(32)
+    expect(getEnv().JOBS_TICK_SECRET).toBe('x'.repeat(32))
+    resetEnvCache()
+    process.env.JOBS_TICK_SECRET = 'too-short'
+    expect(() => getEnv()).toThrow(/JOBS_TICK_SECRET must be at least 32 characters/)
   })
 
   it('caches the parsed result until resetEnvCache is called', () => {

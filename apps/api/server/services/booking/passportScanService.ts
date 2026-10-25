@@ -79,7 +79,7 @@ function toScanDto(row: PassportScanRow): PassportScanDto {
   }
 }
 
-/** A passport photo: PNG or JPEG (the bytes' own signature), up to 10 MB, with a readable header within the pixel limit. */
+/** A passport photo: PNG or JPEG (the bytes' own signature), up to 4 MB, with a readable header within the pixel limit. */
 function validateScanImage(file: ScanUpload): ValidatedUpload {
   let validated: ValidatedUpload
   try {
