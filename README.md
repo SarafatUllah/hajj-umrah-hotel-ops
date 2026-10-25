@@ -42,7 +42,8 @@ The Phase 2 design is `docs/design/Hajj_Booking_Platform_Architecture_v7.pdf`; i
 
 ## Prerequisites
 
-- Node **22.19.0** (`.node-version`; e.g. `fnm use` or `nvm use`).
+- Node **22.19.0** (`.node-version`; e.g. `fnm use` or `nvm use`). `engines` allows Node 22 only, so Vercel builds
+  on the version CI tests; pnpm warns (and still works) on another major.
 - **pnpm 9.4.0** — pinned in `package.json` (`packageManager`); use pnpm only
   (`corepack enable` picks the pinned version).
 - Docker (for the local PostgreSQL 16 container), or any PostgreSQL 16 where

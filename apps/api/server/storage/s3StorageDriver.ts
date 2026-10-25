@@ -37,7 +37,9 @@ export function createS3Client(config: S3StorageConfig): S3Client {
 
 /**
  * S3 answers a missing object with a typed 404 (`NoSuchKey` on GET, `NotFound` on HEAD); any other failure is real — a
- * missing bucket above all (`NoSuchBucket`, also a 404), which is a configuration error, not an absent file.
+ * missing bucket above all (`NoSuchBucket`, also a 404), which is a configuration error, not an absent file. A HEAD
+ * answer has no body to name it, so `exists` reads a missing bucket as an absent key; `put` then fails on its write and
+ * `get` on its read, so the error still surfaces.
  */
 function isNotFound(error: unknown): boolean {
   const candidate = error as { name?: unknown, $metadata?: { httpStatusCode?: unknown } } | null

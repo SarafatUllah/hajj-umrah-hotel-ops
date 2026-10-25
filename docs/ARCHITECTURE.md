@@ -95,7 +95,7 @@ There is **no session table**: sessions are sealed cookies (§8). There is **no 
 | `room_capacity_override` | hotel | One room's capacity during one period; its dates always equal the period's (composite FK `(period_id, valid_from, valid_to)` → period `(id, start_date, end_date)` `ON UPDATE CASCADE`). Exclusion constraint: at most one override per room per night. |
 | `room_operational_block` | hotel | `OUT_OF_SERVICE` / `MAINTENANCE` / `OPERATIONAL_BLOCK` over dates, with a required reason; soft-cancel (`cancelled_*`) and ended-early columns (`ended_early_at`, `ended_early_by`, `original_end_date`). Partial exclusion constraint: no two **active** blocks of the **same kind** on one room and night. |
 | `audit_log` | organization (+ optional hotel) | Immutable (a `BEFORE UPDATE` trigger raises) before/after audit rows; `hotel_id` set for hotel-scoped events. |
-| `document_asset` | organization | Document metadata: server-generated `storage_key` (unique), sanitized original filename, MIME (`application/pdf`/`image/png`/`image/jpeg`), size 1 B–10 MiB, SHA-256, `archived_at`. Bytes are not in PostgreSQL (§15). |
+| `document_asset` | organization | Document metadata: server-generated `storage_key` (unique), sanitized original filename, MIME (`application/pdf`/`image/png`/`image/jpeg`), size 1 B–10 MiB by constraint (uploads stop at 4 MiB, §15.1), SHA-256, `archived_at`. Bytes are not in PostgreSQL (§15). |
 | `hotel_document` | hotel | Links an asset to a hotel with document type (`LICENSE`/`CONTRACT`/`INSURANCE`/`PERMIT`/`OTHER`), title, description. |
 
 Every hotel-owned table carries `organization_id` **and** `hotel_id` and references its parents through **composite foreign keys that include `organization_id`** (and `hotel_id` where the parent is hotel-owned), so a row can never point at another tenant's (or another hotel's) row. `btree_gist` is required for the three exclusion constraints (see `docs/MIGRATIONS.md`).
@@ -491,8 +491,8 @@ None recorded at the Phase 1 gate. (The final acceptance gate did find and corre
 
 ### 28.4 Known limitations (accepted Phase 1 scope, not bugs)
 
-- Uploads are buffered in memory (≤ 10 MiB + framing), not streamed.
-- Only the local storage driver exists; it needs a persistent, backed-up directory. No S3-compatible driver (Phase 9).
+- Uploads are buffered in memory (≤ 4 MiB + framing since D-P2-67; 10 MiB before), not streamed.
+- Storage is the local driver (a persistent, backed-up directory) or, since D-P2-67, an S3-compatible bucket (§15.1).
 - The demo data is a fixed deterministic dataset (movable only through the anchor date).
 - No reservations, holds or bookings (Phase 2); availability counts only inventory and blocks.
 - No browser UI and no browser E2E tests in the backend Phase 1 delivery.

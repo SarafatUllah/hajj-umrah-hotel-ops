@@ -17,18 +17,22 @@ const types = computed(() => choiceItems(DOC_TYPES, value => t(`documents.type.$
 const form = ref({ docType: 'LICENSE' as typeof DOC_TYPES[number], title: '', description: '' })
 const file = ref<File | null>(null)
 const fileProblem = ref<string | null>(null)
+/** Counts the picks (and the drawer's openings): a slow shrink never lands in a later pick or a reopened form. */
+let picks = 0
 watch(open, (isOpen) => {
   if (!isOpen) return
+  picks += 1
   save.reset()
   form.value = { docType: 'LICENSE', title: '', description: '' }
   file.value = null
   fileProblem.value = null
 })
-/** Counts the picks: a slow shrink of an earlier pick never overwrites a later one. */
-let picks = 0
 async function pick(event: Event): Promise<void> {
   const picked = (event.target as HTMLInputElement).files?.[0] ?? null
   const pickNo = ++picks
+  // Nothing is ready to send while the new file is checked: the previous choice cannot go out in its place.
+  file.value = null
+  fileProblem.value = null
   // A scanned page photographed over the limit is redrawn smaller first (utils/photos); a PDF is checked as it is.
   const chosen = picked ? await shrinkPhoto(picked) : null
   if (pickNo !== picks) return

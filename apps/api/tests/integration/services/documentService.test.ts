@@ -169,12 +169,12 @@ describe('upload: the successful flow', () => {
     expect(existsSync(join(dir, '..', 'etc'))).toBe(false)
   })
 
-  it('accepts exactly 10 MB', async () => {
+  it('accepts exactly 4 MB (the upload limit)', async () => {
     const { hotel, manager } = await setup()
     const bytes = new Uint8Array(MAX_UPLOAD_BYTES)
     bytes.set(pdf())
     const dto = await upload(manager, hotel.id, { file: pdfFile(bytes) })
-    expect(dto.sizeBytes).toBe(10_485_760)
+    expect(dto.sizeBytes).toBe(4_194_304)
     expect((await filesUnder(dir))).toHaveLength(1)
   })
 
@@ -211,7 +211,7 @@ describe('upload: validation happens before anything is written', () => {
     expect(await auditRows(hotelId, 'DOCUMENT_ADDED')).toEqual([])
   }
 
-  it('EMPTY_FILE, FILE_TOO_LARGE (10 MB + 1), TYPE_NOT_ALLOWED (exe, svg), CONTENT_MISMATCH (renamed exe, PNG as PDF)', async () => {
+  it('EMPTY_FILE, FILE_TOO_LARGE (4 MB + 1), TYPE_NOT_ALLOWED (exe, svg), CONTENT_MISMATCH (renamed exe, PNG as PDF)', async () => {
     const { hotel, manager } = await setup()
     await expectRejected(hotel.id, manager, { file: pdfFile(new Uint8Array()) }, 'EMPTY_FILE')
     await expectRejected(hotel.id, manager, { file: pdfFile(new Uint8Array(MAX_UPLOAD_BYTES + 1)) }, 'FILE_TOO_LARGE')
