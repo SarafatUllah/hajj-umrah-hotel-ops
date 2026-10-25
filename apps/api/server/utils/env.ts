@@ -43,11 +43,18 @@ const envBase = z.object({
   NUXT_SESSION_PASSWORD: z.string().min(32, 'NUXT_SESSION_PASSWORD must be at least 32 characters'),
   // Read by nuxt.config.ts (unset = true); validated here only so production can refuse `false`.
   NUXT_SESSION_COOKIE_SECURE: z.string().optional(),
-  // Task 19: where document bytes live. Only `local` exists in Phase 1 (S3-compatible is Phase 9); any
-  // other value is a configuration error, never a silent fallback. The directory is resolved against
-  // the process working directory.
-  STORAGE_DRIVER: z.enum(['local'], { errorMap: () => ({ message: 'STORAGE_DRIVER must be "local"' }) }).default('local'),
+  // Task 19: where document bytes live: `local` (a directory, resolved against the process working directory) or
+  // `s3` (one private bucket of an S3-compatible store — AWS S3, Cloudflare R2, Supabase Storage, MinIO; brought forward
+  // from Phase 9 for hosts without a lasting disk, D-P2-67). Any other value is a configuration error, never a silent
+  // fallback.
+  STORAGE_DRIVER: z.enum(['local', 's3'], { errorMap: () => ({ message: 'STORAGE_DRIVER must be "local" or "s3"' }) }).default('local'),
   STORAGE_LOCAL_DIR: z.string().trim().min(1, 'STORAGE_LOCAL_DIR must not be empty').default('.data/uploads'),
+  S3_ENDPOINT: z.string().trim().url('S3_ENDPOINT must be a URL').optional(),
+  S3_REGION: z.string().trim().min(1).optional(),
+  S3_BUCKET: z.string().trim().min(1).optional(),
+  S3_ACCESS_KEY_ID: z.string().trim().min(1).optional(),
+  S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  S3_FORCE_PATH_STYLE: strictFlag('S3_FORCE_PATH_STYLE'),
   // Task 20 (demo): `ALLOW_DEMO_SEED` lets the demo seed/reset run under APP_ENV=production (never silent);
   // `DEMO_ANCHOR_DATE` is the date every time-relative demo row hangs off; `DEMO_SIGN_IN_ENABLED` switches
   // the public demo sign-in metadata endpoint on (only ever honoured under APP_ENV development/demo).
@@ -166,18 +173,41 @@ function refineDistinctPiiKeys(env: { PII_ENCRYPTION_KEYS: string, PII_LOOKUP_KE
   if (isLookupKeyReused(env)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['PII_LOOKUP_KEY'], message: 'PII_LOOKUP_KEY must differ from every PII_ENCRYPTION_KEYS key' })
 }
 
+const S3_REQUIRED = ['S3_ENDPOINT', 'S3_REGION', 'S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'] as const
+
+/** The s3 driver needs every one of its settings, and its endpoint over https outside development (local MinIO). */
+function refineS3Storage(env: { APP_ENV: string, STORAGE_DRIVER: string } & Partial<Record<typeof S3_REQUIRED[number], string>>, ctx: z.RefinementCtx): void {
+  if (env.STORAGE_DRIVER !== 's3') return
+  for (const name of S3_REQUIRED) {
+    if (!env[name]) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: `${name} is required with STORAGE_DRIVER=s3` })
+  }
+  if (env.APP_ENV !== 'development' && env.S3_ENDPOINT && !env.S3_ENDPOINT.startsWith('https://')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['S3_ENDPOINT'], message: 'S3_ENDPOINT must be https outside APP_ENV=development' })
+  }
+}
+
 function refinePassportAi(env: { PASSPORT_AI: string, ANTHROPIC_API_KEY?: string }, ctx: z.RefinementCtx): void {
   if (env.PASSPORT_AI === 'anthropic' && !env.ANTHROPIC_API_KEY) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['ANTHROPIC_API_KEY'], message: 'ANTHROPIC_API_KEY is required with PASSPORT_AI=anthropic' })
   }
 }
 
-const envSchema = envBase.superRefine(refineDemoSignIn).superRefine(refineProductionSecurity).superRefine(refineDistinctPiiKeys).superRefine(refineSmsWebhook).superRefine(refinePassportAi)
+const envSchema = envBase.superRefine(refineDemoSignIn).superRefine(refineProductionSecurity).superRefine(refineDistinctPiiKeys).superRefine(refineSmsWebhook).superRefine(refinePassportAi).superRefine(refineS3Storage)
 
 export type Env = z.infer<typeof envSchema>
 
 /** Just the storage settings, so the storage factory (and its startup check) does not depend on the database settings being valid. */
-const storageEnvSchema = envBase.pick({ STORAGE_DRIVER: true, STORAGE_LOCAL_DIR: true })
+const storageEnvSchema = envBase.pick({
+  APP_ENV: true,
+  STORAGE_DRIVER: true,
+  STORAGE_LOCAL_DIR: true,
+  S3_ENDPOINT: true,
+  S3_REGION: true,
+  S3_BUCKET: true,
+  S3_ACCESS_KEY_ID: true,
+  S3_SECRET_ACCESS_KEY: true,
+  S3_FORCE_PATH_STYLE: true,
+}).superRefine(refineS3Storage)
 export type StorageEnv = z.infer<typeof storageEnvSchema>
 
 /** Just the demo settings (plus APP_ENV), validated together so the production sign-in rule applies. */

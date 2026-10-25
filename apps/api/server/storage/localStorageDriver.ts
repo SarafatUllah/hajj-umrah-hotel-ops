@@ -1,48 +1,10 @@
 import { createReadStream } from 'node:fs'
 import { mkdir, open, realpath, rm } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
-import type { Readable } from 'node:stream'
+import { InvalidStorageKeyError, isValidStorageKey, StorageObjectExistsError, StorageObjectNotFoundError, type StorageDriver } from './storageDriver'
 
-/** Storage abstraction (ARCHITECTURE §15). The database holds metadata and the key; never the bytes. */
-export interface StorageDriver {
-  /** Creates the object; never overwrites an existing one (rejects instead). */
-  put(key: string, bytes: Uint8Array): Promise<void>
-  /** Rejects with `StorageObjectNotFoundError` when the object does not exist. */
-  get(key: string): Promise<Readable>
-  exists(key: string): Promise<boolean>
-  /** Idempotent: deleting a missing object succeeds. */
-  delete(key: string): Promise<void>
-}
-
-export class InvalidStorageKeyError extends Error {
-  constructor(key: string) {
-    // The key is echoed (JSON-quoted, so control characters stay visible and harmless) for diagnostics;
-    // it is server-generated and never reaches an HTTP response.
-    super(`Invalid storage key: ${JSON.stringify(key)}`)
-    this.name = 'InvalidStorageKeyError'
-  }
-}
-
-export class StorageObjectNotFoundError extends Error {
-  constructor() {
-    super('Storage object not found')
-    this.name = 'StorageObjectNotFoundError'
-  }
-}
-
-const MAX_KEY_LENGTH = 512
-/** A directory segment of a key: ASCII letters, digits, `_` and `-` only (no dots, spaces, separators, NUL). */
-const DIR_SEGMENT = /^[A-Za-z0-9_-]+$/
-/** The last segment: a name plus exactly one lowercase extension. */
-const FILE_SEGMENT = /^[A-Za-z0-9_-]+\.[a-z0-9]{2,5}$/
-
-/** Pure key check, exported for tests: `dir/dir/name.ext` (any number of directories), no empty segments, no dots but the extension's. */
-export function isValidStorageKey(key: unknown): key is string {
-  if (typeof key !== 'string' || key.length === 0 || key.length > MAX_KEY_LENGTH) return false
-  const segments = key.split('/')
-  const file = segments.pop()!
-  return FILE_SEGMENT.test(file) && segments.every(s => DIR_SEGMENT.test(s))
-}
+// The contract moved to ./storageDriver (shared with the S3 driver); re-exported for existing importers.
+export { InvalidStorageKeyError, isValidStorageKey, StorageObjectExistsError, StorageObjectNotFoundError, type StorageDriver } from './storageDriver'
 
 function isMissing(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code
@@ -96,7 +58,9 @@ export class LocalStorageDriver implements StorageDriver {
     // A symlinked directory inside the root must not redirect the write outside it.
     this.assertBelowRoot(await realpath(this.root), await realpath(dirname(path)), key)
     // 'wx' = O_CREAT | O_EXCL: fails with EEXIST if anything (a file, or a symlink — even a dangling one) is there.
-    const handle = await open(path, 'wx')
+    const handle = await open(path, 'wx').catch((error: unknown) => {
+      throw (error as { code?: unknown } | null)?.code === 'EEXIST' ? new StorageObjectExistsError() : error
+    })
     try {
       await handle.writeFile(bytes)
     }

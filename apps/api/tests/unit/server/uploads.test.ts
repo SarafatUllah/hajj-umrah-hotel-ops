@@ -149,7 +149,7 @@ describe('createStorageDriver', () => {
   })
 
   it('throws for an unsupported driver — never a silent fallback to local', () => {
-    for (const driver of ['s3', '', 'LOCAL', 'memory']) {
+    for (const driver of ['S3', '', 'LOCAL', 'memory']) {
       expect(() => createStorageDriver({ driver, localDir: tmpdir() })).toThrow(UnsupportedStorageDriverError)
     }
   })
