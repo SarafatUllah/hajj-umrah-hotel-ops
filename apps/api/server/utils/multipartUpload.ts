@@ -26,7 +26,7 @@ function formIssue(path: string, message: string): ValidationError {
  * HTTP/1.1 framing makes the declared length binding (the server reads exactly that many bytes), so
  * at most MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES are ever buffered. The file's own size is then
  * validated again on the actual bytes (`validateUpload`). Known limitation: a body up to that bound
- * is held in memory (twice transiently while h3 splits it) — fine for a 10 MB cap, but this is not a
+ * is held in memory (twice transiently while h3 splits it) — fine for a 4 MB cap, but this is not a
  * streaming upload.
  */
 export async function readUploadForm(event: H3Event): Promise<ParsedUploadForm> {

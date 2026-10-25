@@ -783,7 +783,7 @@ The page header carries one primary action, "Open room calendar", because that i
 
 **Activity tab:** a vertical timeline of audit entries for the hotel: who (full name), what (translated action: "Blocked room 401 for maintenance"), when (hotel time), and an expandable before/after comparison. Filter by action type. Paginated by "Load older" (keyset cursor). Data from the audit history endpoint with entity filters and actor names (§42-S3).
 
-**Documents tab (Task 19):** table of documents (type, title, uploaded by, date, size) with Download and Archive; [Upload document] opens a drawer (type, title, file with type and size limits stated before selection: "PDF, PNG or JPEG, up to 10 MB"). Archived documents are hidden behind an "Include archived" toggle. The tab is not rendered if Task 19 is deferred.
+**Documents tab (Task 19):** table of documents (type, title, uploaded by, date, size) with Download and Archive; [Upload document] opens a drawer (type, title, file with type and size limits stated before selection: "PDF, PNG or JPEG, up to 4 MB"; a larger photo is shrunk in the browser to fit). Archived documents are hidden behind an "Include archived" toggle. The tab is not rendered if Task 19 is deferred.
 
 ---
 

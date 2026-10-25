@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { defineJob, workTiersFor } from '../../../server/jobs/definition'
+import { defineJob, workerTiersFor, workTiersFor } from '../../../server/jobs/definition'
 import { enqueue, JobRuntimeUnavailableError, startJobRuntime, startJobRuntimeWithRetry, stopJobRuntime } from '../../../server/jobs/runtime'
 import { closeTestDb, getTestDb } from '../support/testDb'
 import { requireTestDatabaseUrl } from '../support/testDatabase'
@@ -35,6 +35,11 @@ describe('job runtime (light tier, transactional enqueue)', () => {
     expect(workTiersFor('send')).toEqual([])
     expect(workTiersFor('light')).toEqual(['light'])
     expect(workTiersFor('all')).toEqual(['light', 'heavy'])
+  })
+
+  it('maps WORKER_JOBS to the tiers the worker process works', () => {
+    expect(workerTiersFor('heavy')).toEqual(['heavy'])
+    expect(workerTiersFor('all')).toEqual(['light', 'heavy'])
   })
 
   it('delivers a job enqueued in a committed transaction, with its id as the idempotency key', async () => {

@@ -61,7 +61,7 @@ describe('validateUpload', () => {
   it('rejects empty and oversized files at the exact boundary', () => {
     expect(reason(() => validateUpload(new Uint8Array(), 'application/pdf', 'a.pdf'))).toBe('EMPTY_FILE')
     const exactly = new Uint8Array(MAX_UPLOAD_BYTES); exactly.set(pdf)
-    expect(MAX_UPLOAD_BYTES).toBe(10 * 1024 * 1024)
+    expect(MAX_UPLOAD_BYTES).toBe(4 * 1024 * 1024)
     expect(reason(() => validateUpload(exactly, 'application/pdf', 'a.pdf'))).toBe('OK')
     expect(reason(() => validateUpload(new Uint8Array(MAX_UPLOAD_BYTES + 1), 'application/pdf', 'a.pdf'))).toBe('FILE_TOO_LARGE')
     // Size is checked before type: a huge file of a bad type is "too large", an empty one is "empty".
@@ -149,7 +149,7 @@ describe('createStorageDriver', () => {
   })
 
   it('throws for an unsupported driver — never a silent fallback to local', () => {
-    for (const driver of ['s3', '', 'LOCAL', 'memory']) {
+    for (const driver of ['S3', '', 'LOCAL', 'memory']) {
       expect(() => createStorageDriver({ driver, localDir: tmpdir() })).toThrow(UnsupportedStorageDriverError)
     }
   })

@@ -1,6 +1,7 @@
 import { isIP } from 'node:net'
 import type { H3Event } from 'h3'
 import { getRequestHeader } from 'h3'
+import { VISITOR_ADDRESS_HEADER } from '@hajj/contracts/constants/proxy'
 import { getEnv } from './env'
 
 /** The eight hextets of an IPv6 address (`::` expanded, zone id dropped), lower-case without leading zeros. */
@@ -25,13 +26,19 @@ export function rateLimitAddress(address: string): string {
 }
 
 /**
- * The client address for rate limiting. With TRUST_PROXY=true (exactly ONE reverse proxy in front of the
- * API, and the API reachable only through it) it is the LAST `X-Forwarded-For` entry — the one our proxy
- * appended; earlier entries are whatever the client sent and are never trusted. Without TRUST_PROXY it is
- * the socket address.
+ * The client address for rate limiting. With TRUST_VISITOR_HEADER=true (the API reachable only through the
+ * frontends' proxy) it is the address that proxy put in its own header, when that is an address. Then, with
+ * TRUST_PROXY=true (exactly ONE reverse proxy in front of the API, and the API reachable only through it), the
+ * LAST `X-Forwarded-For` entry — the one our proxy appended; earlier entries are whatever the client sent and are
+ * never trusted. Otherwise the socket address.
  */
 export function clientIp(event: H3Event): string {
-  if (getEnv().TRUST_PROXY) {
+  const env = getEnv()
+  if (env.TRUST_VISITOR_HEADER) {
+    const visitor = getRequestHeader(event, VISITOR_ADDRESS_HEADER)?.trim()
+    if (visitor && isIP(visitor.split('%')[0]!) !== 0) return rateLimitAddress(visitor)
+  }
+  if (env.TRUST_PROXY) {
     const forwarded = getRequestHeader(event, 'x-forwarded-for')?.split(',').map(part => part.trim()).filter(Boolean)
     const last = forwarded?.at(-1)
     if (last) return rateLimitAddress(last)

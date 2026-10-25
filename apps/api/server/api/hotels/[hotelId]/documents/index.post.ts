@@ -12,7 +12,7 @@ export default defineApiHandler({
   auth: 'required',
   params: z.object({ hotelId: uuid }),
   handler: async ({ event, ctx, params }) => {
-    // Refuse an unauthorized caller before the (up to ~10 MB) body is read into memory.
+    // Refuse an unauthorized caller before the (up to ~4 MB) body is read into memory.
     await assertCanUploadDocument(ctx, params.hotelId)
     const form = await readUploadForm(event)
     const created = await uploadHotelDocument(ctx, params.hotelId, { fields: form.fields, file: form.file })
