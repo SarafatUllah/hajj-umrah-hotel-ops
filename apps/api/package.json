@@ -48,6 +48,7 @@
   },
   "devDependencies": {
     "@nuxt/eslint": "^1.17.0",
+    "@types/node": "^26.6.2",
     "dotenv": "^18.0.3",
     "eslint": "^10.11.0",
     "typescript": "^6.0.0",
