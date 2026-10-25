@@ -55,11 +55,12 @@ and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and
 - [ ] The public site needs `NUXT_PUBLIC_TURNSTILE_SITE_KEY` (its Turnstile site key). Whenever SMS is enabled outside
       `APP_ENV=development` (`SMS_DRIVER=webhook`), the API needs `CAPTCHA_DRIVER=turnstile` and `CAPTCHA_SECRET`; startup
       refuses otherwise (`server/utils/env.ts`).
-- [ ] The public site, agency portal and ops console reach the API on the same site (same domain behind one proxy, or
-      sibling subdomains of one registrable domain): sessions are `SameSite=Lax` cookies.
-- [ ] The reverse proxy in front caps request bodies at about 11 MB (`client_max_body_size` or equivalent) and has
-      timeouts of at least 60 s: the API refuses JSON bodies over 1 MiB and uploads over 10 MB from their declared
-      length, the frontends' proxy refuses bodies over an upload's size and gives up on the API after 60 s.
+- [ ] Each app reaches the API through its own `/api` proxy (`NUXT_API_PROXY_TARGET`), so its session cookie
+      (`SameSite=Lax`) is first-party to the app's own host; the API itself need not be public.
+- [ ] The reverse proxy in front caps request bodies at about 5 MB (`client_max_body_size` or equivalent) and has
+      timeouts of at least 60 s: the API refuses JSON bodies over 1 MiB and uploads over 4 MB from their declared
+      length, the frontends' proxy refuses bodies over an upload's size and gives up on the API after 60 s (on Vercel
+      the platform's own 4.5 MB request limit applies, `docs/DEPLOY_VERCEL.md`).
 
 ## Database and migrations
 

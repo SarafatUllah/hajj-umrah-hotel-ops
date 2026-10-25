@@ -146,14 +146,14 @@ describe('documents — upload over real multipart HTTP', () => {
     expect(await db.select().from(documentAsset)).toEqual([])
   })
 
-  it('exactly 10 MB is accepted; 10 MB + 1 byte -> 422 FILE_TOO_LARGE; a 12 MB body is refused from its Content-Length', async () => {
+  it('exactly 4 MB is accepted; 4 MB + 1 byte -> 422 FILE_TOO_LARGE; a 12 MB body is refused from its Content-Length', async () => {
     const { hotel, manager } = await setup()
-    const exactly = Buffer.alloc(10 * 1024 * 1024); PDF_BYTES.copy(exactly)
+    const exactly = Buffer.alloc(4 * 1024 * 1024); PDF_BYTES.copy(exactly)
     const ok = await uploadRequest(hotel.id, { cookie: manager.cookie, file: { bytes: exactly, type: 'application/pdf', name: 'big.pdf' } })
     expect(ok.status, JSON.stringify(ok.json)).toBe(201)
-    expect((ok.json as { sizeBytes: number }).sizeBytes).toBe(10_485_760)
+    expect((ok.json as { sizeBytes: number }).sizeBytes).toBe(4_194_304)
 
-    const plusOne = Buffer.alloc(10 * 1024 * 1024 + 1); PDF_BYTES.copy(plusOne)
+    const plusOne = Buffer.alloc(4 * 1024 * 1024 + 1); PDF_BYTES.copy(plusOne)
     expectStandardError(await uploadRequest(hotel.id, { cookie: manager.cookie, file: { bytes: plusOne, type: 'application/pdf', name: 'big.pdf' } }), { status: 422, code: 'FILE_TOO_LARGE' })
 
     const twelve = Buffer.alloc(12 * 1024 * 1024); PDF_BYTES.copy(twelve)

@@ -24,8 +24,14 @@ watch(open, (isOpen) => {
   file.value = null
   fileProblem.value = null
 })
-function pick(event: Event): void {
-  const chosen = (event.target as HTMLInputElement).files?.[0] ?? null
+/** Counts the picks: a slow shrink of an earlier pick never overwrites a later one. */
+let picks = 0
+async function pick(event: Event): Promise<void> {
+  const picked = (event.target as HTMLInputElement).files?.[0] ?? null
+  const pickNo = ++picks
+  // A scanned page photographed over the limit is redrawn smaller first (utils/photos); a PDF is checked as it is.
+  const chosen = picked ? await shrinkPhoto(picked) : null
+  if (pickNo !== picks) return
   const refusal = chosen ? uploadRefusal(chosen, ALLOWED) : null
   fileProblem.value = refusal ? t(`errors.codes.${refusal}`) : null
   file.value = refusal ? null : chosen
