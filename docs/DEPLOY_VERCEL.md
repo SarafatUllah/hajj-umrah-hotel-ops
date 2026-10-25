@@ -18,10 +18,12 @@ data may be stored is still an open client question (client question 27).
 | Database (PostgreSQL) | Supabase, free plan | 500 MB, 5 GB of data out a month; encrypted connections (`DATABASE_SSL=verify`) |
 | Documents and passport photos | Cloudflare R2, free plan, private bucket | 10 GB, downloads free; passport photos are encrypted before they are stored |
 
-Why a tick and not an always-on worker: Vercel's free plan meters Daemons by the hour (a worker running all month
-outlasts the allowance within weeks, and then everything stops until the 1st). The tick needs no extra service:
-Supabase's free plan includes Cron (`pg_cron`) and HTTP calls from the database (`pg_net`). On Vercel Pro or a server,
-the worker (`Dockerfile.worker`) can run all the time instead (see "Moving to a proper server later").
+Why a tick and not an always-on worker (a Vercel Daemon): Daemons are still a beta, and on the free plan a team gets
+5 hours of active CPU a month for them. A worker polling the queue every 2 seconds spends some of it every minute, and
+once the quota is used up Vercel stops the daemons until the 1st (the sites keep running, the jobs would not). The tick
+needs no extra service: Supabase's free plan includes Cron (`pg_cron`) and HTTP calls from the database (`pg_net`).
+On Vercel Pro or a server, the worker (`Dockerfile.worker`) can run all the time instead (see "Moving to a proper
+server later").
 
 Why R2 for the files: ten times the free storage of Supabase Storage (10 GB against 1 GB), and opening a file costs
 nothing (on Supabase every download counts toward the project's 5 GB a month, shared with the database). The API talks
@@ -39,6 +41,11 @@ change `regions` in `vercel.json` and create the Supabase project and the bucket
 - **Background jobs run every 5 minutes**, not continuously: a passport photo is read (or sent to manual review) up
   to 5 minutes after its upload, and a booking whose hold ran out is marked EXPIRED (and its quote released) up to 5
   minutes late. Its rooms are free at once: availability already ignores a hold that has run out.
+- **Keep `PASSPORT_OCR=none` here** (the default): the 5-minute pass runs every job inside a Vercel function, for 20
+  seconds at most. Reading passports by OCR needs the always-on worker of "Moving to a proper server later".
+- **Anyone who has the addresses can use the demo sign-in**, and so add bookings, documents and photos. Share them only
+  with the people who need them. Uploads are rate-limited; R2 charges only past its free tier (its overview page shows
+  the usage).
 - **Function quota:** the free plan includes 4 hours of active CPU a month for all functions. A tick lasts about 3
   seconds and uses 0.03–0.15 s of CPU (measured), so 12 ticks an hour stay well under an hour of the quota a month.
   The project's Usage page shows what is used.
@@ -69,7 +76,8 @@ change `regions` in `vercel.json` and create the Supabase project and the bucket
    the host (`aws-<n>-<region>.pooler.supabase.com`) differs between projects. It looks like
    `postgresql://postgres.<project-ref>:<password>@<pooler-host>:5432/postgres`. Use the session pooler for everything
    (the transaction pooler, port 6543, breaks prepared statements and the job queue), and leave `sslmode` out of it:
-   `DATABASE_SSL` sets the encryption for every connection.
+   `DATABASE_SSL` sets the encryption for every connection. A password with characters such as `@`, `:`, `/`, `?`
+   or `#` must be written percent-encoded in the string (`@` → `%40`); simplest is a password of letters and digits.
 6. **The scheduler**: Integrations (Database → Extensions) → enable **pg_cron** and **pg_net**. The schedule itself is
    created in step 7 below, once the site's address is known.
 
@@ -132,18 +140,20 @@ encrypts without checking the certificate — use it only if verifying cannot be
    its keys or its files), with your values:
 
    ```bash
+   ENABLE_EXPERIMENTAL_COREPACK=1
    APP_ENV=demo
    DEMO_SIGN_IN_ENABLED=true
    NUXT_PUBLIC_ORGANIZATION_SLUG=demo
    DATABASE_URL=postgresql://postgres.<project-ref>:<password>@<pooler-host>:5432/postgres
    DATABASE_SSL=verify
-   DATABASE_SSL_CA=<the whole certificate file from step 1.3, BEGIN and END lines included>
+   DATABASE_SSL_CA=<the certificate of step 1.3 on one line: the output of the awk command below>
    DATABASE_POOL_MAX=2
    NUXT_SESSION_PASSWORD=<from step 3>
-   PII_ENCRYPTION_KEYS=k1:<from step 3>
+   PII_ENCRYPTION_KEYS=<the whole line from step 3, its k1: included>
    PII_LOOKUP_KEY=<from step 3>
    TRUST_PROXY=true
    NUXT_API_PROXY_TRUST_PROXY=true
+   TRUST_VISITOR_HEADER=true
    ALLOWED_ORIGINS=https://hajj-umrah.vercel.app,https://agency-hajj-umrah.vercel.app,https://ops-hajj-umrah.vercel.app
    JOBS_MODE=send
    JOBS_POOL_MAX=2
@@ -157,6 +167,17 @@ encrypts without checking the certificate — use it only if verifying cannot be
    S3_FORCE_PATH_STYLE=true
    ```
 
+   `DATABASE_SSL_CA` goes on one line, its line breaks written as `\n` (the API turns them back). Print it with
+
+   ```bash
+   awk 'NF { printf "%s\\n", $0 }' ~/Downloads/prod-ca-2021.crt
+   ```
+
+   and paste the output. Every value is then a single line, so the block can go into Vercel's paste box as it is (a
+   multi-line value pasted there keeps only its first line, and the API refuses to start: "must be a whole PEM
+   certificate"). `ENABLE_EXPERIMENTAL_COREPACK=1` makes Vercel install with the pnpm the repository pins (9.4.0);
+   `TRUST_VISITOR_HEADER=true` makes the API take each visitor's address from the header the websites' proxy adds
+   (Vercel's internal hop may rewrite `X-Forwarded-For`), so every visitor has their own rate limits.
    With Supabase Storage instead of R2: `S3_ENDPOINT` and `S3_REGION` (e.g. `ap-south-1`) from step 2's last part,
    and its access key. `ALLOWED_ORIGINS` lists the three addresses of step 6, exactly (`https://`, no trailing
    slash): when you pick other names, change it and redeploy — a form sent from an address not on it is refused
@@ -218,9 +239,9 @@ secret, run `select cron.unschedule('hajj-jobs-tick');` and schedule it again.
    ```
 
    (an IPv6 address counts by its first four groups: `2001:db8:85a3:8d3::/64` for `2001:db8:85a3:8d3:…`.)
-   `1` = the API sees your address (keys hold a hash of it, never the address). `0` = it sees another one, and every
-   visitor would share one limit: report it — Vercel does not document whether its internal calls between services
-   keep the forwarded address.
+   `1` = the API sees your address (keys hold a hash of it, never the address). `0` = it sees another one, so every
+   visitor would share one limit: check that `TRUST_VISITOR_HEADER` and `NUXT_API_PROXY_TRUST_PROXY` are `true` in
+   Production and that the latest deployment has them.
 
 ## Updating
 
@@ -231,10 +252,10 @@ Push to `main`: Vercel builds and deploys everything together. When a change add
 ## Backups
 
 Neither free plan keeps any. Now and then (and before any risky change), the database with `pg_dump` **17 or newer**
-(the server's major version):
+(the server's major version), checking the server's certificate with the file of step 1.3 as the app does:
 
 ```bash
-pg_dump "$DATABASE_URL?sslmode=require" --format=custom --file="hajj-$(date +%F).dump"
+pg_dump "$DATABASE_URL?sslmode=verify-full&sslrootcert=$HOME/Downloads/prod-ca-2021.crt" --format=custom --file="hajj-$(date +%F).dump"
 ```
 
 and the files with any S3 tool, for example the AWS CLI with the bucket's key from step 2.3:
@@ -260,12 +281,14 @@ AWS_ACCESS_KEY_ID=<S3_ACCESS_KEY_ID> AWS_SECRET_ACCESS_KEY=<S3_SECRET_ACCESS_KEY
 | Uploads fail; the log shows `AccessDenied`, `InvalidAccessKeyId` or `NoSuchBucket` | The key must be step 2.3's, with Object Read & Write on `hotel-files`; `S3_BUCKET` the bucket's exact name; `S3_ENDPOINT` the account's R2 address. |
 | `Max client connections reached` / `too many clients` | Raise the Pool Size (step 1.4) or lower `DATABASE_POOL_MAX`/`JOBS_POOL_MAX`. |
 | Connection errors mentioning a certificate | `DATABASE_SSL_CA` must be the whole downloaded file; with `sslmode` in `DATABASE_URL`, remove it. |
+| `DATABASE_SSL_CA must be a whole PEM certificate` | The certificate lost its lines: paste the one-line form of step 5 (the awk command). |
+| Every visitor is refused "too many attempts" at once | They share one rate limit: step 8.5 (`TRUST_VISITOR_HEADER`, `NUXT_API_PROXY_TRUST_PROXY`). |
 | Upload refused as too large | The file is over 4 MB (a PDF cannot be shrunk by the app). |
 
 ## Moving to a proper server later
 
-Nothing in the code is Vercel-only. On **Vercel Pro**, the worker can run all the time as a Daemon: add to
-`vercel.json`
+Nothing in the code is Vercel-only. The worker can run all the time as a Vercel Daemon (a beta: on the free plan within
+its 5 active CPU-hours a month, on Pro without that quota): add to `vercel.json`
 
 ```json
 "daemons": {

@@ -109,6 +109,9 @@ sequenceDiagram
 - The browser only ever talks to the website's own address: the session cookie is first-party, no cross-site
   cookies.
 - Vercel fills `NUXT_API_PROXY_TARGET` from the binding; nobody sets it by hand.
+- The proxy also puts the visitor's address in a header of its own, `x-hajj-visitor-ip` (replacing any the browser
+  sent). With `TRUST_VISITOR_HEADER=true` the API takes it from there, so Vercel's internal hop, which may rewrite
+  `X-Forwarded-For`, cannot make every visitor look the same to the rate limits.
 
 ### What the API checks on every request
 
@@ -259,7 +262,8 @@ one (`missed: 'once'`; every scheduled job is a safe-to-repeat sweep).
 | `notify-booker` | after staff confirm or cancel a booking | texts the booker — SMS off: nothing sent |
 
 The tick's secret lives in Vercel (`JOBS_TICK_SECRET`) and in Supabase's cron table (readable by its administrators
-only). On a paid plan or a server, an always-on worker (`Dockerfile.worker`) can replace the tick without code changes.
+only). An always-on worker (`Dockerfile.worker`, as a Vercel Daemon or on a server) can replace the tick without code
+changes; on the free plan a Daemon has only 5 active CPU-hours a month and is a beta, hence the tick.
 
 ## 8. Security
 
@@ -277,9 +281,9 @@ only). On a paid plan or a server, an always-on worker (`Dockerfile.worker`) can
 | Database exposure | Supabase's Data API turned off: its tables are not published on the web |
 | Secrets | only in Vercel's Production settings (previews get none), generated with `openssl` |
 
-Rate limits store a hash of the visitor's address, never the address. Whether Vercel's internal calls keep the
-visitor's address can only be checked after deploying (`docs/DEPLOY_VERCEL.md` step 8.5); if they do not, every
-visitor shares one limit.
+Rate limits store a hash of the visitor's address, never the address. The address comes from the proxy's own header
+(`x-hajj-visitor-ip`, read with `TRUST_VISITOR_HEADER=true`), which Vercel's internal hop leaves alone;
+`docs/DEPLOY_VERCEL.md` step 8.5 checks it after deploying.
 
 ## 9. Configuration
 
@@ -291,7 +295,8 @@ start, naming the setting, when one is missing or wrong. Values are in `docs/DEP
 | Mode | `APP_ENV=demo`, `DEMO_SIGN_IN_ENABLED`, `NUXT_PUBLIC_ORGANIZATION_SLUG` |
 | Database | `DATABASE_URL`, `DATABASE_SSL=verify`, `DATABASE_SSL_CA`, `DATABASE_POOL_MAX` |
 | Sessions and keys | `NUXT_SESSION_PASSWORD`, `PII_ENCRYPTION_KEYS`, `PII_LOOKUP_KEY` |
-| Requests | `ALLOWED_ORIGINS`, `TRUST_PROXY`, `NUXT_API_PROXY_TRUST_PROXY` (`NUXT_API_PROXY_TARGET` comes from the binding) |
+| Build | `ENABLE_EXPERIMENTAL_COREPACK=1` (pnpm 9.4.0 from `packageManager`); each app's `engines` pins Node 22 |
+| Requests | `ALLOWED_ORIGINS`, `TRUST_PROXY`, `TRUST_VISITOR_HEADER`, `NUXT_API_PROXY_TRUST_PROXY` (`NUXT_API_PROXY_TARGET` comes from the binding) |
 | Jobs | `JOBS_MODE=send`, `JOBS_POOL_MAX`, `JOBS_TICK_SECRET` |
 | Files | `STORAGE_DRIVER=s3`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` |
 
@@ -319,14 +324,15 @@ flowchart LR
 | Backups | none automatic: `pg_dump` and a bucket copy by hand (`docs/DEPLOY_VERCEL.md`, "Backups") |
 | Supabase | a project idle for a week is paused (restore it from the dashboard); PostgreSQL 17 (tests run on 16) |
 | Text messages | not connected: customer sign-in, booking messages and reminders are off |
-| Passport reading | no reader configured: every photo goes to manual review |
+| Passport reading | no reader configured: every photo goes to manual review (keep `PASSPORT_OCR=none`: the pass runs inside a function) |
+| Demo access | anyone who has the addresses can use the demo sign-in: share them only with those who need them |
 | Data | demo data only — where pilgrims' data may be stored is still an open client question |
 
 ## 12. Beyond the free setup
 
 Nothing in the code is tied to these providers:
 
-- **Vercel Pro**: commercial use, more CPU, and the worker as an always-on Daemon instead of the tick.
+- **Vercel Pro**: commercial use, more CPU, and the worker as an always-on Daemon without the free plan's 5 CPU-hour quota.
 - **Supabase Pro**: daily backups and point-in-time recovery.
 - **A server or another host**: the API (`node .output/server/index.mjs`), the worker (`Dockerfile.worker`), any
   PostgreSQL with TLS, and R2 as it is (or a lasting disk with `STORAGE_DRIVER=local`).

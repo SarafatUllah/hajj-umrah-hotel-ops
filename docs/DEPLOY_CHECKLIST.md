@@ -14,7 +14,7 @@ deployment on Vercel, Supabase and Cloudflare R2 has its own step-by-step guide,
       Rotating it signs every user out.
 - [ ] Session lifetime reviewed: sessions last **8 hours** (`nuxt.config.ts`, `runtimeConfig.session.maxAge`); the
       cookie holds identity only, and permissions/hotel access are re-read from the database on every request.
-- [ ] `DATABASE_URL` points at the intended PostgreSQL 16 database; `DATABASE_POOL_MAX` (1–50, default 10) fits the
+- [ ] `DATABASE_URL` points at the intended PostgreSQL 16 (or newer: Supabase runs 17) database; `DATABASE_POOL_MAX` (1–50, default 10) fits the
       database's connection limit times the number of server processes.
 - [ ] `ALLOW_DEMO_SEED` is **unset or `false` in production** (the demo seed/reset then refuses `APP_ENV=production`).
 - [ ] `DEMO_SIGN_IN_ENABLED` is **unset or `false` in production and in staging.** Production with `true` fails
@@ -38,6 +38,9 @@ deployment on Vercel, Supabase and Cloudflare R2 has its own step-by-step guide,
       (the client IP for rate limiting is then the last `X-Forwarded-For` entry), and the API port is **not reachable
       except through that proxy** (otherwise a client could choose its own address). Without a proxy: `false`. Behind
       a proxy with `false`, every client shares one address and the per-address login limit applies to all of them.
+- [ ] `TRUST_VISITOR_HEADER=true` **only** when the API is reachable solely through the frontends' proxy (Vercel
+      Services: no public route into the API but the job tick); the client IP is then the proxy's `x-hajj-visitor-ip`
+      header. Anywhere a client can reach the API directly: `false` (it could choose its own address).
 - [ ] `ALLOWED_ORIGINS` lists the exact origins of the separate frontends (ops console, agency portal, public site)
       when they are not served from the API host; unset = same host only.
 - [ ] Each frontend runs with `NUXT_API_PROXY_TARGET` = the API's internal origin (its allowed `/api/**` prefixes are
@@ -108,6 +111,8 @@ deployment on Vercel, Supabase and Cloudflare R2 has its own step-by-step guide,
 - [ ] `JOBS_MODE` is set deliberately: `light` (default) in every API process **plus** at least one worker process
       (`pnpm --filter @hajj/api worker`, which works only the CPU-heavy tier, e.g. passport OCR), or `all` in a
       single-process deployment. `off`/`send` only where another process works the queues.
+- [ ] Or, on a host with no always-on process (Vercel's free plan): `JOBS_MODE=send` everywhere, `JOBS_TICK_SECRET`
+      set, and a scheduler calling `POST /api/jobs/tick` every few minutes (`docs/DEPLOY_VERCEL.md` step 7).
 - [ ] The worker runs from source through `tsx` (a runtime dependency of `@hajj/api`): its deployment needs the sources and
       `node_modules`, not only the Nitro output.
 - [ ] pg-boss creates and migrates its own `pgboss` schema on start: the database role must be allowed to create a
@@ -116,7 +121,8 @@ deployment on Vercel, Supabase and Cloudflare R2 has its own step-by-step guide,
 ## Verification after the deploy
 
 - [ ] `GET /api/health` → `200 {"status":"ok","db":"ok"}` (`503 {"status":"degraded","db":"down"}` means the database
-      is unreachable or the environment is invalid).
+      is unreachable or the environment is invalid). On Vercel the API is private and this route cannot be reached:
+      check the sites instead (`docs/DEPLOY_VERCEL.md` step 8).
 - [ ] The session cookie set by `POST /api/auth/login` carries `Secure`, `HttpOnly` and `SameSite=Lax`.
 - [ ] Production and staging: `GET /api/public/demo-sign-in` answers 404.
 - [ ] A state-changing request with a foreign `Origin` (e.g. `curl -X POST -H 'Origin: https://example.org'
@@ -124,7 +130,7 @@ deployment on Vercel, Supabase and Cloudflare R2 has its own step-by-step guide,
 
 ## Passport reading (Phase 2d)
 
-- The worker process (`pnpm --filter @hajj/api worker`, it works the heavy tier only, whatever `JOBS_MODE` says) runs `booking.passport-read`. The API
+- The worker process (`pnpm --filter @hajj/api worker`, it works the heavy tier only, whatever `JOBS_MODE` says) runs `booking.passport-read` (on Vercel's free plan the job tick's pass does: keep `PASSPORT_OCR=none` there). The API
   processes must be able to enqueue (`JOBS_MODE` light, send or all) or uploads answer 409 `PASSPORT_READING_UNAVAILABLE`.
 - `PASSPORT_OCR=tesseract` in the worker only: install `tesseract.js` (and its English language data, or allow the
   first download) in the worker image. Without it every scan goes to manual entry.

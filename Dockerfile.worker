@@ -1,5 +1,5 @@
-# The background worker (apps/api/worker, design v7 §2) as a container: a Vercel Daemon (vercel.json `daemons.worker`,
-# docs/DEPLOY_VERCEL.md) or any container host. It runs from source with tsx, as `pnpm --filter @hajj/api worker` does.
+# The background worker (apps/api/worker, design v7 §2) as a container: a Vercel Daemon (the `daemons` block of
+# docs/DEPLOY_VERCEL.md, "Moving to a proper server later") or any container host. It runs from source with tsx, as `pnpm --filter @hajj/api worker` does.
 # The build context is the repository root (the worker needs the workspace packages); .dockerignore keeps secrets,
 # dependencies and build output out of it. Configuration comes only from the environment at run time: nothing secret
 # is baked into the image (no ARG, no .env).
@@ -14,5 +14,5 @@ RUN pnpm install --frozen-lockfile --filter "@hajj/api..."
 
 WORKDIR /app/apps/api
 USER node
-# Works the heavy queues by default; WORKER_JOBS=all works every queue (vercel.json sets it for the daemon).
+# Works the heavy queues by default; WORKER_JOBS=all works every queue (the guide's daemon block sets it).
 CMD ["node", "--import", "tsx", "worker/index.ts"]

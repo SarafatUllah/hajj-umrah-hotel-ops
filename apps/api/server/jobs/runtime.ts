@@ -42,14 +42,17 @@ interface Running { boss: PgBoss, registered: ReadonlyMap<string, JobDefinition<
 
 let running: Promise<Running> | null = null
 let lastBootError: unknown = null
+/** The options of the runtime this process should have (null when it has none, or once stopped): `enqueue` restarts it. */
+let configured: JobRuntimeOptions | null = null
 
 /**
  * Starts the process-wide job runtime once (pg-boss owns its own `pgboss` schema). Every registered
  * queue is created so any process can send to it; handlers are attached only for `workTiers`, and
  * schedules are reconciled by the processes that work them. A failed boot stops what it started and is
- * remembered, so a later `enqueue` reports the real cause.
+ * remembered, so a later `enqueue` reports the real cause — after trying the start once more itself.
  */
 export function startJobRuntime(options: JobRuntimeOptions): Promise<Running> {
+  configured = options
   running ??= boot(options).then((value) => {
     lastBootError = null
     return value
@@ -96,10 +99,14 @@ let cancelStartRetries: (() => void) | null = null
 /** pg-boss's own timing settings (seconds), for a process that needs other than the defaults. */
 export type BossTiming = Pick<ConstructorParameters<typeof PgBoss>[0] & object, 'cronMonitorIntervalSeconds' | 'cronWorkerIntervalSeconds'>
 
-/** A pg-boss instance for these options: it supervises and runs schedules only when it works some tier. */
+/**
+ * A pg-boss instance for these options: it supervises, runs schedules and registers itself (pg-boss's instance list,
+ * a heartbeat every 30 s) only when it works some tier — a send-only one, such as every serverless API function, writes
+ * nothing on its own.
+ */
 export function createBoss(options: Pick<JobRuntimeOptions, 'connectionString' | 'poolMax'>, working: boolean, timing: BossTiming = {}): PgBoss {
   // TLS as the app's own pool (DATABASE_SSL): pg-boss's pool must not be the one connection left in clear text.
-  const boss = new PgBoss({ connectionString: options.connectionString, ssl: databaseSsl(), max: options.poolMax ?? 3, supervise: working, schedule: working, ...timing })
+  const boss = new PgBoss({ connectionString: options.connectionString, ssl: databaseSsl(), max: options.poolMax ?? 3, supervise: working, schedule: working, registerInstance: working, ...timing })
   boss.on('error', error => console.error('[jobs]', error))
   return boss
 }
@@ -148,6 +155,7 @@ async function boot(options: JobRuntimeOptions): Promise<Running> {
 export async function stopJobRuntime(): Promise<void> {
   cancelStartRetries?.()
   cancelStartRetries = null
+  configured = null
   if (!running) return
   const current = running
   running = null
@@ -161,6 +169,9 @@ export async function stopJobRuntime(): Promise<void> {
  * guarantee: no committed change without its job, no job without its committed change.
  */
 export async function enqueue<T extends object>(job: JobDefinition<T>, data: T, options: EnqueueOptions = {}): Promise<string | null> {
+  // A start that failed (a database unreachable on a cold start) is tried again here, not only by the retry timer: on a
+  // serverless host that timer waits as long as the instance sleeps, while the requests that need it fail.
+  if (!running && configured) startJobRuntime(configured).catch(() => {})
   if (!running) {
     const cause = lastBootError ? `: it failed to start (${String(lastBootError)})` : ' (JOBS_MODE=off?)'
     throw new JobRuntimeUnavailableError(`Job runtime is not running${cause}; cannot enqueue ${job.name}`)

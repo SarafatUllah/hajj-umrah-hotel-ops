@@ -174,6 +174,27 @@ describe('getEnv', () => {
     expect(() => getEnv()).toThrow(/DATABASE_SSL_CA must be a PEM certificate/)
   })
 
+  it('refuses a CA certificate cut short (a multi-line paste that kept only its first line), accepts one pasted on one line', () => {
+    Object.assign(process.env, REQUIRED_VARS, { DATABASE_SSL: 'verify', DATABASE_SSL_CA: '-----BEGIN CERTIFICATE-----' })
+    expect(() => getEnv()).toThrow(/DATABASE_SSL_CA must be a whole PEM certificate/)
+    resetEnvCache()
+    process.env.DATABASE_SSL_CA = '-----BEGIN CERTIFICATE-----\\nabc\\n-----END CERTIFICATE-----\\n'
+    expect(getEnv()).toMatchObject({ DATABASE_SSL: 'verify' })
+  })
+
+  it('trusts the frontends\' visitor-address header only when TRUST_VISITOR_HEADER is "true"', () => {
+    Object.assign(process.env, REQUIRED_VARS)
+    delete process.env.TRUST_VISITOR_HEADER
+    expect(getEnv().TRUST_VISITOR_HEADER).toBe(false)
+    resetEnvCache()
+    process.env.TRUST_VISITOR_HEADER = 'true'
+    expect(getEnv().TRUST_VISITOR_HEADER).toBe(true)
+    resetEnvCache()
+    process.env.TRUST_VISITOR_HEADER = 'yes'
+    expect(() => getEnv()).toThrow(/TRUST_VISITOR_HEADER must be "true" or "false"/)
+    delete process.env.TRUST_VISITOR_HEADER
+  })
+
   it('leaves the job tick off unless JOBS_TICK_SECRET is set, and refuses a short secret', () => {
     Object.assign(process.env, REQUIRED_VARS)
     delete process.env.JOBS_TICK_SECRET

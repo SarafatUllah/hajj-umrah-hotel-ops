@@ -1,4 +1,5 @@
 import { MAX_UPLOAD_BYTES } from '@hajj/contracts/constants/documents'
+import { VISITOR_ADDRESS_HEADER } from '@hajj/contracts/constants/proxy'
 
 /**
  * The path a frontend may forward to the API, or null: only under its allowed prefixes (`/api/customer/` …; one
@@ -48,4 +49,13 @@ export function bodyRefusal(contentLength: string | undefined, transferEncoding:
 export function visitorAddress(forwardedFor: string | undefined, socketAddress: string | undefined, trustProxy: boolean): string {
   const nearest = trustProxy ? forwardedFor?.split(',').map(part => part.trim()).filter(Boolean).at(-1) : undefined
   return nearest ?? socketAddress ?? 'unknown'
+}
+
+/**
+ * The headers the proxy sets on every forwarded request (h3 lets them replace any the visitor sent). The visitor's
+ * address goes twice: in X-Forwarded-For, and in a header of our own that a hop between the proxy and the API (a
+ * Vercel service binding) does not rewrite — the API reads that one with TRUST_VISITOR_HEADER=true.
+ */
+export function forwardedHeaders(visitor: string, host: string, protocol: string): Record<string, string> {
+  return { 'x-forwarded-for': visitor, [VISITOR_ADDRESS_HEADER]: visitor, 'x-forwarded-host': host, 'x-forwarded-proto': protocol }
 }

@@ -2,6 +2,8 @@ import { MAX_UPLOAD_BYTES } from '@hajj/contracts/constants/documents'
 
 /** Longest side a shrunk photo keeps: a passport's machine-readable lines stay sharp at it (9 megapixels at most). */
 export const PHOTO_MAX_EDGE_PX = 3000
+/** The longest side of a second try, for a photo so detailed that no quality fits at the first (about 5 megapixels). */
+const PHOTO_FALLBACK_EDGE_PX = 2200
 /** JPEG qualities tried in turn until the photo fits the upload limit. */
 const JPEG_QUALITIES = [0.9, 0.8, 0.7, 0.6] as const
 /** Photos the browser can redraw; anything else (a PDF) is sent as it is. */
@@ -39,10 +41,14 @@ export async function shrinkPhoto(file: File, codec: PhotoCodec = browserCodec, 
   const photo = await codec.decode(file).catch(() => null)
   if (!photo) return file
   try {
-    const size = fitWithin(photo.size, PHOTO_MAX_EDGE_PX)
-    for (const quality of JPEG_QUALITIES) {
-      const jpeg = await photo.toJpeg(size, quality)
-      if (jpeg.size <= limit) return new File([jpeg], jpegName(file.name), { type: 'image/jpeg', lastModified: file.lastModified })
+    const full = fitWithin(photo.size, PHOTO_MAX_EDGE_PX)
+    const smaller = fitWithin(photo.size, PHOTO_FALLBACK_EDGE_PX)
+    const sizes = smaller.width === full.width ? [full] : [full, smaller]
+    for (const size of sizes) {
+      for (const quality of JPEG_QUALITIES) {
+        const jpeg = await photo.toJpeg(size, quality)
+        if (jpeg.size <= limit) return new File([jpeg], jpegName(file.name), { type: 'image/jpeg', lastModified: file.lastModified })
+      }
     }
     return file
   }

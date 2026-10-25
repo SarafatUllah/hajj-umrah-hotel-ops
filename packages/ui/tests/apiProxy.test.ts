@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bodyRefusal, forwardablePath, MAX_PROXIED_BODY_BYTES, proxyTargetUrl, visitorAddress } from '../server/utils/apiProxy'
+import { bodyRefusal, forwardablePath, forwardedHeaders, MAX_PROXIED_BODY_BYTES, proxyTargetUrl, visitorAddress } from '../server/utils/apiProxy'
 
 const allow = ['/api/public/', '/api/customer/']
 
@@ -28,6 +28,15 @@ describe('the frontends\' API proxy', () => {
     expect(visitorAddress('6.6.6.6, 198.51.100.7', '10.0.0.2', true)).toBe('198.51.100.7')
     expect(visitorAddress(undefined, '10.0.0.2', true)).toBe('10.0.0.2')
     expect(visitorAddress(undefined, undefined, false)).toBe('unknown')
+  })
+
+  it('hands the API the visitor\'s address twice: in X-Forwarded-For and in its own header, which no hop on the way rewrites', () => {
+    expect(forwardedHeaders('198.51.100.7', 'agency.example.com', 'https')).toEqual({
+      'x-forwarded-for': '198.51.100.7',
+      'x-hajj-visitor-ip': '198.51.100.7',
+      'x-forwarded-host': 'agency.example.com',
+      'x-forwarded-proto': 'https',
+    })
   })
 
   it('a body is refused before it is read when its declared length is over the largest upload, or a chunked one has none', () => {

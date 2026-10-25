@@ -39,7 +39,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify` and committed
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done; 16g quotes, agencies done; 16h booking settings, booking rules done |
 | 17 | Final review (code, security, database, architecture) and docs | done: 17a data protection, database, security; 17c agency passwords; 17d shared layer, typed contracts; 17e bookings on the room calendar; 17f docs; 17g pull request review (D-P2-66) |
-| 18 | Free MVP hosting: Vercel + Supabase (D-P2-67) | done: 18a S3-compatible storage driver; 18b 4 MB uploads, photos shrunk in the browser; 18c worker works every queue, polling interval; 18d `vercel.json`, worker image, deploy guide; 18e review: job tick instead of a daemon, database TLS, guide corrections; 18f the files on Cloudflare R2 |
+| 18 | Free MVP hosting: Vercel + Supabase (D-P2-67) | done: 18a S3-compatible storage driver; 18b 4 MB uploads, photos shrunk in the browser; 18c worker works every queue, polling interval; 18d `vercel.json`, worker image, deploy guide; 18e review: job tick instead of a daemon, database TLS, guide corrections; 18f the files on Cloudflare R2; 18g pre-deploy review fixes |
 
 ## Local environment note
 
@@ -891,9 +891,9 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   API's one public path, 404 when unset), and one job pass (`server/jobs/pass.ts`) works every tier and runs the cron
   pass once, until no job is ready or running (3-20 s; about 0.03-0.15 s of CPU, measured). Schedules now make up for
   missed occurrences with one run (`missed: 'once'`, all of them idempotent sweeps). A worker as an always-on Vercel
-  Daemon was built first and dropped for the free plan: its Daemons are metered by the hour (420 GB-hours of memory,
-  and per Vercel's own guide 10 vCPU-hours, a month), so a worker running all month stops within weeks; on Pro it
-  remains the option (`Dockerfile.worker`, `WORKER_JOBS=all`, the guide shows the `daemons` block). What else it
+  Daemon was built first and dropped for the free plan: Daemons are a beta, and on Hobby a team gets 5 active
+  CPU-hours a month for them (idle time not counted; at the quota Vercel stops the daemons — only them — until the
+  1st), which a worker polling the queue all month eats into every minute; on Pro or a server it remains the option (`Dockerfile.worker`, `WORKER_JOBS=all`, the guide shows the `daemons` block). What else it
   needed: an S3-compatible `StorageDriver` (`STORAGE_DRIVER=s3`, brought forward from Phase 9: functions have no
   lasting disk), uploads capped at 4 MB (a function takes at most 4.5 MB per request; the frontends shrink a larger
   photo in the browser), TLS for every database connection (`DATABASE_SSL` off/require/verify + `DATABASE_SSL_CA`:
@@ -906,7 +906,14 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   Limits accepted for the demo: the free plan is non-commercial only; jobs every 5 minutes; no backups on Supabase's
   free plan; customer SMS sign-in off; Supabase runs PostgreSQL 17 (CI 16). Not verifiable before a deployment: whether
   Vercel's calls between services keep the forwarded visitor address (the guide checks it; `ALLOWED_ORIGINS` covers
-  the CSRF check either way).
+  the CSRF check either way). A pre-deploy review (18g) then fixed: the guide's key line (`k1:` doubled made a
+  33-byte key the API refuses) and the CA certificate, now pasted on one line and refused at startup without its END
+  line; the visitor's address handed over in the proxy's own header (`x-hajj-visitor-ip`, trusted with
+  `TRUST_VISITOR_HEADER=true`) since a binding hop may rewrite `X-Forwarded-For`; a send-only runtime whose start
+  failed starts again on the next enqueue (a serverless retry timer sleeps with its instance) and registers no pg-boss
+  instance (no heartbeat per function); Node 22 pinned in each app's `engines` and the pinned pnpm through
+  `ENABLE_EXPERIMENTAL_COREPACK=1`; a second, smaller try (2200 px) for photos still over 4 MB; the Daemon reasoning
+  and stale lines in the docs.
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on

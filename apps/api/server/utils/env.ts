@@ -45,7 +45,11 @@ const envBase = z.object({
   // certificate checked, against DATABASE_SSL_CA when set) | require (encrypted, not checked). A hosted database
   // reached over the internet needs verify (D-P2-67).
   DATABASE_SSL: z.enum(DATABASE_SSL_MODES, { errorMap: () => ({ message: 'DATABASE_SSL must be off, require or verify' }) }).default('off'),
-  DATABASE_SSL_CA: z.string().refine(value => value.includes('-----BEGIN CERTIFICATE-----'), { message: 'DATABASE_SSL_CA must be a PEM certificate (-----BEGIN CERTIFICATE----- …)' }).optional(),
+  DATABASE_SSL_CA: z.string()
+    .refine(value => value.includes('-----BEGIN CERTIFICATE-----'), { message: 'DATABASE_SSL_CA must be a PEM certificate (-----BEGIN CERTIFICATE----- …)' })
+    // A multi-line value split by a bulk paste keeps only its first line: refused here, not on the first query.
+    .refine(value => value.includes('-----END CERTIFICATE-----'), { message: 'DATABASE_SSL_CA must be a whole PEM certificate, BEGIN and END lines included (paste it on one line with \\n escapes)' })
+    .optional(),
   NUXT_SESSION_PASSWORD: z.string().min(32, 'NUXT_SESSION_PASSWORD must be at least 32 characters'),
   // Read by nuxt.config.ts (unset = true); validated here only so production can refuse `false`.
   NUXT_SESSION_COOKIE_SECURE: z.string().optional(),
@@ -73,6 +77,9 @@ const envBase = z.object({
   PII_LOOKUP_KEY: z.string({ required_error: 'PII_LOOKUP_KEY is required' }).min(1, 'PII_LOOKUP_KEY is required').superRefine(parsedBy(parseLookupKey)),
   // Trust X-Forwarded-For / X-Forwarded-Host (only behind a reverse proxy that sets them).
   TRUST_PROXY: strictFlag('TRUST_PROXY'),
+  // Take the visitor's address from the frontends' proxy header (x-hajj-visitor-ip) before X-Forwarded-For — only when
+  // the API is reachable solely through that proxy (Vercel service bindings); anywhere else a client could choose it.
+  TRUST_VISITOR_HEADER: strictFlag('TRUST_VISITOR_HEADER'),
   ALLOWED_ORIGINS: originList,
   // Staff 2FA: `required-roles` makes users holding a role with requires_two_factor enrol TOTP before using the API.
   STAFF_2FA_ENFORCEMENT: z.enum(['off', 'required-roles'], { errorMap: () => ({ message: 'STAFF_2FA_ENFORCEMENT must be off or required-roles' }) }).default('off'),

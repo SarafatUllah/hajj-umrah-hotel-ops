@@ -77,6 +77,20 @@ describe('shrinkPhoto', () => {
     expect(shrunk).toMatchObject({ name: 'scan.jpg', size: LIMIT })
   })
 
+  it('tries a smaller size when no quality fits at the full edge (a very detailed photo)', async () => {
+    const { codec, log } = fakeCodec({ size: { width: 4000, height: 3000 }, bytesAt: (_quality, size) => (size.width > 2200 ? LIMIT + 1 : LIMIT) })
+    const shrunk = await shrinkPhoto(fileOf(LIMIT * 3, 'image/jpeg'), codec, LIMIT)
+    expect(shrunk).toMatchObject({ type: 'image/jpeg', size: LIMIT })
+    expect(log.encoded.filter(step => step.size.width === PHOTO_MAX_EDGE_PX)).toHaveLength(4)
+    expect(log.encoded.at(-1)).toEqual({ size: { width: 2200, height: 1650 }, quality: 0.9 })
+  })
+
+  it('never draws the same size twice: a photo already under the smaller edge gets one round of qualities', async () => {
+    const { codec, log } = fakeCodec({ size: { width: 2000, height: 1500 }, bytesAt: () => LIMIT + 1 })
+    await shrinkPhoto(fileOf(LIMIT * 3, 'image/png'), codec, LIMIT)
+    expect(log.encoded).toHaveLength(4)
+  })
+
   it('falls back to the original when no version fits, the photo cannot be read, or drawing it fails (the size check then explains)', async () => {
     const original = fileOf(LIMIT * 3, 'image/jpeg')
     const tooBig = fakeCodec({ bytesAt: () => LIMIT + 1 })

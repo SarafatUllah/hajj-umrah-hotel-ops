@@ -1,5 +1,5 @@
 import { createError, defineEventHandler, getRequestHeader, getRequestHost, getRequestIP, getRequestProtocol, proxyRequest } from 'h3'
-import { bodyRefusal, forwardablePath, PROXY_TIMEOUT_MS, proxyTargetUrl, visitorAddress } from '../utils/apiProxy'
+import { bodyRefusal, forwardablePath, forwardedHeaders, PROXY_TIMEOUT_MS, proxyTargetUrl, visitorAddress } from '../utils/apiProxy'
 
 /**
  * The app's `/api/**`, forwarded to the API (D-P2-52): only the prefixes this app uses (`apiProxy.allow`; anything
@@ -17,10 +17,10 @@ export default defineEventHandler(async (event) => {
   return proxyRequest(event, proxyTargetUrl(apiProxy.target, path), {
     // The API's time starts once the visitor's body is in (proxyRequest reads it first): a slow upload is no timeout.
     fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(PROXY_TIMEOUT_MS) }),
-    headers: {
-      'x-forwarded-for': visitorAddress(getRequestHeader(event, 'x-forwarded-for'), getRequestIP(event), trustProxy),
-      'x-forwarded-host': getRequestHost(event, { xForwardedHost: trustProxy }),
-      'x-forwarded-proto': getRequestProtocol(event, { xForwardedProto: trustProxy }),
-    },
+    headers: forwardedHeaders(
+      visitorAddress(getRequestHeader(event, 'x-forwarded-for'), getRequestIP(event), trustProxy),
+      getRequestHost(event, { xForwardedHost: trustProxy }),
+      getRequestProtocol(event, { xForwardedProto: trustProxy }),
+    ),
   })
 })
