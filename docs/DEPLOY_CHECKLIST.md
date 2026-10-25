@@ -1,7 +1,8 @@
 # Deploy checklist
 
 Work through every item before a staging or production deployment. Variables are documented in `apps/api/.env.example`
-and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and `docs/MIGRATIONS.md`.
+and validated by `server/utils/env.ts`; background in `docs/ARCHITECTURE.md` and `docs/MIGRATIONS.md`. The free demo
+deployment on Vercel and Supabase has its own step-by-step guide, `docs/DEPLOY_VERCEL.md`.
 
 ## Configuration
 

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["bom1"],
+  "services": {
+    "api": {
+      "root": "apps/api",
+      "framework": "nuxtjs",
+      "installCommand": "pnpm install --frozen-lockfile",
+      "buildCommand": "pnpm build"
+    },
+    "site": {
+      "root": "apps/public-site",
+      "framework": "nuxtjs",
+      "installCommand": "pnpm install --frozen-lockfile",
+      "buildCommand": "pnpm build",
+      "bindings": [{ "type": "service", "service": "api", "format": "url", "env": "NUXT_API_PROXY_TARGET" }]
+    },
+    "agency": {
+      "root": "apps/agency-portal",
+      "framework": "nuxtjs",
+      "installCommand": "pnpm install --frozen-lockfile",
+      "buildCommand": "pnpm build",
+      "bindings": [{ "type": "service", "service": "api", "format": "url", "env": "NUXT_API_PROXY_TARGET" }]
+    },
+    "ops": {
+      "root": "apps/ops-console",
+      "framework": "nuxtjs",
+      "installCommand": "pnpm install --frozen-lockfile",
+      "buildCommand": "pnpm build",
+      "bindings": [{ "type": "service", "service": "api", "format": "url", "env": "NUXT_API_PROXY_TARGET" }]
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "has": [{ "type": "host", "value": { "pre": "agency." } }], "destination": { "service": "agency" } },
+    { "source": "/(.*)", "has": [{ "type": "host", "value": { "pre": "agency-" } }], "destination": { "service": "agency" } },
+    { "source": "/(.*)", "has": [{ "type": "host", "value": { "pre": "ops." } }], "destination": { "service": "ops" } },
+    { "source": "/(.*)", "has": [{ "type": "host", "value": { "pre": "ops-" } }], "destination": { "service": "ops" } },
+    { "source": "/(.*)", "destination": { "service": "site" } }
+  ],
+  "daemons": {
+    "worker": {
+      "root": "./",
+      "entrypoint": "Dockerfile.worker",
+      "command": ["sh", "-c", "WORKER_JOBS=all exec node --import tsx worker/index.ts"],
+      "instances": { "bom1": 1 },
+      "resources": { "requests": { "memory": "1Gi" } },
+      "terminationGracePeriodSeconds": 30
+    }
+  }
+}

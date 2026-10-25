@@ -272,17 +272,17 @@ The Phase 0 `allocateRooms` design is superseded. Allocation is pure domain code
 
 ## 15. File Storage Architecture
 
-Direction (unchanged): a `StorageDriver` abstraction, metadata in PostgreSQL, bytes outside it, generated keys, server-side validation, and S3-compatible object storage (Cloudflare R2 recommended for cost) once a cloud driver exists.
+Direction (unchanged): a `StorageDriver` abstraction, metadata in PostgreSQL, bytes outside it, generated keys, server-side validation, and S3-compatible object storage. The S3-compatible driver exists since D-P2-67 (below).
 
 ### 15.1 As shipped in Phase 1 (hotel documents)
 
 - **Metadata in PostgreSQL, bytes behind `StorageDriver`.** `document_asset` + `hotel_document` (§6.1) hold metadata only; bytes go through `StorageDriver` (`put` — never overwrites, `get` — stream, `exists`, `delete`) in `server/storage/**`.
-- **Local driver only.** Phase 1 ships exactly one driver, `local` (`STORAGE_DRIVER=local`, files under `STORAGE_LOCAL_DIR`, default `.data/uploads`, resolved against the process working directory). Any other `STORAGE_DRIVER` value is a configuration error that stops startup (`server/plugins/storage.ts`); there is no silent fallback. **An S3-compatible driver is not implemented** (Phase 9).
+- **Two drivers.** `local` (`STORAGE_DRIVER=local`, files under `STORAGE_LOCAL_DIR`, default `.data/uploads`, resolved against the process working directory) and, since D-P2-67, `s3`: one private bucket of an S3-compatible store (Supabase Storage, Cloudflare R2, AWS S3; `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`; the endpoint https outside development). Its `put` checks the key before writing (Supabase documents no conditional write; keys are random), a typed 404 is "missing" and every other error, a missing bucket included, fails closed. Any other `STORAGE_DRIVER` value is a configuration error that stops startup (`server/plugins/storage.ts`); there is no silent fallback.
 - **Server-generated keys.** `<organizationId>/<year>/<random uuid><ext>`, built only from the organization id, the clock and a random UUID; the user's filename never reaches a path (it is sanitized and kept as display metadata only).
-- **Validation.** Allow-list `application/pdf`, `image/png`, `image/jpeg`; the bytes must start with the declared type's signature (magic bytes); 1 byte to 10 MiB (also enforced by a check constraint). Uploads are `multipart/form-data` with a mandatory `Content-Length` (missing length or `Transfer-Encoding` → 411; a declared length above 10 MiB plus 64 KiB framing → 422 `FILE_TOO_LARGE` before any byte is read). The body is buffered in memory (not streamed).
+- **Validation.** Allow-list `application/pdf`, `image/png`, `image/jpeg`; the bytes must start with the declared type's signature (magic bytes); 1 byte to 4 MiB (the database's check constraint still allows 10 MiB, the Phase 1 limit; D-P2-67 lowered the application's to fit a serverless request). Uploads are `multipart/form-data` with a mandatory `Content-Length` (missing length or `Transfer-Encoding` → 411; a declared length above 4 MiB plus 64 KiB framing → 422 `FILE_TOO_LARGE` before any byte is read). The frontends redraw a larger PNG/JPEG photo smaller in the browser before sending it (`utils/photos`). The body is buffered in memory (not streamed).
 - **Write order.** Authorize (`hotel.manage`) → validate → write the object → one transaction (asset row, hotel-document row, `DOCUMENT_ADDED` audit). A failed transaction deletes the object again.
 - **Download and archive.** Downloads stream through the API after `authorizeHotel` (`hotel.view`); there is **no public storage URL** and no signed URL. Archiving sets `archived_at` (+ audit) and **keeps the bytes and rows**; archived documents are visible/downloadable only with `includeArchived` and `hotel.manage`. Nothing is hard-deleted.
-- **Persistence requirement.** With the local driver, `STORAGE_LOCAL_DIR` must be writable and **persistent** across deploys/restarts and included in the deployment's backup plan; an ephemeral container filesystem loses every document while its metadata rows remain (downloads then fail with 500 `DOCUMENT_FILE_MISSING`). The demo reset removes demo document rows with the organization but does not delete stored files (the demo seeds no documents).
+- **Persistence requirement.** With the local driver (with `s3`, the bucket takes this role), `STORAGE_LOCAL_DIR` must be writable and **persistent** across deploys/restarts and included in the deployment's backup plan; an ephemeral container filesystem loses every document while its metadata rows remain (downloads then fail with 500 `DOCUMENT_FILE_MISSING`). The demo reset removes demo document rows with the organization but does not delete stored files (the demo seeds no documents).
 
 ## 16. Reporting Architecture
 
@@ -293,7 +293,8 @@ Direction (unchanged): a `StorageDriver` abstraction, metadata in PostgreSQL, by
 
 ## 17. Deployment Architecture
 
-- **Processes (as shipped in Phase 2):** the API (Nitro; the light job tier by default, `JOBS_MODE=light`), the worker (`pnpm --filter @hajj/api worker`, heavy tier only) and the three frontends. No container file is committed yet.
+- **Processes (as shipped in Phase 2):** the API (Nitro; the light job tier by default, `JOBS_MODE=light`), the worker (`pnpm --filter @hajj/api worker`, heavy tier by default, every queue with `WORKER_JOBS=all`) and the three frontends. `Dockerfile.worker` builds the worker's image (repository root as context); the API and the frontends build with `nuxt build`.
+- **Free MVP hosting (D-P2-67, `docs/DEPLOY_VERCEL.md`):** one Vercel project (`vercel.json`): the three frontends and the API as Vercel Services (functions; the API private, reached through service bindings that fill `NUXT_API_PROXY_TARGET`; each frontend chosen by the start of its host name), the worker as a Vercel Daemon working every queue (`JOBS_MODE=send` in the functions), PostgreSQL and the files on Supabase (session pooler, `STORAGE_DRIVER=s3`). Demo data only (no backups, free-plan quotas).
 - **Managed PostgreSQL** (Neon or Supabase recommended — see §18) rather than self-hosted, for automated backups/PITR without ops burden.
 - **Object storage**: Cloudflare R2 (S3-compatible, no egress fees).
 - **Reverse proxy/TLS/CDN**: handled by the hosting platform (Railway/Render/Fly all provide this) rather than custom nginx config.
@@ -302,7 +303,11 @@ Direction (unchanged): a `StorageDriver` abstraction, metadata in PostgreSQL, by
 
 ## 18. Low-Cost Deployment Options
 
-Recommended starting stack (re-evaluate only if usage outgrows it):
+Free MVP stack (D-P2-67): Vercel (free plan: non-commercial use only; a daemon quota of 5 active CPU hours a month) and
+Supabase (500 MB database, 1 GB files, no backups) — `docs/DEPLOY_VERCEL.md`; Vercel Pro lifts the limits without code
+changes.
+
+Recommended starting stack for real customers (re-evaluate only if usage outgrows it):
 - **App hosting:** Railway or Fly.io — container-native, cheap always-on small instances (needed since background jobs require a persistent process, ruling out pure serverless functions for the worker).
 - **Database:** Neon (serverless Postgres, generous free/low tier, branching for staging-from-production-shape testing, automated backups/PITR built in).
 - **Object storage:** Cloudflare R2 (free egress, S3-compatible SDK).
@@ -535,13 +540,13 @@ Cron times are UTC.
 | `event.booking.confirmed.notify-booker`, `event.booking.cancelled.notify-booker` | light | on event | texts the booker when SMS is configured |
 | `events.receipt-prune` | light | daily 03:45 | prunes event receipts older than any retry |
 
-The light tier runs in the API process (`JOBS_MODE=light`, the default; `all` runs both tiers in one process). The heavy tier runs only in the worker (`pnpm --filter @hajj/api worker`), whatever `JOBS_MODE` says. `send` only enqueues and `off` runs no job runtime. Each event handler is its own job, with 5 retries and backoff.
+The light tier runs in the API process (`JOBS_MODE=light`, the default; `all` runs both tiers in one process). The heavy tier runs only in the worker (`pnpm --filter @hajj/api worker`), whatever `JOBS_MODE` says. `send` only enqueues and `off` runs no job runtime. With `WORKER_JOBS=all` the worker works every queue and schedule, for hosts whose API only enqueues (serverless functions, D-P2-67). `JOBS_POLL_SECONDS` (default 2) sets how often each worked queue is polled. Each event handler is its own job, with 5 retries and backoff.
 
 ### 29.4 Frontends, proxy and ports
 
 - `packages/ui` (`@hajj/ui`) is the shared Nuxt layer: design tokens, English and Arabic (RTL), the API client and TanStack Query, the shared components and composables, and `server/api/[...path].ts`. That route forwards the app's own `/api/**` to the API (`NUXT_API_PROXY_TARGET`, default `http://localhost:3000`), only under the prefixes the app allows, with the visitor's address in `X-Forwarded-For`. Sessions stay first-party cookies.
 - Apps and dev ports: `apps/public-site` 3001 (`/api/public/`, `/api/customer/`), `apps/agency-portal` 3002 (`/api/agency/`, `/api/public/`), `apps/ops-console` 3003 (the staff endpoints and the demo sign-in). Anything else is 404 on the app's origin.
-- The API lists each frontend's origin in `ALLOWED_ORIGINS`; `TRUST_PROXY=true` when the frontends are in front of it.
+- The API lists each frontend's origin in `ALLOWED_ORIGINS`; `TRUST_PROXY=true` when the frontends are in front of it. The proxy's target may be a host-generated base URL (a Vercel service binding); `proxyTargetUrl` joins it without doubling a slash.
 
 ### 29.5 Security and personal data
 
@@ -550,13 +555,13 @@ The light tier runs in the API process (`JOBS_MODE=light`, the default; `all` ru
 - Every response carries `SECURITY_HEADERS` (`packages/contracts/constants/securityHeaders.ts`), set by `routeRules` in the API and in the shared layer; the API's answers are also `Cache-Control: no-store`.
 - `defineApiHandler` resolves the principal before it reads or validates anything (an anonymous call is 401 at once) and bounds a JSON body by its declared length (1 MiB, 413 `BODY_TOO_LARGE`; uploads have their own 4 MB bound, and the frontends shrink a larger photo to fit first); the frontends' proxy bounds bodies the same way and gives up on the API after 60 s.
 - PII (`server/security/piiCrypto.ts`): AES-256-GCM with each value bound to its context, under the key ring `PII_ENCRYPTION_KEYS`; blind indexes are HMAC-SHA256 under `PII_LOOKUP_KEY` (for example `passport_lookup`). Passport numbers, guest details, passport images and TOTP secrets are stored encrypted.
-- Passport images are encrypted before they reach the storage driver, stored under `STORAGE_LOCAL_DIR` with the filename `passport.<ext>`. The retention is `passportImageRetentionMonths` (default 12) after check-out. A cancelled or expired booking's scans, and a discarded scan, become due at once. Each full view of passport data is logged.
+- Passport images are encrypted before they reach the storage driver, stored under `STORAGE_LOCAL_DIR` (or in the `s3` bucket) with the filename `passport.<ext>`. The retention is `passportImageRetentionMonths` (default 12) after check-out. A cancelled or expired booking's scans, and a discarded scan, become due at once. Each full view of passport data is logged.
 - Pilgrims' details are erased `guestDataRetentionMonths` (default 24) after check-out (`booking.guest-data-retention`).
 - External passport reading (`PASSPORT_AI`) also needs the organization's opt-in (`passportAiAllowed`).
 
 ### 29.6 Environment
 
-The variables are documented in `apps/api/.env.example` and validated by `server/utils/env.ts`. Phase 2 added: `PII_ENCRYPTION_KEYS`, `PII_LOOKUP_KEY`, `TRUST_PROXY`, `ALLOWED_ORIGINS`, `STAFF_2FA_ENFORCEMENT`, `SMS_DRIVER`, `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN`, `SMS_ALLOWED_CALLING_CODES`, `SMS_HOURLY_LIMIT`, `SMS_DAILY_LIMIT`, `CAPTCHA_DRIVER`, `CAPTCHA_SECRET`, `JOBS_MODE`, `JOBS_POOL_MAX`, `PASSPORT_OCR`, `PASSPORT_AI`, `PASSPORT_AI_MODEL` and `ANTHROPIC_API_KEY`. The frontends read `NUXT_API_PROXY_TARGET`, `NUXT_API_PROXY_TRUST_PROXY`, `NUXT_PUBLIC_ORGANIZATION_SLUG` and `NUXT_PUBLIC_TURNSTILE_SITE_KEY`. Startup is refused in production without `STAFF_2FA_ENFORCEMENT=required-roles`; outside development, `SMS_DRIVER=log` is refused and `SMS_DRIVER=webhook` needs `CAPTCHA_DRIVER=turnstile`; `SMS_DRIVER=webhook` always needs an `https` `SMS_WEBHOOK_URL`, and `CAPTCHA_DRIVER=turnstile` always needs `CAPTCHA_SECRET`. `docs/DEPLOY_CHECKLIST.md` lists the deployment steps.
+The variables are documented in `apps/api/.env.example` and validated by `server/utils/env.ts`. Phase 2 added: `PII_ENCRYPTION_KEYS`, `PII_LOOKUP_KEY`, `TRUST_PROXY`, `ALLOWED_ORIGINS`, `STAFF_2FA_ENFORCEMENT`, `SMS_DRIVER`, `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN`, `SMS_ALLOWED_CALLING_CODES`, `SMS_HOURLY_LIMIT`, `SMS_DAILY_LIMIT`, `CAPTCHA_DRIVER`, `CAPTCHA_SECRET`, `JOBS_MODE`, `JOBS_POOL_MAX`, `PASSPORT_OCR`, `PASSPORT_AI`, `PASSPORT_AI_MODEL` and `ANTHROPIC_API_KEY`; D-P2-67 added `WORKER_JOBS`, `JOBS_POLL_SECONDS` and the `S3_*` storage settings. The frontends read `NUXT_API_PROXY_TARGET`, `NUXT_API_PROXY_TRUST_PROXY`, `NUXT_PUBLIC_ORGANIZATION_SLUG` and `NUXT_PUBLIC_TURNSTILE_SITE_KEY`. Startup is refused in production without `STAFF_2FA_ENFORCEMENT=required-roles`; outside development, `SMS_DRIVER=log` is refused and `SMS_DRIVER=webhook` needs `CAPTCHA_DRIVER=turnstile`; `SMS_DRIVER=webhook` always needs an `https` `SMS_WEBHOOK_URL`, and `CAPTCHA_DRIVER=turnstile` always needs `CAPTCHA_SECRET`. `docs/DEPLOY_CHECKLIST.md` lists the deployment steps.
 
 ---
 

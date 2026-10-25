@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@9.4.0",
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.12.0 <23"
   },
   "scripts": {
     "dev": "pnpm --filter @hajj/api dev",

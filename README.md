@@ -17,6 +17,7 @@ Documentation:
   (§28) and the Phase 2 section (§29).
 - `docs/MIGRATIONS.md` — migration policy, the migration chain and the `btree_gist` prerequisite.
 - `docs/DEPLOY_CHECKLIST.md` — what must hold before a deployment.
+- `docs/DEPLOY_VERCEL.md` — the free MVP deployment: Vercel (the apps, the API, the worker as a daemon) and Supabase.
 - `docs/UI-UX-MASTER-DIRECTION.md` — the UI/UX direction (implemented; see its status note).
 - `docs/phase-2-open-questions.md` — the client questions of the Phase 2 design, with the working assumptions.
 - `docs/superpowers/plans/` — the phase implementation plans, including the Phase 2 build plan and its decision records
@@ -82,7 +83,7 @@ database whose name does not end in `_test`.
 | Command | What it does |
 |---|---|
 | `pnpm dev` | Development server with hot reload (the API). |
-| `pnpm --filter @hajj/api worker` | Background worker: the heavy job tier (passport reading). Run it beside the API in every deployment; `JOBS_MODE` (default `light`) sets what the API itself works. |
+| `pnpm --filter @hajj/api worker` | Background worker: the heavy job tier (passport reading), or every queue with `WORKER_JOBS=all` (when the API only enqueues, as on Vercel). Run it beside the API in every deployment; `JOBS_MODE` (default `light`) sets what the API itself works. |
 | `pnpm rbac:sync` | Upserts the permission catalogue and grants the built-in roles this release's permissions and 2FA flags (additive, idempotent). Run after the migrations. |
 | `pnpm build` | Production build (`.output/`). |
 | `pnpm db:migrate` | Apply pending migrations to `DATABASE_URL`. |
@@ -201,5 +202,6 @@ unit tests of every package run with the root `pnpm lint`, `pnpm typecheck` and 
 captcha, jobs, passport reading, storage, demo). Before any deployment work through `docs/DEPLOY_CHECKLIST.md`; in short:
 secure cookies and a strong session password, PII keys from a secret manager, staff two-factor enforcement
 (`STAFF_2FA_ENFORCEMENT=required-roles`, mandatory in production), the demo seed and demo sign-in off, `btree_gist`
-available, migrations applied before the new version takes traffic, `pnpm rbac:sync` run, a worker beside the API, and a
-persistent, backed-up storage directory (documents and passport images).
+available, migrations applied before the new version takes traffic, `pnpm rbac:sync` run, a worker beside the API, and
+lasting, backed-up file storage for documents and passport images (a persistent directory, or a private S3-compatible
+bucket with `STORAGE_DRIVER=s3`). For a free demo on Vercel and Supabase, follow `docs/DEPLOY_VERCEL.md`.

@@ -14,6 +14,14 @@ const isUnder = (path: string, prefix: string): boolean => (prefix.endsWith('/')
   ? path.startsWith(prefix)
   : path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`))
 
+/**
+ * The API URL a forwarded path goes to: `target` is the API's base (`NUXT_API_PROXY_TARGET`) — an origin, or a base URL
+ * the host generates (a Vercel service binding), possibly ending in `/`; `path` always starts with `/api/`.
+ */
+export function proxyTargetUrl(target: string, path: string): string {
+  return `${target.replace(/\/+$/, '')}${path}`
+}
+
 /** Tabs, newlines and the other C0 controls: never part of a path the app builds. */
 const FIRST_PRINTABLE = 0x20
 export const hasControlCharacter = (text: string): boolean => [...text].some(character => character.charCodeAt(0) < FIRST_PRINTABLE)

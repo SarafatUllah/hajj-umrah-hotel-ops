@@ -39,6 +39,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify` and committed
 | 15 | 2f: public booking API (REQUESTED flow, OTP, abuse limits) | done: 15a public request flow; 15b account closure |
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done; 16g quotes, agencies done; 16h booking settings, booking rules done |
 | 17 | Final review (code, security, database, architecture) and docs | done: 17a data protection, database, security; 17c agency passwords; 17d shared layer, typed contracts; 17e bookings on the room calendar; 17f docs; 17g pull request review (D-P2-66) |
+| 18 | Free MVP hosting: Vercel + Supabase (D-P2-67) | done: 18a S3-compatible storage driver; 18b 4 MB uploads, photos shrunk in the browser; 18c worker works every queue, polling interval; 18d `vercel.json`, worker image, deploy guide |
 
 ## Local environment note
 
@@ -879,6 +880,21 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   hardening (`bookableHotel` mints a `HotelScope` without an authorization, enum columns typed in Drizzle,
   discriminated DTOs); a plain "sign out" on the public site, hreflang and `Vary` for its two languages, passport
   reader errors told apart from unreadable photos, agency pickers past 100 agencies, staff "sign out everywhere".
+- **D-P2-67 (deploy) Free MVP hosting on Vercel and Supabase.** For a demo at no cost (`docs/DEPLOY_VERCEL.md`):
+  one Vercel project (`vercel.json`) runs the three frontends and the API as Services (functions; the API private,
+  reached through service bindings that fill `NUXT_API_PROXY_TARGET`, each frontend chosen by the start of its host
+  name) and the worker as a Daemon (`Dockerfile.worker`, `WORKER_JOBS=all`; the functions only enqueue,
+  `JOBS_MODE=send`); PostgreSQL and the files are on Supabase (session pooler; Storage over its S3 API). What it
+  needed: an S3-compatible `StorageDriver` (`STORAGE_DRIVER=s3`, brought forward from Phase 9: functions and daemons
+  have no lasting disk), uploads capped at 4 MB (a function takes at most 4.5 MB per request; the frontends shrink a
+  larger photo in the browser), `WORKER_JOBS` and `JOBS_POLL_SECONDS` (the free daemon quota counts CPU time), Node 22
+  pinned for Vercel (`engines`), and the proxy joining a host-generated target URL. Checked: unit tests, the driver
+  against a real S3-compatible server (SeaweedFS), the worker image run as the daemon will run it, `vercel.json`
+  against Vercel's schema and a local `vercel build` of the four services (the daemon's image push needs Vercel's own
+  token). Limits accepted for the demo: the free plan is non-commercial only; 5 active CPU hours a month for the
+  daemon (holds stop expiring when they run out); daemons are beta and production-only; no backups on Supabase's free
+  plan; customer SMS sign-in off. Not verifiable before a deployment: whether Vercel's calls between services keep the
+  forwarded visitor address (the guide checks it; `ALLOWED_ORIGINS` covers the CSRF check either way).
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on

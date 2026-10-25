@@ -1,0 +1,16 @@
+# Build context of Dockerfile.worker (the repository root): no secrets, no installed dependencies, no build output.
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.nuxt
+**/.output
+**/.data
+**/.turbo
+**/.vercel
+**/coverage
+**/*.log
+.git
+.github
+.remember
+docs
