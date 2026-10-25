@@ -2,7 +2,8 @@
 
 This guide puts the whole system online at no cost for a demo (D-P2-67): the three websites and the API on Vercel,
 the database and the scheduler of the background jobs on Supabase, the uploaded files on Cloudflare R2. `vercel.json`
-configures Vercel; you create the accounts, paste the settings and run the database setup once.
+configures Vercel; you create the accounts, paste the settings and run the database setup once. How the deployed
+system works, part by part, is in `docs/DEPLOYMENT_ARCHITECTURE.md`.
 
 **Use demo data only.** No real pilgrims' passports on this setup: it has no automatic backups, and where pilgrims'
 data may be stored is still an open client question (client question 27).

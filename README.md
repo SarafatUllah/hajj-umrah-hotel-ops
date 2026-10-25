@@ -19,6 +19,8 @@ Documentation:
 - `docs/DEPLOY_CHECKLIST.md` — what must hold before a deployment.
 - `docs/DEPLOY_VERCEL.md` — the free MVP deployment: Vercel (the apps and the API; background jobs on a 5-minute
   tick), Supabase (the database and the tick's scheduler) and Cloudflare R2 (the files).
+- `docs/DEPLOYMENT_ARCHITECTURE.md` — how that deployment works: what runs where, a request, an upload and a job
+  tick step by step, what is stored where, security and limits.
 - `docs/UI-UX-MASTER-DIRECTION.md` — the UI/UX direction (implemented; see its status note).
 - `docs/phase-2-open-questions.md` — the client questions of the Phase 2 design, with the working assumptions.
 - `docs/superpowers/plans/` — the phase implementation plans, including the Phase 2 build plan and its decision records
