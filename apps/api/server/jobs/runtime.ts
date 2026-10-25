@@ -1,4 +1,5 @@
 import { PgBoss } from 'pg-boss'
+import { databaseSsl } from '@hajj/db/ssl'
 import type { Database, DbOrTx } from '@hajj/db/client'
 import type { JobDefinition, JobTier } from './definition'
 import { pgBossTransactionAdapter } from './pgBossTransaction'
@@ -35,7 +36,7 @@ export class JobRuntimeUnavailableError extends Error {
 }
 
 /** How long a stop waits for in-flight handlers before abandoning them (below a typical 30 s kill grace). */
-const STOP_TIMEOUT_MS = 20_000
+export const STOP_TIMEOUT_MS = 20_000
 
 interface Running { boss: PgBoss, registered: ReadonlyMap<string, JobDefinition<never>> }
 
@@ -92,31 +93,49 @@ export function startJobRuntimeWithRetry(options: JobRuntimeOptions, delaysMs: r
 /** Set while startJobRuntimeWithRetry may still try again; stopJobRuntime cancels it. */
 let cancelStartRetries: (() => void) | null = null
 
-async function boot(options: JobRuntimeOptions): Promise<Running> {
-  const working = options.workTiers.length > 0
-  const boss = new PgBoss({ connectionString: options.connectionString, max: options.poolMax ?? 3, supervise: working, schedule: working })
+/** pg-boss's own timing settings (seconds), for a process that needs other than the defaults. */
+export type BossTiming = Pick<ConstructorParameters<typeof PgBoss>[0] & object, 'cronMonitorIntervalSeconds' | 'cronWorkerIntervalSeconds'>
+
+/** A pg-boss instance for these options: it supervises and runs schedules only when it works some tier. */
+export function createBoss(options: Pick<JobRuntimeOptions, 'connectionString' | 'poolMax'>, working: boolean, timing: BossTiming = {}): PgBoss {
+  // TLS as the app's own pool (DATABASE_SSL): pg-boss's pool must not be the one connection left in clear text.
+  const boss = new PgBoss({ connectionString: options.connectionString, ssl: databaseSsl(), max: options.poolMax ?? 3, supervise: working, schedule: working, ...timing })
   boss.on('error', error => console.error('[jobs]', error))
+  return boss
+}
+
+/**
+ * Every registered queue is created (any process may send to it); for the worked tiers, schedules are reconciled and
+ * handlers attached. A schedule makes up for the time no process ran its cron pass (a deploy, a host that only runs
+ * passes on a tick) with one run for the latest occurrence it missed (`missed: 'once'`; every job is a sweep).
+ */
+export async function registerJobs(boss: PgBoss, options: JobRuntimeOptions): Promise<void> {
+  for (const job of options.jobs) await boss.createQueue(job.name, job.queue ?? {})
+  for (const job of options.jobs) {
+    if (!options.workTiers.includes(job.tier)) continue
+    // Upsert (several processes may declare the same cron; pg-boss fires it once) — or remove a
+    // schedule a definition no longer has.
+    if (job.schedule) await boss.schedule(job.name, job.schedule.cron, null, { tz: job.schedule.tz ?? 'UTC', missed: 'once' })
+    else await boss.unschedule(job.name)
+    await boss.work<object>(job.name, { batchSize: 1, pollingIntervalSeconds: options.pollingIntervalSeconds ?? 2 }, async ([item]) => {
+      if (!item) return
+      try {
+        await job.handle(item.data as never, { db: options.db, jobId: item.id })
+      }
+      catch (error) {
+        console.error(`[jobs] ${job.name} ${item.id} failed`, error)
+        throw error // pg-boss records the failure and applies the queue's retry policy
+      }
+    })
+  }
+}
+
+async function boot(options: JobRuntimeOptions): Promise<Running> {
+  const boss = createBoss(options, options.workTiers.length > 0)
   try {
     // Inside the try: a start that fails half-way leaves timers and a pool, which the catch stops (retries would pile them up).
     await boss.start()
-    for (const job of options.jobs) await boss.createQueue(job.name, job.queue ?? {})
-    for (const job of options.jobs) {
-      if (!options.workTiers.includes(job.tier)) continue
-      // Upsert (several processes may declare the same cron; pg-boss fires it once) — or remove a
-      // schedule a definition no longer has.
-      if (job.schedule) await boss.schedule(job.name, job.schedule.cron, null, { tz: job.schedule.tz ?? 'UTC' })
-      else await boss.unschedule(job.name)
-      await boss.work<object>(job.name, { batchSize: 1, pollingIntervalSeconds: options.pollingIntervalSeconds ?? 2 }, async ([item]) => {
-        if (!item) return
-        try {
-          await job.handle(item.data as never, { db: options.db, jobId: item.id })
-        }
-        catch (error) {
-          console.error(`[jobs] ${job.name} ${item.id} failed`, error)
-          throw error // pg-boss records the failure and applies the queue's retry policy
-        }
-      })
-    }
+    await registerJobs(boss, options)
     return { boss, registered: new Map(options.jobs.map(job => [job.name, job])) }
   }
   catch (error) {

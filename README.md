@@ -84,7 +84,7 @@ database whose name does not end in `_test`.
 | Command | What it does |
 |---|---|
 | `pnpm dev` | Development server with hot reload (the API). |
-| `pnpm --filter @hajj/api worker` | Background worker: the heavy job tier (passport reading), or every queue with `WORKER_JOBS=all` (when the API only enqueues, as on Vercel). Run it beside the API in every deployment; `JOBS_MODE` (default `light`) sets what the API itself works. |
+| `pnpm --filter @hajj/api worker` | Background worker: the heavy job tier (passport reading), or every queue with `WORKER_JOBS=all` (when the API only enqueues). Where nothing runs all the time (Vercel's free plan), a scheduler calls `POST /api/jobs/tick` instead (`JOBS_TICK_SECRET`). Run it beside the API in every deployment; `JOBS_MODE` (default `light`) sets what the API itself works. |
 | `pnpm rbac:sync` | Upserts the permission catalogue and grants the built-in roles this release's permissions and 2FA flags (additive, idempotent). Run after the migrations. |
 | `pnpm build` | Production build (`.output/`). |
 | `pnpm db:migrate` | Apply pending migrations to `DATABASE_URL`. |

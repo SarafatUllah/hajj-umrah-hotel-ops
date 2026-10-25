@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import * as schema from './schema'
+import { databaseSsl, type DatabaseSsl } from './ssl'
 
 function buildDb(client: postgres.Sql) {
   return drizzle(client, { schema })
@@ -13,14 +14,21 @@ export interface DbHandle {
   close: () => Promise<void>
 }
 
+export interface DbOptions {
+  max?: number
+  /** TLS for the connections; by default `DATABASE_SSL`/`DATABASE_SSL_CA` from the environment (./ssl). */
+  ssl?: DatabaseSsl
+}
+
 /**
  * Builds a Drizzle handle together with the `close()` needed to end its
  * underlying connection pool cleanly (used by long-lived server code and by
  * one-off scripts that must not leave the process hanging on an open pool).
  */
-export function createDbWithClient(connectionString: string, options?: { max?: number }): DbHandle {
+export function createDbWithClient(connectionString: string, options?: DbOptions): DbHandle {
   const client = postgres(connectionString, {
     max: options?.max ?? 10,
+    ssl: options?.ssl ?? databaseSsl(),
     idle_timeout: 20,
     connect_timeout: 10,
     onnotice: () => {},
@@ -30,7 +38,7 @@ export function createDbWithClient(connectionString: string, options?: { max?: n
 
 // Unchanged signature, kept for scripts that only need the Drizzle handle
 // and manage the process lifecycle themselves (e.g. short migration runs).
-export function createDb(connectionString: string, options?: { max?: number }): Database {
+export function createDb(connectionString: string, options?: DbOptions): Database {
   return createDbWithClient(connectionString, options).db
 }
 

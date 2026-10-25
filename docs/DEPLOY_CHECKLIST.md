@@ -65,6 +65,10 @@ deployment on Vercel and Supabase has its own step-by-step guide, `docs/DEPLOY_V
 
 ## Database and migrations
 
+- [ ] A database reached over a network uses TLS: `DATABASE_SSL=verify` (with `DATABASE_SSL_CA` when the provider's CA
+      is not a public one, e.g. Supabase's), and no `sslmode` in `DATABASE_URL`. `off` only for a database on the
+      same host or private network.
+
 - [ ] The migrating role can run `CREATE EXTENSION btree_gist` — on PostgreSQL 13+ `btree_gist` is a trusted
       extension, so a non-superuser with `CREATE` privilege on the database may create it — **or** an administrator
       has pre-created it: `CREATE EXTENSION IF NOT EXISTS btree_gist;` in the target database. Never edit a

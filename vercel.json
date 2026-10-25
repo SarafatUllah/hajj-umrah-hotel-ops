@@ -31,20 +31,11 @@
     }
   },
   "rewrites": [
+    { "source": "/api/jobs/tick", "destination": { "service": "api" } },
     { "source": "/(.*)", "has": [{ "type": "host", "value": { "pre": "agency." } }], "destination": { "service": "agency" } },
     { "source": "/(.*)", "has": [{ "type": "host", "value": { "pre": "agency-" } }], "destination": { "service": "agency" } },
     { "source": "/(.*)", "has": [{ "type": "host", "value": { "pre": "ops." } }], "destination": { "service": "ops" } },
     { "source": "/(.*)", "has": [{ "type": "host", "value": { "pre": "ops-" } }], "destination": { "service": "ops" } },
     { "source": "/(.*)", "destination": { "service": "site" } }
-  ],
-  "daemons": {
-    "worker": {
-      "root": "./",
-      "entrypoint": "Dockerfile.worker",
-      "command": ["sh", "-c", "WORKER_JOBS=all exec node --import tsx worker/index.ts"],
-      "instances": { "bom1": 1 },
-      "resources": { "requests": { "memory": "1Gi" } },
-      "terminationGracePeriodSeconds": 30
-    }
-  }
+  ]
 }

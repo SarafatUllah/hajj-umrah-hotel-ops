@@ -294,7 +294,7 @@ Direction (unchanged): a `StorageDriver` abstraction, metadata in PostgreSQL, by
 ## 17. Deployment Architecture
 
 - **Processes (as shipped in Phase 2):** the API (Nitro; the light job tier by default, `JOBS_MODE=light`), the worker (`pnpm --filter @hajj/api worker`, heavy tier by default, every queue with `WORKER_JOBS=all`) and the three frontends. `Dockerfile.worker` builds the worker's image (repository root as context); the API and the frontends build with `nuxt build`.
-- **Free MVP hosting (D-P2-67, `docs/DEPLOY_VERCEL.md`):** one Vercel project (`vercel.json`): the three frontends and the API as Vercel Services (functions; the API private, reached through service bindings that fill `NUXT_API_PROXY_TARGET`; each frontend chosen by the start of its host name), the worker as a Vercel Daemon working every queue (`JOBS_MODE=send` in the functions), PostgreSQL and the files on Supabase (session pooler, `STORAGE_DRIVER=s3`). Demo data only (no backups, free-plan quotas).
+- **Free MVP hosting (D-P2-67, `docs/DEPLOY_VERCEL.md`):** one Vercel project (`vercel.json`): the three frontends and the API as Vercel Services (functions; the API private, reached through service bindings that fill `NUXT_API_PROXY_TARGET`; each frontend chosen by the start of its host name), the background jobs as a **job tick** (`POST /api/jobs/tick`, the API's one public path, secret-protected: Supabase Cron calls it every 5 minutes and one job pass runs every due schedule and queued job, `server/jobs/pass.ts`; the functions only enqueue, `JOBS_MODE=send`), PostgreSQL and the files on Supabase (session pooler, TLS verified with `DATABASE_SSL=verify`, `STORAGE_DRIVER=s3`). The free plan's Daemons are metered by the hour, too little for an always-on worker; on Vercel Pro the worker can run as a Daemon instead. Demo data only (no backups, free-plan quotas).
 - **Managed PostgreSQL** (Neon or Supabase recommended — see §18) rather than self-hosted, for automated backups/PITR without ops burden.
 - **Object storage**: Cloudflare R2 (S3-compatible, no egress fees).
 - **Reverse proxy/TLS/CDN**: handled by the hosting platform (Railway/Render/Fly all provide this) rather than custom nginx config.
@@ -303,9 +303,9 @@ Direction (unchanged): a `StorageDriver` abstraction, metadata in PostgreSQL, by
 
 ## 18. Low-Cost Deployment Options
 
-Free MVP stack (D-P2-67): Vercel (free plan: non-commercial use only; a daemon quota of 5 active CPU hours a month) and
-Supabase (500 MB database, 1 GB files, no backups) — `docs/DEPLOY_VERCEL.md`; Vercel Pro lifts the limits without code
-changes.
+Free MVP stack (D-P2-67): Vercel (free plan: non-commercial use only; jobs on a 5-minute tick, its Daemons being
+metered by the hour) and Supabase (500 MB database, 1 GB files, Cron for the tick, no backups) — `docs/DEPLOY_VERCEL.md`;
+Vercel Pro lifts the limits (and can run the worker as a Daemon) without code changes.
 
 Recommended starting stack for real customers (re-evaluate only if usage outgrows it):
 - **App hosting:** Railway or Fly.io — container-native, cheap always-on small instances (needed since background jobs require a persistent process, ruling out pure serverless functions for the worker).
@@ -540,7 +540,7 @@ Cron times are UTC.
 | `event.booking.confirmed.notify-booker`, `event.booking.cancelled.notify-booker` | light | on event | texts the booker when SMS is configured |
 | `events.receipt-prune` | light | daily 03:45 | prunes event receipts older than any retry |
 
-The light tier runs in the API process (`JOBS_MODE=light`, the default; `all` runs both tiers in one process). The heavy tier runs only in the worker (`pnpm --filter @hajj/api worker`), whatever `JOBS_MODE` says. `send` only enqueues and `off` runs no job runtime. With `WORKER_JOBS=all` the worker works every queue and schedule, for hosts whose API only enqueues (serverless functions, D-P2-67). `JOBS_POLL_SECONDS` (default 2) sets how often each worked queue is polled. Each event handler is its own job, with 5 retries and backoff.
+The light tier runs in the API process (`JOBS_MODE=light`, the default; `all` runs both tiers in one process). The heavy tier runs only in the worker (`pnpm --filter @hajj/api worker`), whatever `JOBS_MODE` says. `send` only enqueues and `off` runs no job runtime. With `WORKER_JOBS=all` the worker works every queue and schedule, for hosts whose API only enqueues (serverless functions, D-P2-67). `JOBS_POLL_SECONDS` (default 2) sets how often each worked queue is polled. Where nothing runs all the time, `POST /api/jobs/tick` (on with `JOBS_TICK_SECRET`) runs one job pass per call: every tier, the cron pass once, until no job is ready or running (at least 3 s, at most 20 s). Schedules make up for the time no cron pass ran with one run of the latest missed occurrence (`missed: 'once'`; every scheduled job is an idempotent sweep). Each event handler is its own job, with 5 retries and backoff.
 
 ### 29.4 Frontends, proxy and ports
 
@@ -561,7 +561,7 @@ The light tier runs in the API process (`JOBS_MODE=light`, the default; `all` ru
 
 ### 29.6 Environment
 
-The variables are documented in `apps/api/.env.example` and validated by `server/utils/env.ts`. Phase 2 added: `PII_ENCRYPTION_KEYS`, `PII_LOOKUP_KEY`, `TRUST_PROXY`, `ALLOWED_ORIGINS`, `STAFF_2FA_ENFORCEMENT`, `SMS_DRIVER`, `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN`, `SMS_ALLOWED_CALLING_CODES`, `SMS_HOURLY_LIMIT`, `SMS_DAILY_LIMIT`, `CAPTCHA_DRIVER`, `CAPTCHA_SECRET`, `JOBS_MODE`, `JOBS_POOL_MAX`, `PASSPORT_OCR`, `PASSPORT_AI`, `PASSPORT_AI_MODEL` and `ANTHROPIC_API_KEY`; D-P2-67 added `WORKER_JOBS`, `JOBS_POLL_SECONDS` and the `S3_*` storage settings. The frontends read `NUXT_API_PROXY_TARGET`, `NUXT_API_PROXY_TRUST_PROXY`, `NUXT_PUBLIC_ORGANIZATION_SLUG` and `NUXT_PUBLIC_TURNSTILE_SITE_KEY`. Startup is refused in production without `STAFF_2FA_ENFORCEMENT=required-roles`; outside development, `SMS_DRIVER=log` is refused and `SMS_DRIVER=webhook` needs `CAPTCHA_DRIVER=turnstile`; `SMS_DRIVER=webhook` always needs an `https` `SMS_WEBHOOK_URL`, and `CAPTCHA_DRIVER=turnstile` always needs `CAPTCHA_SECRET`. `docs/DEPLOY_CHECKLIST.md` lists the deployment steps.
+The variables are documented in `apps/api/.env.example` and validated by `server/utils/env.ts`. Phase 2 added: `PII_ENCRYPTION_KEYS`, `PII_LOOKUP_KEY`, `TRUST_PROXY`, `ALLOWED_ORIGINS`, `STAFF_2FA_ENFORCEMENT`, `SMS_DRIVER`, `SMS_WEBHOOK_URL`, `SMS_WEBHOOK_TOKEN`, `SMS_ALLOWED_CALLING_CODES`, `SMS_HOURLY_LIMIT`, `SMS_DAILY_LIMIT`, `CAPTCHA_DRIVER`, `CAPTCHA_SECRET`, `JOBS_MODE`, `JOBS_POOL_MAX`, `PASSPORT_OCR`, `PASSPORT_AI`, `PASSPORT_AI_MODEL` and `ANTHROPIC_API_KEY`; D-P2-67 added `WORKER_JOBS`, `JOBS_POLL_SECONDS`, `JOBS_TICK_SECRET`, `DATABASE_SSL`, `DATABASE_SSL_CA` and the `S3_*` storage settings. The frontends read `NUXT_API_PROXY_TARGET`, `NUXT_API_PROXY_TRUST_PROXY`, `NUXT_PUBLIC_ORGANIZATION_SLUG` and `NUXT_PUBLIC_TURNSTILE_SITE_KEY`. Startup is refused in production without `STAFF_2FA_ENFORCEMENT=required-roles`; outside development, `SMS_DRIVER=log` is refused and `SMS_DRIVER=webhook` needs `CAPTCHA_DRIVER=turnstile`; `SMS_DRIVER=webhook` always needs an `https` `SMS_WEBHOOK_URL`, and `CAPTCHA_DRIVER=turnstile` always needs `CAPTCHA_SECRET`. `docs/DEPLOY_CHECKLIST.md` lists the deployment steps.
 
 ---
 

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DATABASE_SSL_MODES } from '@hajj/db/ssl'
 import { DEFAULT_DEMO_ANCHOR_DATE, DEMO_ANCHOR_MAX, DEMO_ANCHOR_MIN, isValidDemoAnchorDate } from '../demo/catalog'
 import { parseKeyRing, parseLookupKey } from '../security/piiCrypto'
 
@@ -40,6 +41,11 @@ const envBase = z.object({
   APP_ENV: z.enum(['development', 'demo', 'staging', 'production']).default('development'),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(50).default(10),
+  // TLS for every database connection (packages/db/ssl.ts): off (default, a local database) | verify (encrypted and the
+  // certificate checked, against DATABASE_SSL_CA when set) | require (encrypted, not checked). A hosted database
+  // reached over the internet needs verify (D-P2-67).
+  DATABASE_SSL: z.enum(DATABASE_SSL_MODES, { errorMap: () => ({ message: 'DATABASE_SSL must be off, require or verify' }) }).default('off'),
+  DATABASE_SSL_CA: z.string().refine(value => value.includes('-----BEGIN CERTIFICATE-----'), { message: 'DATABASE_SSL_CA must be a PEM certificate (-----BEGIN CERTIFICATE----- …)' }).optional(),
   NUXT_SESSION_PASSWORD: z.string().min(32, 'NUXT_SESSION_PASSWORD must be at least 32 characters'),
   // Read by nuxt.config.ts (unset = true); validated here only so production can refuse `false`.
   NUXT_SESSION_COOKIE_SECURE: z.string().optional(),
@@ -100,6 +106,9 @@ const envBase = z.object({
   // How often each queue a process works is polled for new jobs (seconds). Longer = less database and CPU time while
   // idle (a quota-metered host), at the cost of a job starting up to that much later; schedules are not affected.
   JOBS_POLL_SECONDS: z.coerce.number({ invalid_type_error: 'JOBS_POLL_SECONDS must be a number of seconds' }).int().min(1, 'JOBS_POLL_SECONDS must be 1-300').max(300, 'JOBS_POLL_SECONDS must be 1-300').default(2),
+  // The job tick (POST /api/jobs/tick): a scheduler calls it with this bearer token to run one job pass, on hosts with
+  // no always-on worker (Vercel's free plan, D-P2-67). Unset = the route does not exist (404).
+  JOBS_TICK_SECRET: z.string().min(32, 'JOBS_TICK_SECRET must be at least 32 characters (openssl rand -hex 32)').optional(),
   // Phase 2d: reading passport images (v7 §13), in the worker. `PASSPORT_OCR=tesseract` reads the MRZ on our own
   // server (the worker image must have the `tesseract.js` package and its English data installed); `none` (default)
   // sends every scan straight to manual review. `PASSPORT_AI=anthropic` is the external fallback (Claude vision) when

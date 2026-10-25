@@ -8,7 +8,8 @@
     "./schema": "./schema/index.ts",
     "./schema/*": "./schema/*.ts",
     "./client": "./client.ts",
-    "./migrations": "./migrations.ts"
+    "./migrations": "./migrations.ts",
+    "./ssl": "./ssl.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",

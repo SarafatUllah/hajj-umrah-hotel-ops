@@ -158,6 +158,34 @@ describe('getEnv', () => {
     expect(() => getEnv()).toThrow(new RegExp(name))
   })
 
+  it('connects without TLS by default; DATABASE_SSL takes off, require or verify, and the CA must be a PEM certificate', () => {
+    Object.assign(process.env, REQUIRED_VARS)
+    delete process.env.DATABASE_SSL
+    delete process.env.DATABASE_SSL_CA
+    expect(getEnv().DATABASE_SSL).toBe('off')
+    resetEnvCache()
+    Object.assign(process.env, { DATABASE_SSL: 'verify', DATABASE_SSL_CA: '-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----' })
+    expect(getEnv()).toMatchObject({ DATABASE_SSL: 'verify' })
+    resetEnvCache()
+    process.env.DATABASE_SSL = 'true'
+    expect(() => getEnv()).toThrow(/DATABASE_SSL must be off, require or verify/)
+    resetEnvCache()
+    Object.assign(process.env, { DATABASE_SSL: 'verify', DATABASE_SSL_CA: 'not a certificate' })
+    expect(() => getEnv()).toThrow(/DATABASE_SSL_CA must be a PEM certificate/)
+  })
+
+  it('leaves the job tick off unless JOBS_TICK_SECRET is set, and refuses a short secret', () => {
+    Object.assign(process.env, REQUIRED_VARS)
+    delete process.env.JOBS_TICK_SECRET
+    expect(getEnv().JOBS_TICK_SECRET).toBeUndefined()
+    resetEnvCache()
+    process.env.JOBS_TICK_SECRET = 'x'.repeat(32)
+    expect(getEnv().JOBS_TICK_SECRET).toBe('x'.repeat(32))
+    resetEnvCache()
+    process.env.JOBS_TICK_SECRET = 'too-short'
+    expect(() => getEnv()).toThrow(/JOBS_TICK_SECRET must be at least 32 characters/)
+  })
+
   it('caches the parsed result until resetEnvCache is called', () => {
     Object.assign(process.env, REQUIRED_VARS)
     const first = getEnv()
