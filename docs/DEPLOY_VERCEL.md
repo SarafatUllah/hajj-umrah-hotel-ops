@@ -230,18 +230,23 @@ secret, run `select cron.unschedule('hajj-jobs-tick');` and schedule it again.
    the SQL Editor shows `200` and `{"idle":true,…}`; the photo's status has left "queued" (to manual review: no OCR is
    configured). A `401` means the secret in the schedule differs from `JOBS_TICK_SECRET`; a `404`, that
    `JOBS_TICK_SECRET` is not set in Vercel (or not yet deployed).
-5. The rate limits see each visitor's own address. Open the public site, then run in the SQL Editor, with your public
-   address (any "what is my IP" page) in place of `203.0.113.7`:
+5. The rate limits see each visitor's own address. Open the public site over IPv4 (or `curl -4` its
+   `/api/public/hotels?organization=demo`), then run in the SQL Editor, with the first three parts of your public
+   address (any "what is my IP" page) in place of `203.0.113`:
 
    ```sql
-   select count(*) from rate_limit_bucket
-   where key = 'public-catalog-ip:' || encode(sha256(convert_to('203.0.113.7', 'UTF8')), 'hex');
+   select n as last_part, b.hits
+   from generate_series(0, 255) as n
+   join rate_limit_bucket b
+     on b.key = 'public-catalog-ip:' || encode(sha256(convert_to('203.0.113.' || n, 'UTF8')), 'hex');
    ```
 
-   (an IPv6 address counts by its first four groups: `2001:db8:85a3:8d3::/64` for `2001:db8:85a3:8d3:…`.)
-   `1` = the API sees your address (keys hold a hash of it, never the address). `0` = it sees another one, so every
-   visitor would share one limit: check that `TRUST_VISITOR_HEADER` and `NUXT_API_PROXY_TRUST_PROXY` are `true` in
-   Production and that the latest deployment has them.
+   Keys hold a hash of the address, never the address. A row (or several) = the API sees your own address. Several
+   rows are normal: many providers send traffic out through a pool of public addresses, so the "what is my IP" page
+   can show a different one than a request used — which is why this checks the whole block. No row = it sees another
+   address, so every visitor would share one limit: check that `TRUST_VISITOR_HEADER` and
+   `NUXT_API_PROXY_TRUST_PROXY` are `true` in Production and that the latest deployment has them. (An IPv6 visitor
+   counts by the first four groups of the address: `2001:db8:85a3:8d3::/64` for `2001:db8:85a3:8d3:…`.)
 
 ## Updating
 
