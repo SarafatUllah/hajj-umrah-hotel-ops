@@ -17,7 +17,7 @@ async function signedIn(result: CustomerSignIn) {
   <div class="mx-auto flex max-w-md flex-col gap-6">
     <PageHeader :title="t('signIn.title')" :description="t('signIn.lead')" />
     <div class="surface-panel p-6">
-      <PhoneCodeForm @signed-in="signedIn" />
+      <CodeSignInForm @signed-in="signedIn" />
     </div>
   </div>
 </template>

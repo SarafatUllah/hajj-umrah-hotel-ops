@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useMutation } from '@tanstack/vue-query'
 import type { CustomerSignIn } from '@hajj/contracts/types/customer'
+import { ownDestination } from '../utils/signIn'
 
 definePageMeta({ middleware: 'auth' })
 const { t } = useI18n()
@@ -34,10 +35,13 @@ const close = useMutation({
     if (toApiError(error).code === 'STEP_UP_REQUIRED') stepUp.value = true
   },
 })
+// The code goes to the customer's own phone or address, so it signs this same account in again; should it ever sign
+// another one in, that account is not closed.
 function confirmedWithCode(result: CustomerSignIn) {
+  const sameAccount = result.customer.id === customer.value?.id
   customer.value = result.customer
   stepUp.value = false
-  close.mutate()
+  if (sameAccount) close.mutate()
 }
 </script>
 
@@ -49,7 +53,11 @@ function confirmedWithCode(result: CustomerSignIn) {
         <dt class="text-caption text-(--fg-muted)">{{ t('account.name') }}</dt>
         <dd><bdi>{{ customer.fullName }}</bdi></dd>
       </div>
-      <div>
+      <div v-if="customer.email">
+        <dt class="text-caption text-(--fg-muted)">{{ t('account.email') }}</dt>
+        <dd><bdi dir="ltr">{{ customer.email }}</bdi></dd>
+      </div>
+      <div v-if="customer.phone">
         <dt class="text-caption text-(--fg-muted)">{{ t('account.phone') }}</dt>
         <dd class="tabular" dir="ltr">{{ customer.phone }}</dd>
       </div>
@@ -64,7 +72,7 @@ function confirmedWithCode(result: CustomerSignIn) {
       <UAlert v-if="close.error.value && !stepUp" color="error" variant="soft" icon="i-lucide-triangle-alert" :title="errorMessage(close.error.value)" role="alert" />
       <div v-if="stepUp" class="surface-panel flex flex-col gap-4 p-5">
         <p>{{ t('account.stepUp') }}</p>
-        <PhoneCodeForm :fixed-phone="customer.phone ?? undefined" :submit-label="t('account.close')" @signed-in="confirmedWithCode" />
+        <CodeSignInForm :fixed="ownDestination(customer)" :submit-label="t('account.close')" @signed-in="confirmedWithCode" />
         <UButton color="neutral" variant="ghost" class="self-start" @click="stepUp = false">{{ t('common.cancel') }}</UButton>
       </div>
       <UButton v-else color="error" variant="outline" icon="i-lucide-user-x" class="self-start" @click="closeOpen = true">{{ t('account.close') }}</UButton>
