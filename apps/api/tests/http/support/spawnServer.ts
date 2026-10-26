@@ -11,10 +11,11 @@ const PROJECT_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const LISTENING_RE = /Listening on (https?:\/\/\S+)/
 
 /**
- * A free TCP port. Nitro treats `PORT=0` as "unset" (falls back to 3000), so extra servers get an explicit
- * port picked by the OS here instead (a tiny race window between closing the probe and the server binding is accepted).
+ * A free TCP port. Nitro treats `PORT=0` as "unset" (falls back to 3000), so every test server — the harness's own
+ * included — gets an explicit port picked by the OS here instead (a tiny race window between closing the probe and
+ * the server binding is accepted).
  */
-async function freePort(): Promise<number> {
+export async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createServer()
     probe.once('error', reject)
