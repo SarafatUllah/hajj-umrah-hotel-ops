@@ -284,6 +284,7 @@
       "DOCUMENT_NOT_FOUND": "هذا المستند غير موجود، أو لا يمكنك رؤيته.",
       "DUPLICATE_PASSPORT_IN_BOOKING": "هذا الجواز مُدخل بالفعل في مكان آخر من هذا الحجز.",
       "DUPLICATE_ROOM_NUMBER": "رقم الغرفة نفسه مكرر.",
+      "EMAIL_UNAVAILABLE": "لا يمكن إرسال رسائل البريد الإلكتروني الآن. حاول لاحقًا.",
       "EMPTY_FILE": "الملف فارغ.",
       "ESCALATION_DENIED": "لا يمكنك منح صلاحيات أكثر مما لديك.",
       "FILE_TOO_LARGE": "الملف كبير جدًا.",

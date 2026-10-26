@@ -28,6 +28,23 @@ const isExactOrigin = (value: string): boolean => {
   }
 }
 
+/** A sender as `EMAIL_FROM` gives it: the display name (null when none) and the address. */
+export interface Mailbox { name: string | null, address: string }
+
+/** `Name <address>` (the name optionally quoted; no quotes, angle brackets or line breaks inside it) or a bare address. */
+const MAILBOX_PATTERN = /^\s*(?:"?([^"<>\r\n]*?)"?\s*<([^<>\s]+)>|([^<>\s"]+))\s*$/
+
+/** `EMAIL_FROM`: the sender of every e-mail. Its name is also the site name the sign-in e-mail gives. */
+const mailbox = z.string().transform((value, ctx): Mailbox => {
+  const match = MAILBOX_PATTERN.exec(value)
+  const address = match?.[2] ?? match?.[3]
+  if (!address || !z.string().email().safeParse(address).success) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'EMAIL_FROM must be an address or "Name <address>", e.g. "Hajj & Umrah Stays <bookings@example.com>"' })
+    return z.NEVER
+  }
+  return { name: match![1]?.trim() || null, address }
+})
+
 /** `ALLOWED_ORIGINS`: comma-separated exact origins (`https://ops.example.com`), or unset = same host only. */
 const originList = z.string().optional().transform((value, ctx) => {
   const origins = (value ?? '').split(',').map(part => part.trim()).filter(Boolean)
@@ -98,6 +115,22 @@ const envBase = z.object({
   // SMS budget per organization (all phones): a flood cannot run up the bill or lock everyone out for long.
   SMS_HOURLY_LIMIT: z.coerce.number().int().min(1).max(100_000).default(300),
   SMS_DAILY_LIMIT: z.coerce.number().int().min(1).max(1_000_000).default(2000),
+  // D-P2-68: customer sign-in codes by e-mail (and the booking messages of customers who sign in that way).
+  // `disabled` (default) = e-mail sign-in answers 503; `log` = development only (writes the message to the server log;
+  // refused elsewhere); `smtp` = an SMTP server, always over TLS (Gmail: smtp.gmail.com, 465, an app password);
+  // `resend` = Resend's HTTP API with RESEND_API_KEY (it delivers only from a domain verified there).
+  EMAIL_DRIVER: z.enum(['disabled', 'log', 'smtp', 'resend'], { errorMap: () => ({ message: 'EMAIL_DRIVER must be disabled, log, smtp or resend' }) }).default('disabled'),
+  EMAIL_FROM: mailbox.optional(),
+  SMTP_HOST: z.string().trim().min(1, 'SMTP_HOST must not be empty').optional(),
+  // 465 = TLS from the first byte; any other port must upgrade with STARTTLS (never clear text).
+  SMTP_PORT: z.coerce.number({ invalid_type_error: 'SMTP_PORT must be a port number' }).int('SMTP_PORT must be a port number').min(1, 'SMTP_PORT must be a port number').max(65_535, 'SMTP_PORT must be a port number').default(465),
+  SMTP_USER: z.string().trim().min(1, 'SMTP_USER must not be empty').optional(),
+  SMTP_PASSWORD: z.string().min(1, 'SMTP_PASSWORD must not be empty').optional(),
+  RESEND_API_KEY: z.string().min(1, 'RESEND_API_KEY must not be empty').optional(),
+  // E-mail budget per organization for sign-in codes (all addresses together). Gmail sends about 500 a day per
+  // account, booking messages included: the default day stays under it.
+  EMAIL_HOURLY_LIMIT: z.coerce.number().int().min(1).max(100_000).default(100),
+  EMAIL_DAILY_LIMIT: z.coerce.number().int().min(1).max(1_000_000).default(400),
   // Bot check on the code request: `off` (default) or `turnstile` (Cloudflare Turnstile, secret in CAPTCHA_SECRET).
   CAPTCHA_DRIVER: z.enum(['off', 'turnstile'], { errorMap: () => ({ message: 'CAPTCHA_DRIVER must be off or turnstile' }) }).default('off'),
   CAPTCHA_SECRET: z.string().min(1).optional(),
@@ -148,9 +181,9 @@ const EXAMPLE_SESSION_PASSWORD_PREFIX = 'change-this'
 /**
  * Production may not run without staff two-factor enforcement (design v7 §21: a launch prerequisite) or with a
  * session cookie that is not Secure; no shared environment (anything but development) may write sign-in codes to the
- * log or seal sessions with the example password.
+ * log, send them without the bot check or seal sessions with the example password.
  */
-function refineProductionSecurity(env: { APP_ENV: string, STAFF_2FA_ENFORCEMENT: string, SMS_DRIVER: string, CAPTCHA_DRIVER: string, NUXT_SESSION_PASSWORD: string, NUXT_SESSION_COOKIE_SECURE?: string }, ctx: z.RefinementCtx): void {
+function refineProductionSecurity(env: { APP_ENV: string, STAFF_2FA_ENFORCEMENT: string, SMS_DRIVER: string, EMAIL_DRIVER: string, CAPTCHA_DRIVER: string, NUXT_SESSION_PASSWORD: string, NUXT_SESSION_COOKIE_SECURE?: string }, ctx: z.RefinementCtx): void {
   if (env.APP_ENV === 'production' && env.STAFF_2FA_ENFORCEMENT !== 'required-roles') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['STAFF_2FA_ENFORCEMENT'], message: 'STAFF_2FA_ENFORCEMENT must be required-roles with APP_ENV=production' })
   }
@@ -169,6 +202,13 @@ function refineProductionSecurity(env: { APP_ENV: string, STAFF_2FA_ENFORCEMENT:
   if (env.APP_ENV !== 'development' && env.SMS_DRIVER !== 'disabled' && env.SMS_DRIVER !== 'log' && env.CAPTCHA_DRIVER !== 'turnstile') {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CAPTCHA_DRIVER'], message: 'CAPTCHA_DRIVER must be turnstile when sign-in codes are texted outside APP_ENV=development' })
   }
+  if (env.APP_ENV !== 'development' && env.EMAIL_DRIVER === 'log') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['EMAIL_DRIVER'], message: 'EMAIL_DRIVER=log is allowed only with APP_ENV=development' })
+  }
+  // E-mailing them needs it too: a stranger's inbox flooded with codes, the sender's daily quota and reputation spent.
+  if (env.APP_ENV !== 'development' && (env.EMAIL_DRIVER === 'smtp' || env.EMAIL_DRIVER === 'resend') && env.CAPTCHA_DRIVER !== 'turnstile') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CAPTCHA_DRIVER'], message: 'CAPTCHA_DRIVER must be turnstile when sign-in codes are e-mailed outside APP_ENV=development' })
+  }
 }
 
 /** The webhook driver needs an https URL (a sign-in code must never travel in clear text); Turnstile needs its secret. */
@@ -178,6 +218,20 @@ function refineSmsWebhook(env: { SMS_DRIVER: string, SMS_WEBHOOK_URL?: string, C
   }
   if (env.CAPTCHA_DRIVER === 'turnstile' && !env.CAPTCHA_SECRET) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['CAPTCHA_SECRET'], message: 'CAPTCHA_SECRET is required with CAPTCHA_DRIVER=turnstile' })
+  }
+}
+
+/** What each sending e-mail driver needs (D-P2-68). */
+const EMAIL_REQUIRED = {
+  smtp: ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD', 'EMAIL_FROM'],
+  resend: ['RESEND_API_KEY', 'EMAIL_FROM'],
+} as const
+
+/** Each sending e-mail driver needs its settings: named when missing, never echoed (two of them are secrets). */
+function refineEmail(env: { EMAIL_DRIVER: string, SMTP_HOST?: string, SMTP_USER?: string, SMTP_PASSWORD?: string, RESEND_API_KEY?: string, EMAIL_FROM?: Mailbox }, ctx: z.RefinementCtx): void {
+  if (env.EMAIL_DRIVER !== 'smtp' && env.EMAIL_DRIVER !== 'resend') return
+  for (const name of EMAIL_REQUIRED[env.EMAIL_DRIVER]) {
+    if (!env[name]) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: `${name} is required with EMAIL_DRIVER=${env.EMAIL_DRIVER}` })
   }
 }
 
@@ -215,7 +269,7 @@ function refinePassportAi(env: { PASSPORT_AI: string, ANTHROPIC_API_KEY?: string
   }
 }
 
-const envSchema = envBase.superRefine(refineDemoSignIn).superRefine(refineProductionSecurity).superRefine(refineDistinctPiiKeys).superRefine(refineSmsWebhook).superRefine(refinePassportAi).superRefine(refineS3Storage)
+const envSchema = envBase.superRefine(refineDemoSignIn).superRefine(refineProductionSecurity).superRefine(refineDistinctPiiKeys).superRefine(refineSmsWebhook).superRefine(refineEmail).superRefine(refinePassportAi).superRefine(refineS3Storage)
 
 export type Env = z.infer<typeof envSchema>
 

@@ -284,6 +284,7 @@
       "DOCUMENT_NOT_FOUND": "This document doesn't exist, or you can't see it.",
       "DUPLICATE_PASSPORT_IN_BOOKING": "This passport is already in another place of this booking.",
       "DUPLICATE_ROOM_NUMBER": "The same room number appears twice.",
+      "EMAIL_UNAVAILABLE": "E-mails cannot be sent right now. Try again later.",
       "EMPTY_FILE": "The file is empty.",
       "ESCALATION_DENIED": "You can't give more access than you have.",
       "FILE_TOO_LARGE": "The file is too large.",

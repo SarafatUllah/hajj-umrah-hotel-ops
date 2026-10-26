@@ -38,6 +38,7 @@
     "@node-rs/argon2": "^2.2.1",
     "drizzle-orm": "^0.45.3",
     "h3": "1.15.11",
+    "nodemailer": "10.1.7",
     "nuxt": "^4.5.2",
     "nuxt-auth-utils": "^0.5.30",
     "pg-boss": "^12.38.0",
