@@ -942,21 +942,26 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   channel. The code offers no way to add a second identity to an account; one would need the signed-in customer to
   prove the new phone or address with a code first (open). D-P2-27b holds for the inbox: whoever controls it holds
   the account, and closing it needs a fresh code there. **Abuse limits**, as for phones: one code per address per
-  minute and 3 per 15 minutes (`otpEmailResendCooldown`, `otpRequestPerEmail`), an address's aliases counting as the
+  minute, 3 per 15 minutes and 10 a day (`otpEmailResendCooldown`, `otpRequestPerEmail`, `otpRequestPerEmailDay`:
+  however many client addresses ask, an inbox gets at most 10 codes a day), an address's aliases counting as the
   address (`emailLimitSubject`: a `+tag` dropped, and Gmail's dots — only a rate-limit subject, never an identity), 10
   checks per address and client address an hour and 30 in all (`otpVerifyPerEmail`, `otpVerifyPerEmailTotal`), the
-  per-client-address limits shared with phones plus 20 e-mailed codes per client address an hour
-  (`otpEmailRequestPerIp`: one address cannot spend the hourly budget alone), the bot check, and an organization
-  e-mail budget of `EMAIL_HOURLY_LIMIT` (100) and `EMAIL_DAILY_LIMIT` (400: Gmail sends to about 500 recipients a
-  day, booking messages included). **Booking messages** reach a booker on
+  per-client-address limits shared with phones plus 20 e-mailed codes per client address an hour and 40 a day
+  (`otpEmailRequestPerIp`, `otpEmailRequestPerIpDay`: each below the budget of its window, so one client address
+  rotating throwaway addresses cannot spend either budget alone), the bot check, and an organization e-mail budget of
+  `EMAIL_HOURLY_LIMIT` (100) and `EMAIL_DAILY_LIMIT` (300: Gmail sends to about 500 recipients a day, and the booking
+  messages, not counted here, need room; Resend's free plan sends 100 a day). A failed send is not refunded (as for
+  SMS). **Booking messages** reach a booker on
   one channel: a phone by text message (every agency, phone customers), else a customer's verified address by
-  e-mail; a channel that is not configured skips the message with a log line naming the booking only (the details
-  reminder stays unmarked and tries again the next day); a closed account gets nothing (the reminder is marked).
+  e-mail; a channel that is not configured skips the message with a log line naming the booking only — the details
+  reminder instead logs one line per organization and run with how many bookings wait for which setting, and leaves
+  them unmarked to try again the next day; a closed account gets nothing (the reminder is marked).
   **Public site**: the sign-in page asks "e-mail or phone" (e-mail first), checks an address with the shared schema
   before sending, and on 503 offers the other method; the account page shows the address and/or the number, and the
   closing step-up sends its code to the customer's own phone, else their address, and closes only if that code signed
   the same account in. A security review of the change found nothing critical or high; it led to the alias counting,
-  the per-client-address e-mail limit, the same-account check and a sender name without backslashes. Also: the HTTP
+  the per-client-address e-mail limits, the same-account check and a sender name without backslashes; a second review
+  added the daily caps per client address and per mailbox, the lower daily budget and the reminder's summary line. Also: the HTTP
   test harness boots its server on a free port (`PORT=0` meant 3000). Open: e-mails in Arabic; agencies messaged by
   e-mail; adding a second sign-in identity; a failed send still counts against the limits (as for SMS).
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room

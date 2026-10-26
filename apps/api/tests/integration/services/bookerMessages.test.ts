@@ -7,7 +7,7 @@ import { setSmsSenderForTests, type SmsMessage } from '../../../server/notificat
 import type { OrganizationScope } from '../../../server/security/scope'
 import { notifyBookingCancelled, notifyBookingConfirmed, sendDetailsReminders } from '../../../server/services/booking'
 import { bookingCancelledEvent, bookingConfirmedEvent } from '../../../server/services/booking/bookingEvents'
-import { makeBooking, makeCustomer, makeGuest } from '../../support/bookingFixtures'
+import { makeAgency, makeBooking, makeCustomer, makeGuest } from '../../support/bookingFixtures'
 import { makeHotel, makeOrg } from '../../support/fixtures'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
@@ -84,7 +84,7 @@ describe('messages to a customer who signs in with e-mail (D-P2-68)', () => {
 
     // Text messages are configured (the override), e-mail is not: the run happens, this booker is skipped.
     expect(await sendDetailsReminders(db, [scope], NOW)).toBe(0)
-    expect(info).toHaveBeenCalledWith(`[booker-message] booking ${stay.bookingNo}: not sent, EMAIL_DRIVER is not configured`)
+    expect(info.mock.calls).toEqual([[`[details-reminder] organization ${scope.organizationId}: 1 booking(s) not reminded, EMAIL_DRIVER is not configured`]])
     expect((await db.select().from(booking).where(eq(booking.id, stay.id)))[0]!.detailsRemindedAt).toBeNull()
 
     setEmailSenderForTests({ send: async (message) => { emails.push(message) } })
@@ -102,5 +102,24 @@ describe('messages to a customer who signs in with e-mail (D-P2-68)', () => {
     expect(await sendDetailsReminders(db, [scope], NOW)).toBe(0)
     expect([...emails, ...texts]).toEqual([])
     expect((await db.select().from(booking).where(eq(booking.id, stay.id)))[0]!.detailsRemindedAt).toEqual(NOW)
+  })
+
+  it('as deployed (SMS off, e-mail on), each daily run logs one line per organization for the bookings waiting for texts, not one per booking', async () => {
+    const { scope } = await makeOrg(db)
+    const { hotel, stay } = await emailCustomerBooking(scope)
+    const agencyStay = await makeBooking(db, scope, hotel.id, { agencyId: (await makeAgency(db, scope)).id, checkIn: '2027-06-01', checkOut: '2027-06-04' })
+    const phoneStay = await makeBooking(db, scope, hotel.id, { bookerType: 'INDIVIDUAL', customerId: (await makeCustomer(db, scope)).id, bookingType: 'FAMILY', maleCount: 0, totalCount: 1, checkIn: '2027-06-02', checkOut: '2027-06-04' })
+    for (const waiting of [agencyStay, phoneStay]) await makeGuest(db, scope, waiting.id, 1)
+    setSmsSenderForTests(null) // .env.test: SMS_DRIVER unset, disabled
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+
+    for (const day of ['2027-05-26', '2027-05-27']) {
+      info.mockClear()
+      expect(await sendDetailsReminders(db, [scope], new Date(`${day}T06:00:00Z`)), day).toBe(day === '2027-05-26' ? 1 : 0)
+      expect(info.mock.calls, day).toEqual([[`[details-reminder] organization ${scope.organizationId}: 2 booking(s) not reminded, SMS_DRIVER is not configured`]])
+    }
+    expect(emails.map(e => e.subject)).toEqual([`Booking ${stay.bookingNo}: pilgrims' details needed`])
+    const reminded = new Map((await db.select().from(booking)).map(row => [row.id, row.detailsRemindedAt]))
+    expect([reminded.get(agencyStay.id), reminded.get(phoneStay.id)]).toEqual([null, null])
   })
 })

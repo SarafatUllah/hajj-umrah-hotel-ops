@@ -35,10 +35,14 @@ export function bookingCancelledEvent(row: BookingRow, previousStatus: BookingSt
   return newEvent<BookingCancelledV1>('booking.cancelled', 1, row.organizationId, { ...bookingFacts(row), previousStatus, cancelledBy: actorKindOf(actor) }, now)
 }
 
-/** Tells the booker of a booking event, on their channel (D-P2-68: a text message, or an e-mail for a customer without a phone). */
+/**
+ * Tells the booker of a booking event, on their channel (D-P2-68: a text message, or an e-mail for a customer without a
+ * phone); a channel that is off is logged with the booking's number only.
+ */
 async function notifyBooker(tx: Db, scope: OrganizationScope, payload: BookingFacts, message: (hotelName: string) => BookerMessage): Promise<void> {
   const hotel = await tenantRepos(tx, scope).hotels.findById(payload.hotelId)
-  await messageBooker(tx, scope, payload, message(hotel?.name ?? 'the hotel'))
+  const delivery = await messageBooker(tx, scope, payload, message(hotel?.name ?? 'the hotel'))
+  if (typeof delivery === 'object') console.info(`[booker-message] booking ${payload.bookingNo}: not sent, ${delivery.channelOff} is not configured`)
 }
 
 /**
