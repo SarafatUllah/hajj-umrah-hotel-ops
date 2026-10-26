@@ -58,15 +58,19 @@ export const RATE_LIMITS = {
    */
   otpVerifyPerPhoneTotal: { name: 'otp-verify-phone-total', limit: 30, windowSeconds: 60 * 60 },
   /**
-   * D-P2-68: e-mailed codes asked for from one client address an hour — below the organization's hourly e-mail budget
-   * (EMAIL_HOURLY_LIMIT, 100 by default), so one address cannot spend it alone. Counted with `otpRequestPerIp`.
+   * D-P2-68: e-mailed codes asked for from one client address, an hour and a day — each below the organization's
+   * e-mail budget for the same window (EMAIL_HOURLY_LIMIT 100, EMAIL_DAILY_LIMIT 300 by default), so one client
+   * address rotating throwaway addresses cannot spend either budget alone. Counted with `otpRequestPerIp`.
    */
   otpEmailRequestPerIp: { name: 'otp-email-ip', limit: 20, windowSeconds: 60 * 60 },
+  otpEmailRequestPerIpDay: { name: 'otp-email-ip-day', limit: 40, windowSeconds: 24 * 60 * 60 },
   /**
-   * Sign-in codes e-mailed to one address (each one also spends the sender's daily quota and reputation); an address's
-   * aliases count as the address (`emailLimitSubject`).
+   * Sign-in codes e-mailed to one mailbox, its aliases included (`emailLimitSubject`): 3 in 15 minutes and 10 a day,
+   * so a victim's inbox gets at most 10 codes a day however many client addresses ask (each one also spends the
+   * sender's daily quota and reputation).
    */
   otpRequestPerEmail: { name: 'otp-email', limit: 3, windowSeconds: 15 * 60 },
+  otpRequestPerEmailDay: { name: 'otp-email-day', limit: 10, windowSeconds: 24 * 60 * 60 },
   /** At most one code per address per minute (no burst of e-mails into a victim's inbox). */
   otpEmailResendCooldown: { name: 'otp-email-cooldown', limit: 1, windowSeconds: 60 },
   /** Code verifications for one address from one client address, across challenges (as `otpVerifyPerPhone`). */

@@ -334,7 +334,7 @@ flowchart LR
 | Backups | none automatic: `pg_dump` and a bucket copy by hand (`docs/DEPLOY_VERCEL.md`, "Backups") |
 | Supabase | a project idle for a week is paused (restore it from the dashboard); PostgreSQL 17 (tests run on 16) |
 | Text messages | not connected: phone sign-in, and texts to agencies and phone customers (booking messages, reminders), are off |
-| E-mail | one Gmail account: about 500 recipients a day; the API caps sign-in codes at 100 an hour and 400 a day (`EMAIL_HOURLY_LIMIT`, `EMAIL_DAILY_LIMIT`); a domain of your own moves it to Resend (`docs/DEPLOY_VERCEL.md` step 5.4) |
+| E-mail | one Gmail account: about 500 recipients a day; the API caps sign-in codes at 100 an hour and 300 a day (`EMAIL_HOURLY_LIMIT`, `EMAIL_DAILY_LIMIT`), one visitor's address at 20 an hour and 40 a day and one mailbox at 10 a day, leaving room for booking messages; a domain of your own moves it to Resend (`docs/DEPLOY_VERCEL.md` step 5.4; its free plan sends 100 a day) |
 | Passport reading | no reader configured: every photo goes to manual review (keep `PASSPORT_OCR=none`: the pass runs inside a function) |
 | Demo access | anyone who has the addresses can use the demo sign-in: share them only with those who need them |
 | Data | demo data only — where pilgrims' data may be stored is still an open client question |

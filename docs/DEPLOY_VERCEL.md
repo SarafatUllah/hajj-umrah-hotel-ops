@@ -195,8 +195,9 @@ encrypts without checking the certificate — use it only if verifying cannot be
       password. Google Account → Security → turn on **2-Step Verification** (app passwords need it) → **App
       passwords** (`myaccount.google.com/apppasswords`) → name it `hajj-umrah` → Create. Copy the 16 letters
       **without the spaces**; revoke it there to cut access. Gmail sends to about **500 recipients a day** per
-      account: the API's own budget for sign-in codes stays below (`EMAIL_DAILY_LIMIT=400`, `EMAIL_HOURLY_LIMIT=100`),
-      and booking messages to customers who sign in by e-mail count against Gmail's limit too.
+      account: the API's own budget for sign-in codes stays below (`EMAIL_DAILY_LIMIT=300`, `EMAIL_HOURLY_LIMIT=100`
+      by default), leaving room for the booking messages to customers who sign in by e-mail, which count against
+      Gmail's limit too. One client address gets at most 20 codes an hour and 40 a day, one mailbox 10 a day.
    2. **The bot check.** Cloudflare dashboard → **Turnstile** → Add widget → name `hajj-umrah`, hostname
       `hajj-umrah.vercel.app` (and your own domain later), mode **Managed** → Create. Copy the **site key** and the
       **secret key**.
@@ -229,7 +230,10 @@ encrypts without checking the certificate — use it only if verifying cannot be
    EMAIL_FROM=Hajj & Umrah Stays <bookings@your-domain.com>
    ```
 
-   and redeploy (raise `EMAIL_HOURLY_LIMIT` / `EMAIL_DAILY_LIMIT` to your Resend plan). **Do not switch before the
+   and redeploy, with `EMAIL_HOURLY_LIMIT` / `EMAIL_DAILY_LIMIT` set to your Resend plan: **Resend's free plan sends 100
+   e-mails a day**, booking messages included, so there set them well below it (e.g. `EMAIL_HOURLY_LIMIT=30`,
+   `EMAIL_DAILY_LIMIT=70`; keep them above the per-client-address caps of 20 an hour and 40 a day, or one visitor could
+   spend the budget alone). **Do not switch before the
    domain is verified:** without it Resend sends only from its test address and only to your own Resend account's
    e-mail — every customer's code would fail (503 `EMAIL_UNAVAILABLE`; the log says `Resend answered 403
    (validation_error)`).
@@ -346,7 +350,7 @@ AWS_ACCESS_KEY_ID=<S3_ACCESS_KEY_ID> AWS_SECRET_ACCESS_KEY=<S3_SECRET_ACCESS_KEY
 | The API refuses to start: `CAPTCHA_DRIVER must be turnstile when sign-in codes are e-mailed` | E-mail sign-in needs the bot check: step 5.4.2 (`CAPTCHA_DRIVER`, `CAPTCHA_SECRET`, `NUXT_PUBLIC_TURNSTILE_SITE_KEY`). |
 | Sign-in says e-mails cannot be sent right now | The function log names the cause: `[email] delivery failed: EAUTH 535` = the app password is wrong, revoked or pasted with its spaces (step 5.4.1); `ETIMEDOUT`/`ECONNECTION` = `SMTP_HOST`/`SMTP_PORT`; `Resend answered 403 (validation_error)` = the Resend domain is not verified yet. |
 | Sign-in says "Please complete the check" for everyone | The Turnstile widget does not list this address (Cloudflare → Turnstile → the widget's hostnames), or the site key and the secret are from different widgets. |
-| "Too many attempts" at sign-in | One address gets a code a minute and 3 in 15 minutes; past `EMAIL_HOURLY_LIMIT`/`EMAIL_DAILY_LIMIT` the log warns `reached its otp-email-org-… e-mail budget`. |
+| "Too many attempts" at sign-in | One address gets a code a minute, 3 in 15 minutes and 10 a day; one visitor's address 20 an hour and 40 a day; past `EMAIL_HOURLY_LIMIT`/`EMAIL_DAILY_LIMIT` the log warns `reached its otp-email-org-… e-mail budget`. |
 
 ## Moving to a proper server later
 

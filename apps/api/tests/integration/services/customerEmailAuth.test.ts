@@ -5,7 +5,7 @@ import type { Database } from '@hajj/db/client'
 import { otpRequestSchema } from '@hajj/contracts/schemas/customer'
 import { extractPgError } from '../../../server/errors/dbErrors'
 import { accountsRepos, platformRepos } from '../../../server/repositories'
-import { bucketKey, RATE_LIMITS, windowStartFor } from '../../../server/security/rateLimit'
+import { bucketKey, RATE_LIMITS, windowStartFor, type RateLimitPolicy } from '../../../server/security/rateLimit'
 import { TooManyRequestsError } from '../../../server/errors/domainError'
 import { setEmailSenderForTests, type EmailMessage } from '../../../server/notifications/email'
 import { setSmsSenderForTests, type SmsMessage } from '../../../server/notifications/sms'
@@ -52,6 +52,12 @@ async function issue(slug: string, email = newAddress(), minutesLater = 0, from 
 
 const verify = (slug: string, c: { challengeId: string, code: string }, fullName?: string, clientIp?: string) =>
   verifyCustomerOtp({ organizationSlug: slug, challengeId: c.challengeId, code: c.code, ...(fullName ? { fullName } : {}) }, request(clientIp))
+
+/** Spends a limit's whole current window for one subject, as earlier requests would have. */
+async function exhaust(policy: RateLimitPolicy, subject: string) {
+  const key = bucketKey(policy, subject)
+  for (let i = 0; i < policy.limit; i++) await platformRepos(db).rateLimits.hit(key, windowStartFor(policy, new Date()))
+}
 
 describe('customer sign-in by e-mail code (D-P2-68)', () => {
   it('e-mails a six-digit code with the site\'s name and its validity — nothing else — and stores only its hash', async () => {
@@ -157,32 +163,44 @@ describe('customer sign-in by e-mail code (D-P2-68)', () => {
     expect(emails.map(e => e.to)).toEqual(['a.isha+1@gmail.com', 'aisha+2@googlemail.com', 'aisha@gmail.com'])
   })
 
-  it('one client address may ask for only so many e-mailed codes an hour, fewer than the organization\'s hourly budget; phones are not counted', async () => {
+  it('one client address may ask for only so many e-mailed codes an hour and a day, each below the organization\'s budget for that window; phones are not counted', async () => {
     const { organization } = await makeOrg(db)
-    const clientIp = '203.0.113.80'
-    const policy = RATE_LIMITS.otpEmailRequestPerIp
-    const key = bucketKey(policy, clientIp)
-    for (let i = 0; i < policy.limit; i++) await platformRepos(db).rateLimits.hit(key, windowStartFor(policy, new Date()))
-    await expect(requestCustomerOtp(otpRequestSchema.parse({ organizationSlug: organization.slug, email: newAddress() }), request(clientIp))).rejects.toBeInstanceOf(TooManyRequestsError)
-    await expect(requestCustomerOtp(otpRequestSchema.parse({ organizationSlug: organization.slug, phone: '+966501112255' }), request(clientIp))).resolves.toMatchObject({ expiresInSeconds: 300 })
-    expect(policy.limit).toBeLessThan(getEnv().EMAIL_HOURLY_LIMIT)
-    expect(policy.windowSeconds).toBe(60 * 60)
+    const env = getEnv()
+    const caps = [
+      { policy: RATE_LIMITS.otpEmailRequestPerIp, windowSeconds: 60 * 60, budget: env.EMAIL_HOURLY_LIMIT, clientIp: '203.0.113.80', phone: '+966501112255' },
+      { policy: RATE_LIMITS.otpEmailRequestPerIpDay, windowSeconds: 24 * 60 * 60, budget: env.EMAIL_DAILY_LIMIT, clientIp: '203.0.113.81', phone: '+966501112256' },
+    ]
+    for (const { policy, windowSeconds, budget, clientIp, phone } of caps) {
+      // One client address alone, however many throwaway addresses it rotates, cannot spend the window's budget.
+      expect(policy.windowSeconds, policy.name).toBe(windowSeconds)
+      expect(policy.limit, policy.name).toBeLessThan(budget)
+      await exhaust(policy, clientIp)
+      await expect(requestCustomerOtp(otpRequestSchema.parse({ organizationSlug: organization.slug, email: newAddress() }), request(clientIp)), policy.name).rejects.toBeInstanceOf(TooManyRequestsError)
+      await expect(requestCustomerOtp(otpRequestSchema.parse({ organizationSlug: organization.slug, phone }), request(clientIp)), policy.name).resolves.toMatchObject({ expiresInSeconds: 300 })
+    }
+    expect(emails).toEqual([])
+  })
+
+  it('one mailbox gets only so many codes a day, its aliases included, from any number of client addresses', async () => {
+    const { organization, scope } = await makeOrg(db)
+    expect(RATE_LIMITS.otpRequestPerEmailDay).toMatchObject({ limit: 10, windowSeconds: 24 * 60 * 60 })
+    await exhaust(RATE_LIMITS.otpRequestPerEmailDay, `${scope.organizationId}\u0000aisha@gmail.com`)
+    await expect(issue(organization.slug, 'a.isha+9@gmail.com')).rejects.toBeInstanceOf(TooManyRequestsError)
+    await expect(issue(organization.slug, 'aisha@googlemail.com', 1)).rejects.toBeInstanceOf(TooManyRequestsError)
+    expect(emails).toEqual([])
+    await expect(issue(organization.slug, 'omar@example.test')).resolves.toMatchObject({ expiresInSeconds: 300 })
   })
 
   it('verifications of one address are limited per client address (a stranger never locks the owner out) and in total (429)', async () => {
     const { organization, scope } = await makeOrg(db)
     const issued = await issue(organization.slug)
     const [stranger, owner] = ['203.0.113.66', '198.51.100.7']
-    const fill = async (policy: { name: string, limit: number, windowSeconds: number }, subject: string) => {
-      const key = bucketKey(policy, subject)
-      for (let i = 0; i < policy.limit; i++) await platformRepos(db).rateLimits.hit(key, windowStartFor(policy, new Date()))
-    }
-    await fill(RATE_LIMITS.otpVerifyPerEmail, `${scope.organizationId}\u0000${issued.email}\u0000${stranger}`)
+    await exhaust(RATE_LIMITS.otpVerifyPerEmail, `${scope.organizationId}\u0000${issued.email}\u0000${stranger}`)
     await expect(verify(organization.slug, issued, 'X', stranger)).rejects.toBeInstanceOf(TooManyRequestsError)
     await expect(verify(organization.slug, issued, 'X', owner)).resolves.toMatchObject({ email: issued.email })
 
     const next = await issue(organization.slug, issued.email, 1)
-    await fill(RATE_LIMITS.otpVerifyPerEmailTotal, `${scope.organizationId}\u0000${issued.email}`)
+    await exhaust(RATE_LIMITS.otpVerifyPerEmailTotal, `${scope.organizationId}\u0000${issued.email}`)
     await expect(verify(organization.slug, next, undefined, owner)).rejects.toBeInstanceOf(TooManyRequestsError)
     expect(RATE_LIMITS.otpVerifyPerEmailTotal.limit).toBeGreaterThan(RATE_LIMITS.otpVerifyPerEmail.limit)
   })

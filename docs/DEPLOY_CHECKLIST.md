@@ -62,7 +62,9 @@ deployment on Vercel, Supabase and Cloudflare R2 has its own step-by-step guide,
       (`docs/DEPLOY_VERCEL.md` step 5.4) — or `EMAIL_DRIVER=resend` with `RESEND_API_KEY` and an `EMAIL_FROM` on a
       domain verified in Resend (without one, Resend delivers only to its account owner). Until then `disabled` makes
       an e-mail code request answer 503; `log` is refused outside development. Size `EMAIL_HOURLY_LIMIT` /
-      `EMAIL_DAILY_LIMIT` to the sender's quota (Gmail: about 500 recipients a day, booking messages included; watch
+      `EMAIL_DAILY_LIMIT` to the sender's quota, leaving room for booking messages, which are not counted in them (Gmail:
+      about 500 recipients a day; Resend's free plan: 100), and above the per-client-address caps (20 an hour, 40 a
+      day: otherwise one visitor's address could spend the budget alone; watch
       for `[email] … reached its … e-mail budget`), and check the function log for `[email] delivery failed: …` after
       the first sign-in.
 - [ ] The public site needs `NUXT_PUBLIC_TURNSTILE_SITE_KEY` (its Turnstile site key). Whenever SMS or e-mail codes are

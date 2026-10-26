@@ -128,9 +128,9 @@ const envBase = z.object({
   SMTP_PASSWORD: z.string().min(1, 'SMTP_PASSWORD must not be empty').optional(),
   RESEND_API_KEY: z.string().min(1, 'RESEND_API_KEY must not be empty').optional(),
   // E-mail budget per organization for sign-in codes (all addresses together). Gmail sends about 500 a day per
-  // account, booking messages included: the default day stays under it.
+  // account, booking messages included (they are not counted here): the default day leaves them room under it.
   EMAIL_HOURLY_LIMIT: z.coerce.number().int().min(1).max(100_000).default(100),
-  EMAIL_DAILY_LIMIT: z.coerce.number().int().min(1).max(1_000_000).default(400),
+  EMAIL_DAILY_LIMIT: z.coerce.number().int().min(1).max(1_000_000).default(300),
   // Bot check on the code request: `off` (default) or `turnstile` (Cloudflare Turnstile, secret in CAPTCHA_SECRET).
   CAPTCHA_DRIVER: z.enum(['off', 'turnstile'], { errorMap: () => ({ message: 'CAPTCHA_DRIVER must be off or turnstile' }) }).default('off'),
   CAPTCHA_SECRET: z.string().min(1).optional(),

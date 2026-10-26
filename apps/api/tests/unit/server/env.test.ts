@@ -390,7 +390,7 @@ describe('getEnv: Phase 2a security settings', () => {
   })
 
   it('e-mail: disabled by default; log only in development; each sending driver needs its settings, named but never echoed', () => {
-    expect(getEnv()).toMatchObject({ EMAIL_DRIVER: 'disabled', SMTP_PORT: 465, EMAIL_HOURLY_LIMIT: 100, EMAIL_DAILY_LIMIT: 400 })
+    expect(getEnv()).toMatchObject({ EMAIL_DRIVER: 'disabled', SMTP_PORT: 465, EMAIL_HOURLY_LIMIT: 100, EMAIL_DAILY_LIMIT: 300 })
     expect(getEnv().EMAIL_FROM).toBeUndefined()
     resetEnvCache()
     Object.assign(process.env, { APP_ENV: 'staging', EMAIL_DRIVER: 'log' })
