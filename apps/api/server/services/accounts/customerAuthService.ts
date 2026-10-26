@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { OTP_MAX_ATTEMPTS, OTP_TTL_SECONDS } from '@hajj/contracts/constants/accounts'
 import type { OtpRequestInput, OtpVerifyInput } from '@hajj/contracts/schemas/customer'
 import type { CustomerMe, OtpChallengeIssued } from '@hajj/contracts/types/customer'
-import { verifiedEmailOf } from '../../domain/accounts/customerRules'
+import { emailLimitSubject, verifiedEmailOf } from '../../domain/accounts/customerRules'
 import { rethrowDbError } from '../../errors/dbErrors'
 import { ConflictError, ForbiddenError, UnauthenticatedError, ValidationError } from '../../errors/domainError'
 import { composeEmail, useEmailSender, type EmailMessage } from '../../notifications/email'
@@ -45,8 +45,11 @@ const CHANNEL_LIMITS: Record<Channel, { cooldown: RateLimitPolicy, requests: Rat
   email: { cooldown: RATE_LIMITS.otpEmailResendCooldown, requests: RATE_LIMITS.otpRequestPerEmail, verifyFromAddress: RATE_LIMITS.otpVerifyPerEmail, verifyTotal: RATE_LIMITS.otpVerifyPerEmailTotal },
 }
 
-/** The rate-limit subject of a destination within the organization (a phone's is unchanged since D-P2-27). */
-const destinationKey = (scope: OrganizationScope, destination: OtpDestination) => `${scope.organizationId}\u0000${'email' in destination ? destination.email : destination.phone}`
+/**
+ * The rate-limit subject of a destination within the organization (a phone's is unchanged since D-P2-27); an address
+ * counts as its mailbox, its aliases included.
+ */
+const destinationKey = (scope: OrganizationScope, destination: OtpDestination) => `${scope.organizationId}\u0000${'email' in destination ? emailLimitSubject(destination.email) : destination.phone}`
 
 /** The organization's budget per channel (env-configurable): per hour, and per day, with an operator alert in the log. */
 function deliveryBudget(channel: Channel): RateLimitPolicy[] {
@@ -95,10 +98,11 @@ async function deliverCode(destination: OtpDestination, code: string, organizati
 /**
  * Sends a sign-in code (v7 §21: phone OTP for the public site; D-P2-68: or e-mail; sign-up and sign-in are the same
  * flow), to the phone or the e-mail address given. Before anything is created or sent: a phone's country must be
- * allowed, the bot check pass (when configured), and the limits hold — per client address (both channels), one code
- * per destination per minute, 3 per destination per 15 minutes, and the organization's hourly and daily budget of
- * the channel. The answer is the same whether or not the destination has an account. A new code closes the
- * destination's older ones once it is sent (a failed send leaves them usable); only a hash of the code is stored.
+ * allowed, the bot check pass (when configured), and the limits hold — per client address (both channels, and fewer
+ * e-mails an hour), one code per destination per minute, 3 per destination per 15 minutes (an address's aliases
+ * counting as the address), and the organization's hourly and daily budget of the channel. The answer is the same
+ * whether or not the destination has an account. A new code closes the destination's older ones once it is sent (a
+ * failed send leaves them usable); only a hash of the code is stored.
  */
 export async function requestCustomerOtp(input: OtpRequestInput, request: LoginRequest): Promise<OtpChallengeIssued> {
   const db = useDb()
@@ -106,6 +110,7 @@ export async function requestCustomerOtp(input: OtpRequestInput, request: LoginR
   const channel = channelOf(destination)
   if ('phone' in destination) assertSupportedDestination(destination.phone)
   await consumeRateLimit(db, RATE_LIMITS.otpRequestPerIp, request.clientIp, request.now)
+  if (channel === 'email') await consumeRateLimit(db, RATE_LIMITS.otpEmailRequestPerIp, request.clientIp, request.now)
   await assertHuman(input.captchaToken, request.clientIp)
   const { organization, scope } = await tenantFor(db, input.organizationSlug)
   const key = destinationKey(scope, destination)

@@ -31,8 +31,8 @@ const isExactOrigin = (value: string): boolean => {
 /** A sender as `EMAIL_FROM` gives it: the display name (null when none) and the address. */
 export interface Mailbox { name: string | null, address: string }
 
-/** `Name <address>` (the name optionally quoted; no quotes, angle brackets or line breaks inside it) or a bare address. */
-const MAILBOX_PATTERN = /^\s*(?:"?([^"<>\r\n]*?)"?\s*<([^<>\s]+)>|([^<>\s"]+))\s*$/
+/** `Name <address>` (the name optionally quoted; no quotes, backslashes, angle brackets or line breaks inside it) or a bare address. */
+const MAILBOX_PATTERN = /^\s*(?:"?([^"\\<>\r\n]*?)"?\s*<([^<>\s]+)>|([^<>\s"]+))\s*$/
 
 /** `EMAIL_FROM`: the sender of every e-mail. Its name is also the site name the sign-in e-mail gives. */
 const mailbox = z.string().transform((value, ctx): Mailbox => {

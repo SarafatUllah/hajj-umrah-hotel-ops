@@ -57,7 +57,15 @@ export const RATE_LIMITS = {
    * could already keep the owner from getting codes (`otpRequestPerPhone`): that trade was taken for the bound.
    */
   otpVerifyPerPhoneTotal: { name: 'otp-verify-phone-total', limit: 30, windowSeconds: 60 * 60 },
-  /** D-P2-68: sign-in codes e-mailed to one address (each one also spends the sender's daily quota and reputation). */
+  /**
+   * D-P2-68: e-mailed codes asked for from one client address an hour — below the organization's hourly e-mail budget
+   * (EMAIL_HOURLY_LIMIT, 100 by default), so one address cannot spend it alone. Counted with `otpRequestPerIp`.
+   */
+  otpEmailRequestPerIp: { name: 'otp-email-ip', limit: 20, windowSeconds: 60 * 60 },
+  /**
+   * Sign-in codes e-mailed to one address (each one also spends the sender's daily quota and reputation); an address's
+   * aliases count as the address (`emailLimitSubject`).
+   */
   otpRequestPerEmail: { name: 'otp-email', limit: 3, windowSeconds: 15 * 60 },
   /** At most one code per address per minute (no burst of e-mails into a victim's inbox). */
   otpEmailResendCooldown: { name: 'otp-email-cooldown', limit: 1, windowSeconds: 60 },

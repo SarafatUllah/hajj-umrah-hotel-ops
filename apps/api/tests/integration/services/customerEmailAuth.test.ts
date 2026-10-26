@@ -11,7 +11,7 @@ import { setEmailSenderForTests, type EmailMessage } from '../../../server/notif
 import { setSmsSenderForTests, type SmsMessage } from '../../../server/notifications/sms'
 import { resolveCustomerContext } from '../../../server/security/customerContext'
 import { closeCustomerRecord, getCustomerMe, requestCustomerOtp, verifyCustomerOtp } from '../../../server/services/accounts'
-import { resetEnvCache } from '../../../server/utils/env'
+import { getEnv, resetEnvCache } from '../../../server/utils/env'
 import { makeOrg } from '../../support/fixtures'
 import { closeTestDb, getTestDb, truncateAllTables } from '../support/testDb'
 
@@ -143,6 +143,30 @@ describe('customer sign-in by e-mail code (D-P2-68)', () => {
     await issue(organization.slug, email, 2, windowStart)
     await expect(requestCustomerOtp(otpRequestSchema.parse({ organizationSlug: organization.slug, email }), request(undefined, new Date(windowStart + 3 * 61_000)))).rejects.toBeInstanceOf(TooManyRequestsError)
     for (const older of [first, second]) await expect(verify(organization.slug, older, 'X')).rejects.toMatchObject({ code: 'OTP_INVALID' })
+  })
+
+  it('an address\'s aliases share its counts (a +tag, Gmail\'s dots): its inbox cannot be flooded through them', async () => {
+    const { organization } = await makeOrg(db)
+    const windowStart = Math.ceil(Date.now() / 900_000) * 900_000
+    await issue(organization.slug, 'a.isha+1@gmail.com', 0, windowStart)
+    await expect(issue(organization.slug, 'aisha+2@gmail.com', 0, windowStart)).rejects.toBeInstanceOf(TooManyRequestsError)
+    await issue(organization.slug, 'aisha+2@googlemail.com', 1, windowStart)
+    await issue(organization.slug, 'AISHA@gmail.com', 2, windowStart)
+    await expect(issue(organization.slug, 'ai.sha+4@gmail.com', 3, windowStart)).rejects.toBeInstanceOf(TooManyRequestsError)
+    // Each alias is still its own address: the codes went where they were asked for.
+    expect(emails.map(e => e.to)).toEqual(['a.isha+1@gmail.com', 'aisha+2@googlemail.com', 'aisha@gmail.com'])
+  })
+
+  it('one client address may ask for only so many e-mailed codes an hour, fewer than the organization\'s hourly budget; phones are not counted', async () => {
+    const { organization } = await makeOrg(db)
+    const clientIp = '203.0.113.80'
+    const policy = RATE_LIMITS.otpEmailRequestPerIp
+    const key = bucketKey(policy, clientIp)
+    for (let i = 0; i < policy.limit; i++) await platformRepos(db).rateLimits.hit(key, windowStartFor(policy, new Date()))
+    await expect(requestCustomerOtp(otpRequestSchema.parse({ organizationSlug: organization.slug, email: newAddress() }), request(clientIp))).rejects.toBeInstanceOf(TooManyRequestsError)
+    await expect(requestCustomerOtp(otpRequestSchema.parse({ organizationSlug: organization.slug, phone: '+966501112255' }), request(clientIp))).resolves.toMatchObject({ expiresInSeconds: 300 })
+    expect(policy.limit).toBeLessThan(getEnv().EMAIL_HOURLY_LIMIT)
+    expect(policy.windowSeconds).toBe(60 * 60)
   })
 
   it('verifications of one address are limited per client address (a stranger never locks the owner out) and in total (429)', async () => {

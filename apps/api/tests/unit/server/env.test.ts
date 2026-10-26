@@ -430,7 +430,7 @@ describe('getEnv: Phase 2a security settings', () => {
       process.env.EMAIL_FROM = value
       expect(getEnv().EMAIL_FROM, value).toEqual(parsed)
     }
-    for (const value of ['', 'Hajj Stays', 'Stays <not-an-address>', 'a@example.com, b@example.com', 'Stays "x" <stays@example.com>', 'Stays <stays@example.com']) {
+    for (const value of ['', 'Hajj Stays', 'Stays <not-an-address>', 'a@example.com, b@example.com', 'Stays "x" <stays@example.com>', 'Stays <stays@example.com', 'Stays\\ <stays@example.com>']) {
       resetEnvCache()
       process.env.EMAIL_FROM = value
       expect(() => getEnv(), value).toThrow(/EMAIL_FROM must be an address or "Name <address>"/)
