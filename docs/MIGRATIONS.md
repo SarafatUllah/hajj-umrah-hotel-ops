@@ -33,8 +33,9 @@ Migrations live in `packages/db/migrations/` (SQL files plus Drizzle's
 | `0019_customer_account_closure.sql` | Phase 2 | `customer.phone` becomes nullable; `customer.closed_at` (a closed account keeps its row without phone, name or e-mail) and its check constraint |
 | `0020_review_indexes.sql` | Phase 2 (review) | indexes on `booking`, `hotel_task` and `passport_scan` (three old indexes dropped); **data:** existing passport image filenames become `passport.<ext>` |
 | `0021_ended_booking_scans.sql` | Phase 2 (review) | **data:** scans of cancelled or expired bookings lose their reading and become due for deletion at once |
+| `0022_customer_email_sign_in.sql` | Phase 2 (D-P2-68) | customer sign-in by e-mail: `customer.email_verified_at`, the partial unique index `customer_org_verified_email_unique`, checks `customer_email_check` / `customer_email_verified_check`, `customer_closed_check` replaced (an open account has a phone or a verified e-mail); `otp_challenge.phone` nullable, `otp_challenge.email` + `otp_challenge_email_idx`, checks `otp_challenge_destination_check` / `otp_challenge_email_check`; **data:** existing contact e-mails trimmed and lower-cased, malformed ones (and any left on a closed account) cleared |
 
-`0020` and `0021` rewrite existing rows; `docs/DEPLOY_CHECKLIST.md` says what to check before release.
+`0020`, `0021` and `0022` rewrite existing rows; `docs/DEPLOY_CHECKLIST.md` says what to check before release.
 
 ## Committed migrations are immutable
 

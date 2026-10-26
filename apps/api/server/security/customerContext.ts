@@ -1,11 +1,14 @@
 import type { Database } from '@hajj/db/client'
 import { accountsRepos } from '../repositories'
+import { verifiedEmailOf } from '../services/accounts'
 import { trustedCustomerScope, trustedOrganizationScope, type CustomerScope } from './scope'
 
 export interface CustomerIdentity {
   customerId: string
   organizationId: string
-  phone: string
+  /** The phone and the verified e-mail the customer signs in with: at least one (D-P2-68), never linked to another account. */
+  phone: string | null
+  email: string | null
   fullName: string
 }
 
@@ -27,10 +30,10 @@ export async function resolveCustomerContext(
 ): Promise<CustomerContext | null> {
   const orgScope = trustedOrganizationScope(identity.organizationId)
   const row = await accountsRepos(db, orgScope).customers.findById(identity.customerId)
-  if (!row || !row.isActive || !row.phone) return null
+  if (!row || !row.isActive || row.closedAt) return null
   if (identity.sessionVersion !== undefined && identity.sessionVersion !== row.sessionVersion) return null
   return {
-    identity: { customerId: row.id, organizationId: row.organizationId, phone: row.phone, fullName: row.fullName },
+    identity: { customerId: row.id, organizationId: row.organizationId, phone: row.phone, email: verifiedEmailOf(row), fullName: row.fullName },
     scope: trustedCustomerScope(orgScope, row.id),
     db,
     now,

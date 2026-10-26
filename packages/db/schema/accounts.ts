@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { boolean, check, foreignKey, index, integer, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { AGENCY_STATUSES } from '@hajj/contracts/constants/accounts'
-import { idColumn, oneOf, organizationColumn, timestampColumns } from './columns'
+import { idColumn, normalizedEmail, oneOf, organizationColumn, timestampColumns } from './columns'
 
 /**
  * Phase 2a (v7 §16): agencies and individual customers live INSIDE the operator's organization (one
@@ -53,9 +53,11 @@ export const agencyUser = pgTable('agency_user', {
 ])
 
 /**
- * An individual booker (public site): identified by a verified phone number (OTP, v7 §21), e-mail optional. A closed
- * account (step 15b) keeps its row for the bookings that name it, without phone, name or e-mail: the number is free
- * to sign up again as a new account.
+ * An individual booker (public site). Signs in with a verified phone number (SMS code, v7 §21) or a verified e-mail
+ * address (e-mail code, D-P2-68); the two are never linked, so each is its own account. `phone` is stored only once
+ * proven; `email` may also be unproven contact data (`email_verified_at` null), always normalized (`normalizeEmail`).
+ * A verified address is unique per organization, as a phone is. A closed account (step 15b) keeps its row for the
+ * bookings that name it, without phone, name or e-mail: the number or address is free to sign up again.
  */
 export const customer = pgTable('customer', {
   id: idColumn(),
@@ -64,6 +66,7 @@ export const customer = pgTable('customer', {
   phone: text('phone'),
   phoneVerifiedAt: timestamp('phone_verified_at', { withTimezone: true }),
   email: text('email'),
+  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   isActive: boolean('is_active').notNull().default(true),
   sessionVersion: integer('session_version').notNull().default(1),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
@@ -72,21 +75,28 @@ export const customer = pgTable('customer', {
 }, t => [
   unique('customer_org_id_unique').on(t.organizationId, t.id),
   unique('customer_org_phone_unique').on(t.organizationId, t.phone),
+  // A verified address signs one account in (stored lower-case: case-insensitive); an unproven copy is contact data.
+  uniqueIndex('customer_org_verified_email_unique').on(t.organizationId, t.email).where(sql`${t.emailVerifiedAt} is not null`),
   // E.164, as normalized by the API (`+` and 8–15 digits).
   check('customer_phone_check', sql`${t.phone} ~ '^\\+[1-9][0-9]{7,14}$'`),
-  // An open account has its phone; a closed one has none and signs nobody in.
-  check('customer_closed_check', sql`(${t.closedAt} is null) = (${t.phone} is not null) and (${t.closedAt} is null or not ${t.isActive})`),
+  check('customer_email_check', normalizedEmail(t.email)),
+  check('customer_email_verified_check', sql`${t.emailVerifiedAt} is null or ${t.email} is not null`),
+  // An open account signs in with its phone or its verified e-mail; a closed one has neither (nor any e-mail) and signs
+  // nobody in.
+  check('customer_closed_check', sql`(${t.closedAt} is null) = (${t.phone} is not null or ${t.emailVerifiedAt} is not null) and (${t.closedAt} is null or (not ${t.isActive} and ${t.email} is null))`),
 ])
 
 /**
- * A one-time code sent by SMS to sign a customer up or in (v7 §21: phone OTP before the public site opens).
- * Only an HMAC of the code is stored (keyed by the PII lookup key and the challenge id); a challenge expires
- * after a few minutes, allows a few wrong codes, and is consumed once. Purged daily after expiry.
+ * A one-time code sent to sign a customer up or in: by SMS to a phone (v7 §21: phone OTP before the public site
+ * opens) or by e-mail to an address (D-P2-68) — exactly one of the two. Only an HMAC of the code is stored (keyed by
+ * the PII lookup key and the challenge id); a challenge expires after a few minutes, allows a few wrong codes, and
+ * is consumed once. Purged daily after expiry.
  */
 export const otpChallenge = pgTable('otp_challenge', {
   id: idColumn(),
   organizationId: organizationColumn(),
-  phone: text('phone').notNull(),
+  phone: text('phone'),
+  email: text('email'),
   codeHash: text('code_hash').notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   attempts: integer('attempts').notNull().default(0),
@@ -94,8 +104,12 @@ export const otpChallenge = pgTable('otp_challenge', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, t => [
   index('otp_challenge_phone_idx').on(t.organizationId, t.phone, t.createdAt),
+  // An address's open codes (a new one closes them); phone codes have no address.
+  index('otp_challenge_email_idx').on(t.organizationId, t.email, t.createdAt).where(sql`${t.email} is not null`),
   index('otp_challenge_expiry_idx').on(t.expiresAt),
+  check('otp_challenge_destination_check', sql`num_nonnulls(${t.phone}, ${t.email}) = 1`),
   check('otp_challenge_phone_check', sql`${t.phone} ~ '^\\+[1-9][0-9]{7,14}$'`),
+  check('otp_challenge_email_check', normalizedEmail(t.email)),
   check('otp_challenge_attempts_check', sql`${t.attempts} >= 0`),
   check('otp_challenge_hash_check', sql`${t.codeHash} ~ '^[0-9a-f]{64}$'`),
 ])

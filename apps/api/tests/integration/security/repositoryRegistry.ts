@@ -143,6 +143,14 @@ async function arrangeCustomerChallenge(db: DbOrTx, orgA: OrganizationScope) {
   return { customerId: customerRow.id, phone: customerRow.phone, challengeId: challenge.id }
 }
 
+/** D-P2-68: org A's customer who signs in with e-mail, and an open code sent to that address. */
+async function arrangeEmailCustomerChallenge(db: DbOrTx, orgA: OrganizationScope) {
+  const email = `customer-${orgA.organizationId}@example.test`
+  const customerRow = await new CustomerRepository(db, orgA).insert({ email, emailVerifiedAt: new Date(), fullName: 'By e-mail' })
+  const challenge = await new OtpChallengeRepository(db, orgA).insert({ email, codeHash: 'a'.repeat(64), expiresAt: new Date(Date.now() + 300_000) })
+  return { customerId: customerRow.id, email, challengeId: challenge.id }
+}
+
 /**
  * Phase 2a booking rules: one hotel-scoped rule row of org A per table, created through the same repository class.
  * `values` builds the row from org A's fixtures.
@@ -1977,6 +1985,11 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: (db, scope, ids) => new CustomerRepository(db, scope).findByPhone(ids.phone),
     expect: 'null',
   }),
+  'CustomerRepository.findByVerifiedEmail': isolationCase({
+    arrange: arrangeEmailCustomerChallenge,
+    act: (db, scope, ids) => new CustomerRepository(db, scope).findByVerifiedEmail(ids.email),
+    expect: 'null',
+  }),
   'CustomerRepository.recordLogin': isolationCase({
     arrange: arrangeCustomerChallenge,
     act: async (db, scope, ids) => {
@@ -2004,10 +2017,10 @@ export const ISOLATION_REGISTRY: Record<string, AnyCase | AnyCase[]> = {
     act: (db, scope, ids) => new OtpChallengeRepository(db, scope).registerAttempt(ids.challengeId, new Date(), 5),
     expect: 'null',
   }),
-  'OtpChallengeRepository.closeOpenForPhone': isolationCase({
-    arrange: arrangeCustomerChallenge,
+  'OtpChallengeRepository.closeOpenFor': isolationCase({
+    arrange: arrangeEmailCustomerChallenge,
     act: async (db, scope, ids) => {
-      await new OtpChallengeRepository(db, scope).closeOpenForPhone(ids.phone, new Date())
+      await new OtpChallengeRepository(db, scope).closeOpenFor({ email: ids.email }, new Date())
       return db.select().from(otpChallenge).where(and(eq(otpChallenge.id, ids.challengeId), isNotNull(otpChallenge.consumedAt)))
     },
     expect: 'empty',

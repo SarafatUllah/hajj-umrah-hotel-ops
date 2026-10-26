@@ -7,6 +7,9 @@ import { OrgQuery } from '../base/scopedQuery'
 export type OtpChallengeRow = typeof otpChallenge.$inferSelect
 export type NewOtpChallenge = Omit<typeof otpChallenge.$inferInsert, 'organizationId'>
 
+/** Where a code goes: a phone (E.164) or a normalized e-mail address (D-P2-68) — a challenge holds exactly one. */
+export type OtpDestination = { phone: string } | { email: string }
+
 /** Customer sign-in codes (hashed). Attempts and consumption are single atomic UPDATEs, safe under concurrency. */
 export class OtpChallengeRepository {
   private readonly q: OrgQuery
@@ -30,9 +33,13 @@ export class OtpChallengeRepository {
     return row ?? null
   }
 
-  /** Closes every still-open challenge of `phone` but `exceptId` (a new code replaces the older ones: one live code per phone). */
-  async closeOpenForPhone(phone: string, at: Date, exceptId?: string): Promise<void> {
-    await this.q.update(otpChallenge, { consumedAt: at }, eq(otpChallenge.phone, phone), isNull(otpChallenge.consumedAt), exceptId ? ne(otpChallenge.id, exceptId) : undefined)
+  /**
+   * Closes every still-open challenge of the phone or address but `exceptId` (a new code replaces the older ones: one
+   * live code per destination).
+   */
+  async closeOpenFor(destination: OtpDestination, at: Date, exceptId?: string): Promise<void> {
+    const sameDestination = 'email' in destination ? eq(otpChallenge.email, destination.email) : eq(otpChallenge.phone, destination.phone)
+    await this.q.update(otpChallenge, { consumedAt: at }, sameDestination, isNull(otpChallenge.consumedAt), exceptId ? ne(otpChallenge.id, exceptId) : undefined)
   }
 
   /** Marks the challenge used; true only for the one caller that consumed it. */

@@ -64,7 +64,7 @@ function confirmedWithCode(result: CustomerSignIn) {
       <UAlert v-if="close.error.value && !stepUp" color="error" variant="soft" icon="i-lucide-triangle-alert" :title="errorMessage(close.error.value)" role="alert" />
       <div v-if="stepUp" class="surface-panel flex flex-col gap-4 p-5">
         <p>{{ t('account.stepUp') }}</p>
-        <PhoneCodeForm :fixed-phone="customer.phone" :submit-label="t('account.close')" @signed-in="confirmedWithCode" />
+        <PhoneCodeForm :fixed-phone="customer.phone ?? undefined" :submit-label="t('account.close')" @signed-in="confirmedWithCode" />
         <UButton color="neutral" variant="ghost" class="self-start" @click="stepUp = false">{{ t('common.cancel') }}</UButton>
       </div>
       <UButton v-else color="error" variant="outline" icon="i-lucide-user-x" class="self-start" @click="closeOpen = true">{{ t('account.close') }}</UButton>

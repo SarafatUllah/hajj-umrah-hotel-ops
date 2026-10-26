@@ -28,6 +28,8 @@ export async function freePort(): Promise<number> {
 
 export interface ExtraServer {
   baseUrl: string
+  /** Everything the server has written to stdout and stderr so far (e.g. a message of a `log` driver). */
+  output: () => string
   stop: () => Promise<void>
 }
 
@@ -45,6 +47,10 @@ export async function startExtraServer(extraEnv: Record<string, string>): Promis
     env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: storageDir, ...extraEnv },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  let output = ''
+  const collect = (chunk: Buffer) => { output += chunk.toString('utf8') }
+  child.stdout.on('data', collect)
+  child.stderr.on('data', collect)
   const stop = async () => {
     if (child.exitCode === null && child.signalCode === null) {
       const exited = new Promise<void>(resolve => child.once('exit', () => resolve()))
@@ -59,7 +65,7 @@ export async function startExtraServer(extraEnv: Record<string, string>): Promis
   }
   try {
     const baseUrl = await waitForListening(child)
-    return { baseUrl, stop }
+    return { baseUrl, output: () => output, stop }
   }
   catch (error) {
     await stop()

@@ -42,9 +42,9 @@ export const RATE_LIMITS = {
   otpRequestPerPhone: { name: 'otp-phone', limit: 3, windowSeconds: 15 * 60 },
   /** At most one code per phone per minute (no burst of texts to a victim). */
   otpResendCooldown: { name: 'otp-cooldown', limit: 1, windowSeconds: 60 },
-  /** Sign-in code requests from one client address (generous: carrier NAT and hotel Wi-Fi share addresses). */
+  /** Sign-in code requests from one client address, phones and e-mail together (generous: carrier NAT and hotel Wi-Fi share addresses). */
   otpRequestPerIp: { name: 'otp-ip', limit: 30, windowSeconds: 15 * 60 },
-  /** Code verifications from one client address (each challenge also allows only OTP_MAX_ATTEMPTS). */
+  /** Code verifications from one client address, phones and e-mail together (each challenge also allows only OTP_MAX_ATTEMPTS). */
   otpVerifyPerIp: { name: 'otp-verify-ip', limit: 60, windowSeconds: 15 * 60 },
   /**
    * Code verifications for one phone from one address, across challenges: per address, so one stranger guessing at
@@ -57,6 +57,14 @@ export const RATE_LIMITS = {
    * could already keep the owner from getting codes (`otpRequestPerPhone`): that trade was taken for the bound.
    */
   otpVerifyPerPhoneTotal: { name: 'otp-verify-phone-total', limit: 30, windowSeconds: 60 * 60 },
+  /** D-P2-68: sign-in codes e-mailed to one address (each one also spends the sender's daily quota and reputation). */
+  otpRequestPerEmail: { name: 'otp-email', limit: 3, windowSeconds: 15 * 60 },
+  /** At most one code per address per minute (no burst of e-mails into a victim's inbox). */
+  otpEmailResendCooldown: { name: 'otp-email-cooldown', limit: 1, windowSeconds: 60 },
+  /** Code verifications for one address from one client address, across challenges (as `otpVerifyPerPhone`). */
+  otpVerifyPerEmail: { name: 'otp-verify-email', limit: 10, windowSeconds: 60 * 60 },
+  /** And for one address from every client address together, higher (as `otpVerifyPerPhoneTotal`). */
+  otpVerifyPerEmailTotal: { name: 'otp-verify-email-total', limit: 30, windowSeconds: 60 * 60 },
   /** Quote requests per agency (each takes a reference number and lands in the sellers' queue). */
   quoteRequestPerAgency: { name: 'quote-agency', limit: 30, windowSeconds: 60 * 60 },
   /** Stay searches per agency (each runs the allocator: CPU on the request path, ticket 3). */
