@@ -41,23 +41,38 @@ const channelOf = (destination: OtpDestination): Channel => ('email' in destinat
 
 /**
  * A channel's own limits: per client address (on top of `otpRequestPerIp`); the resend cooldown and requests per
- * destination; verifications.
+ * destination, then per destination and client address, then per destination again (a higher total); verifications.
  */
 interface ChannelLimits {
   fromClientAddress: readonly RateLimitPolicy[]
   cooldown: RateLimitPolicy
   requests: readonly RateLimitPolicy[]
+  requestsFromClientAddress: readonly RateLimitPolicy[]
+  requestsTotal: readonly RateLimitPolicy[]
   verifyFromAddress: RateLimitPolicy
   verifyTotal: RateLimitPolicy
 }
 
-/** E-mail adds daily caps per client address and per mailbox (its budget is a sender's daily quota, D-P2-68). */
+/**
+ * E-mail adds daily caps per client address, and per mailbox split like the verification limits — per (mailbox,
+ * client address), then a higher total — so a stranger cannot shut the owner out for a day cheaply (D-P2-68).
+ */
 const CHANNEL_LIMITS: Record<Channel, ChannelLimits> = {
-  sms: { fromClientAddress: [], cooldown: RATE_LIMITS.otpResendCooldown, requests: [RATE_LIMITS.otpRequestPerPhone], verifyFromAddress: RATE_LIMITS.otpVerifyPerPhone, verifyTotal: RATE_LIMITS.otpVerifyPerPhoneTotal },
+  sms: {
+    fromClientAddress: [],
+    cooldown: RATE_LIMITS.otpResendCooldown,
+    requests: [RATE_LIMITS.otpRequestPerPhone],
+    requestsFromClientAddress: [],
+    requestsTotal: [],
+    verifyFromAddress: RATE_LIMITS.otpVerifyPerPhone,
+    verifyTotal: RATE_LIMITS.otpVerifyPerPhoneTotal,
+  },
   email: {
     fromClientAddress: [RATE_LIMITS.otpEmailRequestPerIp, RATE_LIMITS.otpEmailRequestPerIpDay],
     cooldown: RATE_LIMITS.otpEmailResendCooldown,
-    requests: [RATE_LIMITS.otpRequestPerEmail, RATE_LIMITS.otpRequestPerEmailDay],
+    requests: [RATE_LIMITS.otpRequestPerEmail],
+    requestsFromClientAddress: [RATE_LIMITS.otpRequestPerEmailFromAddressDay],
+    requestsTotal: [RATE_LIMITS.otpRequestPerEmailDayTotal],
     verifyFromAddress: RATE_LIMITS.otpVerifyPerEmail,
     verifyTotal: RATE_LIMITS.otpVerifyPerEmailTotal,
   },
@@ -117,9 +132,9 @@ async function deliverCode(destination: OtpDestination, code: string, organizati
  * Sends a sign-in code (v7 §21: phone OTP for the public site; D-P2-68: or e-mail; sign-up and sign-in are the same
  * flow), to the phone or the e-mail address given. Before anything is created or sent: a phone's country must be
  * allowed, the bot check pass (when configured), and the limits hold — per client address (both channels, and fewer
- * e-mails an hour and a day), one code per destination per minute, 3 per destination per 15 minutes (and 10 a day per
- * mailbox, an address's aliases counting as the address), and the organization's hourly and daily budget of the
- * channel. The answer is the same whether or not the destination has an account. A new code closes the destination's
+ * e-mails an hour and a day), one code per destination per minute, 3 per destination per 15 minutes (and per mailbox 5
+ * a day from one client address and 30 from all, an address's aliases counting as the address), and the
+ * organization's hourly and daily budget of the channel. The answer is the same whether or not the destination has an account. A new code closes the destination's
  * older ones once it is sent (a failed send leaves them usable); only a hash of the code is stored.
  */
 export async function requestCustomerOtp(input: OtpRequestInput, request: LoginRequest): Promise<OtpChallengeIssued> {
@@ -135,6 +150,9 @@ export async function requestCustomerOtp(input: OtpRequestInput, request: LoginR
   const key = destinationKey(scope, destination)
   await consumeRateLimit(db, limits.cooldown, key, request.now)
   for (const policy of limits.requests) await consumeRateLimit(db, policy, key, request.now)
+  // The pair before the total: a client address refused at its own cap adds nothing to the mailbox's total.
+  for (const policy of limits.requestsFromClientAddress) await consumeRateLimit(db, policy, `${key}\u0000${request.clientIp}`, request.now)
+  for (const policy of limits.requestsTotal) await consumeRateLimit(db, policy, key, request.now)
   await consumeDeliveryBudget(db, channel, scope.organizationId, request.now)
 
   const challengeId = randomUUID()

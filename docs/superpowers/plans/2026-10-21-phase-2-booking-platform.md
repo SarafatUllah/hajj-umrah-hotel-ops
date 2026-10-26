@@ -942,10 +942,12 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   channel. The code offers no way to add a second identity to an account; one would need the signed-in customer to
   prove the new phone or address with a code first (open). D-P2-27b holds for the inbox: whoever controls it holds
   the account, and closing it needs a fresh code there. **Abuse limits**, as for phones: one code per address per
-  minute, 3 per 15 minutes and 10 a day (`otpEmailResendCooldown`, `otpRequestPerEmail`, `otpRequestPerEmailDay`:
-  however many client addresses ask, an inbox gets at most 10 codes a day), an address's aliases counting as the
-  address (`emailLimitSubject`: a `+tag` dropped, and Gmail's dots — only a rate-limit subject, never an identity), 10
-  checks per address and client address an hour and 30 in all (`otpVerifyPerEmail`, `otpVerifyPerEmailTotal`), the
+  minute, 3 per 15 minutes, 5 a day from one client address and 30 a day in all (`otpEmailResendCooldown`,
+  `otpRequestPerEmail`, `otpRequestPerEmailFromAddressDay`, `otpRequestPerEmailDayTotal`: one sender cannot bomb an
+  inbox, a botnet stays at 30 a day, and shutting the owner out for the rest of the day takes 30 solved bot checks
+  from at least 6 client addresses — a 10-a-day total, tried first, let one stranger do it with 10), an address's
+  aliases counting as the address (`emailLimitSubject`: a `+tag` dropped, and Gmail's dots — only a rate-limit
+  subject, never an identity), 10 checks per address and client address an hour and 30 in all (`otpVerifyPerEmail`, `otpVerifyPerEmailTotal`), the
   per-client-address limits shared with phones plus 20 e-mailed codes per client address an hour and 40 a day
   (`otpEmailRequestPerIp`, `otpEmailRequestPerIpDay`: each below the budget of its window, so one client address
   rotating throwaway addresses cannot spend either budget alone), the bot check, and an organization e-mail budget of

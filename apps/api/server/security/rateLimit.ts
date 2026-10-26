@@ -65,12 +65,23 @@ export const RATE_LIMITS = {
   otpEmailRequestPerIp: { name: 'otp-email-ip', limit: 20, windowSeconds: 60 * 60 },
   otpEmailRequestPerIpDay: { name: 'otp-email-ip-day', limit: 40, windowSeconds: 24 * 60 * 60 },
   /**
-   * Sign-in codes e-mailed to one mailbox, its aliases included (`emailLimitSubject`): 3 in 15 minutes and 10 a day,
-   * so a victim's inbox gets at most 10 codes a day however many client addresses ask (each one also spends the
-   * sender's daily quota and reputation).
+   * Sign-in codes e-mailed to one mailbox, its aliases included (`emailLimitSubject`), from every client address: 3 in
+   * 15 minutes (each one also spends the sender's daily quota and reputation). A stranger who fills it keeps the owner
+   * from getting codes for the rest of those 15 minutes, as for phones (`otpRequestPerPhone`).
    */
   otpRequestPerEmail: { name: 'otp-email', limit: 3, windowSeconds: 15 * 60 },
-  otpRequestPerEmailDay: { name: 'otp-email-day', limit: 10, windowSeconds: 24 * 60 * 60 },
+  /**
+   * Codes to one mailbox asked for from one client address in a day: one sender cannot bomb an inbox, and the owner's
+   * own (mailbox, client address) pair fills only from their own requests.
+   */
+  otpRequestPerEmailFromAddressDay: { name: 'otp-email-client-day', limit: 5, windowSeconds: 24 * 60 * 60 },
+  /**
+   * And to one mailbox from every client address together in a day, much higher: a botnet's bombing of one inbox stays
+   * at 30 codes a day (instead of about 288 under the 15-minute limit alone). A stranger who fills it does keep the
+   * owner from e-mail codes for the rest of the UTC day; that takes 30 solved bot checks from at least 6 client
+   * addresses, and the trade was taken for the bound.
+   */
+  otpRequestPerEmailDayTotal: { name: 'otp-email-day-total', limit: 30, windowSeconds: 24 * 60 * 60 },
   /** At most one code per address per minute (no burst of e-mails into a victim's inbox). */
   otpEmailResendCooldown: { name: 'otp-email-cooldown', limit: 1, windowSeconds: 60 },
   /** Code verifications for one address from one client address, across challenges (as `otpVerifyPerPhone`). */

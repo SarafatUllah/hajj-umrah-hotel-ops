@@ -53,10 +53,10 @@ async function issue(slug: string, email = newAddress(), minutesLater = 0, from 
 const verify = (slug: string, c: { challengeId: string, code: string }, fullName?: string, clientIp?: string) =>
   verifyCustomerOtp({ organizationSlug: slug, challengeId: c.challengeId, code: c.code, ...(fullName ? { fullName } : {}) }, request(clientIp))
 
-/** Spends a limit's whole current window for one subject, as earlier requests would have. */
-async function exhaust(policy: RateLimitPolicy, subject: string) {
+/** Spends a limit's whole window (the one holding `at`) for one subject, as earlier requests would have. */
+async function exhaust(policy: RateLimitPolicy, subject: string, at = new Date()) {
   const key = bucketKey(policy, subject)
-  for (let i = 0; i < policy.limit; i++) await platformRepos(db).rateLimits.hit(key, windowStartFor(policy, new Date()))
+  for (let i = 0; i < policy.limit; i++) await platformRepos(db).rateLimits.hit(key, windowStartFor(policy, at))
 }
 
 describe('customer sign-in by e-mail code (D-P2-68)', () => {
@@ -181,12 +181,29 @@ describe('customer sign-in by e-mail code (D-P2-68)', () => {
     expect(emails).toEqual([])
   })
 
-  it('one mailbox gets only so many codes a day, its aliases included, from any number of client addresses', async () => {
+  it('one client address gets only so many codes a day to one mailbox (aliases included); the mailbox\'s owner, elsewhere, still gets theirs', async () => {
     const { organization, scope } = await makeOrg(db)
-    expect(RATE_LIMITS.otpRequestPerEmailDay).toMatchObject({ limit: 10, windowSeconds: 24 * 60 * 60 })
-    await exhaust(RATE_LIMITS.otpRequestPerEmailDay, `${scope.organizationId}\u0000aisha@gmail.com`)
-    await expect(issue(organization.slug, 'a.isha+9@gmail.com')).rejects.toBeInstanceOf(TooManyRequestsError)
-    await expect(issue(organization.slug, 'aisha@googlemail.com', 1)).rejects.toBeInstanceOf(TooManyRequestsError)
+    const pair = RATE_LIMITS.otpRequestPerEmailFromAddressDay
+    expect(pair).toMatchObject({ limit: 5, windowSeconds: 24 * 60 * 60 })
+    // The start of a UTC day: every window of these requests (minute, 15 minutes, day) begins there.
+    const day = Math.ceil(Date.now() / 86_400_000) * 86_400_000
+    const [stranger, owner] = ['203.0.113.90', '198.51.100.90']
+    const ask = (email: string, clientIp: string, minutesLater: number) => requestCustomerOtp(otpRequestSchema.parse({ organizationSlug: organization.slug, email }), request(clientIp, new Date(day + minutesLater * 61_000)))
+    await exhaust(pair, `${scope.organizationId}\u0000aisha@gmail.com\u0000${stranger}`, new Date(day))
+
+    await expect(ask('a.isha+9@gmail.com', stranger, 0)).rejects.toBeInstanceOf(TooManyRequestsError)
+    await expect(ask('aisha@gmail.com', owner, 1)).resolves.toMatchObject({ expiresInSeconds: 300 })
+    expect(emails.map(e => e.to)).toEqual(['aisha@gmail.com'])
+  })
+
+  it('one mailbox gets at most 30 codes a day from every client address together — a botnet\'s bound, far above what one address may ask', async () => {
+    const { organization, scope } = await makeOrg(db)
+    const total = RATE_LIMITS.otpRequestPerEmailDayTotal
+    expect(total).toMatchObject({ limit: 30, windowSeconds: 24 * 60 * 60 })
+    // Filling it needs at least 6 client addresses (and 30 solved bot checks).
+    expect(total.limit / RATE_LIMITS.otpRequestPerEmailFromAddressDay.limit).toBeGreaterThanOrEqual(6)
+    await exhaust(total, `${scope.organizationId}\u0000aisha@gmail.com`)
+    await expect(issue(organization.slug, 'aisha@googlemail.com')).rejects.toBeInstanceOf(TooManyRequestsError)
     expect(emails).toEqual([])
     await expect(issue(organization.slug, 'omar@example.test')).resolves.toMatchObject({ expiresInSeconds: 300 })
   })
