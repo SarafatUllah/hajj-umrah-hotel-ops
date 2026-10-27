@@ -42,9 +42,9 @@ export const RATE_LIMITS = {
   otpRequestPerPhone: { name: 'otp-phone', limit: 3, windowSeconds: 15 * 60 },
   /** At most one code per phone per minute (no burst of texts to a victim). */
   otpResendCooldown: { name: 'otp-cooldown', limit: 1, windowSeconds: 60 },
-  /** Sign-in code requests from one client address (generous: carrier NAT and hotel Wi-Fi share addresses). */
+  /** Sign-in code requests from one client address, phones and e-mail together (generous: carrier NAT and hotel Wi-Fi share addresses). */
   otpRequestPerIp: { name: 'otp-ip', limit: 30, windowSeconds: 15 * 60 },
-  /** Code verifications from one client address (each challenge also allows only OTP_MAX_ATTEMPTS). */
+  /** Code verifications from one client address, phones and e-mail together (each challenge also allows only OTP_MAX_ATTEMPTS). */
   otpVerifyPerIp: { name: 'otp-verify-ip', limit: 60, windowSeconds: 15 * 60 },
   /**
    * Code verifications for one phone from one address, across challenges: per address, so one stranger guessing at
@@ -57,6 +57,37 @@ export const RATE_LIMITS = {
    * could already keep the owner from getting codes (`otpRequestPerPhone`): that trade was taken for the bound.
    */
   otpVerifyPerPhoneTotal: { name: 'otp-verify-phone-total', limit: 30, windowSeconds: 60 * 60 },
+  /**
+   * D-P2-68: e-mailed codes asked for from one client address, an hour and a day — each below the organization's
+   * e-mail budget for the same window (EMAIL_HOURLY_LIMIT 100, EMAIL_DAILY_LIMIT 300 by default), so one client
+   * address rotating throwaway addresses cannot spend either budget alone. Counted with `otpRequestPerIp`.
+   */
+  otpEmailRequestPerIp: { name: 'otp-email-ip', limit: 20, windowSeconds: 60 * 60 },
+  otpEmailRequestPerIpDay: { name: 'otp-email-ip-day', limit: 40, windowSeconds: 24 * 60 * 60 },
+  /**
+   * Sign-in codes e-mailed to one mailbox, its aliases included (`emailLimitSubject`), from every client address: 3 in
+   * 15 minutes (each one also spends the sender's daily quota and reputation). A stranger who fills it keeps the owner
+   * from getting codes for the rest of those 15 minutes, as for phones (`otpRequestPerPhone`).
+   */
+  otpRequestPerEmail: { name: 'otp-email', limit: 3, windowSeconds: 15 * 60 },
+  /**
+   * Codes to one mailbox asked for from one client address in a day: one sender cannot bomb an inbox, and the owner's
+   * own (mailbox, client address) pair fills only from their own requests.
+   */
+  otpRequestPerEmailFromAddressDay: { name: 'otp-email-client-day', limit: 5, windowSeconds: 24 * 60 * 60 },
+  /**
+   * And to one mailbox from every client address together in a day, much higher: a botnet's bombing of one inbox stays
+   * at 30 codes a day (instead of about 288 under the 15-minute limit alone). A stranger who fills it does keep the
+   * owner from e-mail codes for the rest of the UTC day; that takes 30 solved bot checks from at least 6 client
+   * addresses, and the trade was taken for the bound.
+   */
+  otpRequestPerEmailDayTotal: { name: 'otp-email-day-total', limit: 30, windowSeconds: 24 * 60 * 60 },
+  /** At most one code per address per minute (no burst of e-mails into a victim's inbox). */
+  otpEmailResendCooldown: { name: 'otp-email-cooldown', limit: 1, windowSeconds: 60 },
+  /** Code verifications for one address from one client address, across challenges (as `otpVerifyPerPhone`). */
+  otpVerifyPerEmail: { name: 'otp-verify-email', limit: 10, windowSeconds: 60 * 60 },
+  /** And for one address from every client address together, higher (as `otpVerifyPerPhoneTotal`). */
+  otpVerifyPerEmailTotal: { name: 'otp-verify-email-total', limit: 30, windowSeconds: 60 * 60 },
   /** Quote requests per agency (each takes a reference number and lands in the sellers' queue). */
   quoteRequestPerAgency: { name: 'quote-agency', limit: 30, windowSeconds: 60 * 60 },
   /** Stay searches per agency (each runs the allocator: CPU on the request path, ticket 3). */

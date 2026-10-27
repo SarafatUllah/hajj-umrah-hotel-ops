@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { isValidIsoDate, toEpochDay } from '../utils/dates'
 import { toLatinDigits } from '../utils/digits'
+import { normalizeEmail } from '../utils/email'
 import { MAX_CALENDAR_DAYS } from '../constants/inventory'
 
 export const uuid = z.string().uuid()
@@ -80,6 +81,9 @@ export function uniqueIds(max: number, opts: { required?: boolean } = {}) {
 
 /** A phone number in E.164 form (`+` and 8–15 digits); Arabic digits become Latin, spaces, dashes and brackets are stripped first. */
 export const e164Phone = z.string().transform(value => toLatinDigits(value).replace(/[\s\-()]/g, '')).refine(value => /^\+[1-9]\d{7,14}$/.test(value), { message: 'Enter the number in international form, e.g. +9665XXXXXXXX' })
+
+/** An e-mail address in its stored form (D-P2-68: a customer's sign-in address): trimmed, lower-cased, at most 254 characters. */
+export const emailAddress = z.string().transform(normalizeEmail).pipe(z.string().max(254, 'Must be at most 254 characters').email('Enter an e-mail address like name@example.com'))
 
 /** A new password (accounts created in Phase 2: agency users). Upper bound keeps Argon2 input bounded. */
 export const newPassword = z.string().min(10, 'Use at least 10 characters').max(256)

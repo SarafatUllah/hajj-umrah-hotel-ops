@@ -50,15 +50,26 @@ deployment on Vercel, Supabase and Cloudflare R2 has its own step-by-step guide,
       `TRUST_PROXY=true` and is reachable only through them (otherwise every visitor shares one address for the
       per-address limits).
 
-- [ ] Customer sign-in (public site) needs an SMS gateway: `SMS_DRIVER=webhook` with an `https` `SMS_WEBHOOK_URL`
+- [ ] Customer sign-in by phone (public site) needs an SMS gateway: `SMS_DRIVER=webhook` with an `https` `SMS_WEBHOOK_URL`
       (and `SMS_WEBHOOK_TOKEN`); until then `disabled` makes the code request answer 503. `log` is refused outside
       development. The gateway receives `{ "to": "+9665…", "text": "…" }` and must answer 2xx (redirects are not
       followed). Set `SMS_ALLOWED_CALLING_CODES` to the countries actually served, size `SMS_HOURLY_LIMIT` /
       `SMS_DAILY_LIMIT` to the SMS budget (watch for the `[sms] … reached its … SMS budget` warning), and enable the
       bot check (`CAPTCHA_DRIVER=turnstile` + `CAPTCHA_SECRET`) before the public site opens.
-- [ ] The public site needs `NUXT_PUBLIC_TURNSTILE_SITE_KEY` (its Turnstile site key). Whenever SMS is enabled outside
-      `APP_ENV=development` (`SMS_DRIVER=webhook`), the API needs `CAPTCHA_DRIVER=turnstile` and `CAPTCHA_SECRET`; startup
-      refuses otherwise (`server/utils/env.ts`).
+- [ ] Customer sign-in by e-mail (D-P2-68) needs a sender: `EMAIL_DRIVER=smtp` with `SMTP_HOST`, `SMTP_PORT` (465 =
+      TLS at once; any other port must offer STARTTLS, which is required), `SMTP_USER`, `SMTP_PASSWORD` and `EMAIL_FROM`
+      ("Name <address>"; the name is also the site name in the e-mail) — e.g. Gmail with an app password
+      (`docs/DEPLOY_VERCEL.md` step 5.4) — or `EMAIL_DRIVER=resend` with `RESEND_API_KEY` and an `EMAIL_FROM` on a
+      domain verified in Resend (without one, Resend delivers only to its account owner). Until then `disabled` makes
+      an e-mail code request answer 503; `log` is refused outside development. Size `EMAIL_HOURLY_LIMIT` /
+      `EMAIL_DAILY_LIMIT` to the sender's quota, leaving room for booking messages, which are not counted in them (Gmail:
+      about 500 recipients a day; Resend's free plan: 100), and above the per-client-address caps (20 an hour, 40 a
+      day: otherwise one visitor's address could spend the budget alone; watch
+      for `[email] … reached its … e-mail budget`), and check the function log for `[email] delivery failed: …` after
+      the first sign-in.
+- [ ] The public site needs `NUXT_PUBLIC_TURNSTILE_SITE_KEY` (its Turnstile site key). Whenever SMS or e-mail codes are
+      enabled outside `APP_ENV=development` (`SMS_DRIVER=webhook`, `EMAIL_DRIVER=smtp` or `resend`), the API needs
+      `CAPTCHA_DRIVER=turnstile` and `CAPTCHA_SECRET`; startup refuses otherwise (`server/utils/env.ts`).
 - [ ] Each app reaches the API through its own `/api` proxy (`NUXT_API_PROXY_TARGET`), so its session cookie
       (`SameSite=Lax`) is first-party to the app's own host; the API itself need not be public.
 - [ ] The reverse proxy in front caps request bodies at about 5 MB (`client_max_body_size` or equivalent) and has
@@ -83,9 +94,11 @@ deployment on Vercel, Supabase and Cloudflare R2 has its own step-by-step guide,
       built-in roles the permissions and 2FA flags of this release (additive and idempotent — it never removes a
       grant). Without it, permissions added by a release (e.g. Phase 2's `agency.manage`) are missing everywhere.
       It also resets the built-in roles' `requires_two_factor` flags to their definitions.
-- [ ] Migrations `0020_review_indexes` and `0021_ended_booking_scans` rewrite existing rows: passport image filenames
-      become `passport.<ext>`, and the scans of bookings already cancelled or expired lose their reading and become due for deletion at once. They
-      run with the normal migrations.
+- [ ] Migrations `0020_review_indexes`, `0021_ended_booking_scans` and `0022_customer_email_sign_in` rewrite existing
+      rows: passport image filenames become `passport.<ext>`, the scans of bookings already cancelled or expired lose
+      their reading and become due for deletion at once, and customers' contact e-mails are trimmed and lower-cased (a
+      malformed one is cleared; no code path ever wrote one — `select id, email from customer where email is not null;`
+      lists them beforehand). They run with the normal migrations.
 - [ ] No stored price exceeds 20,000 SAR per unit (`MAX_UNIT_HALALAS` = 2,000,000 halalas in
       `packages/contracts/schemas/bookingRules.ts`: the API refuses higher prices, the database does not). Run
       `select count(*) from rate where amount_halalas > 2000000;`, and the same on `price_quote` and `extra_bed_policy`;
@@ -138,8 +151,10 @@ deployment on Vercel, Supabase and Cloudflare R2 has its own step-by-step guide,
   an external service: enable only after the contract and data-region review (v7 §23 Q24), including zero-data
   retention and the server-side fallback models. Each organization must then also opt in
   (`PATCH /api/booking-settings {"passportAiAllowed": true}`); every sending is logged in `pii_access_log`.
-- The daily `booking.details-reminder` job texts bookers whose pilgrims' details are missing close to check-in: it
-  needs `SMS_DRIVER` configured (it does nothing while disabled) and the light tier worked somewhere.
+- The daily `booking.details-reminder` job reminds bookers whose pilgrims' details are missing close to check-in, on
+  their channel (D-P2-68): a text message to agencies and phone customers (`SMS_DRIVER`), an e-mail to customers who
+  sign in by e-mail (`EMAIL_DRIVER`). It does nothing while neither is configured; a booker whose channel is off is
+  logged and tried again the next day. It needs the light tier worked somewhere.
 - The daily `booking.guest-data-retention` job erases pilgrims' details `guestDataRetentionMonths` (booking settings,
   default 24) after check-out: agree the period with the client's legal advice before go-live.
 - The daily `booking.passport-retention` job (light tier) deletes passport images after their retention: some

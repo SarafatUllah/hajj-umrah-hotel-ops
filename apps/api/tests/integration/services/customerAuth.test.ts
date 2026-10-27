@@ -184,7 +184,7 @@ describe('customer sign-in by SMS code', () => {
     const identity = { customerId: created.id, organizationId: scope.organizationId, sessionVersion: 1 }
 
     const ctx = (await resolveCustomerContext(db as Database, identity))!
-    expect(getCustomerMe(ctx)).toEqual({ id: created.id, phone: first.phone, fullName: 'Omar' })
+    expect(getCustomerMe(ctx)).toEqual({ id: created.id, phone: first.phone, email: null, fullName: 'Omar' })
     expect(ctx.scope).toMatchObject({ customerId: created.id })
     expect(await resolveCustomerContext(db as Database, { ...identity, sessionVersion: 2 })).toBeNull()
 

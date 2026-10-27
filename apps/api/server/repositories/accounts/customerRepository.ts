@@ -1,4 +1,4 @@
-import { eq, isNull, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { DbOrTx } from '@hajj/db/client'
 import { customer } from '@hajj/db/schema'
 import type { OrganizationScope } from '../../security/scope'
@@ -10,7 +10,7 @@ export type NewCustomer = Omit<typeof customer.$inferInsert, 'organizationId'>
 /** The name a closed account keeps (the column is required; the person's name is gone). */
 export const CLOSED_ACCOUNT_NAME = 'Closed account'
 
-/** Individual bookers of one organization, identified by a verified E.164 phone. */
+/** Individual bookers of one organization, identified by a verified E.164 phone or a verified e-mail (D-P2-68). */
 export class CustomerRepository {
   private readonly q: OrgQuery
 
@@ -33,6 +33,12 @@ export class CustomerRepository {
     return row ?? null
   }
 
+  /** The account that signs in with this (normalized) address; an unproven copy of it on another row never matches. */
+  async findByVerifiedEmail(email: string): Promise<CustomerRow | null> {
+    const [row] = await this.q.select(customer, and(eq(customer.email, email), isNotNull(customer.emailVerifiedAt)), { limit: 1 })
+    return row ?? null
+  }
+
   /** "Sign out everywhere": every existing session of the customer stops resolving. */
   async bumpSessionVersion(id: string): Promise<void> {
     await this.q.update(customer, { sessionVersion: sql`${customer.sessionVersion} + 1`, updatedAt: new Date() }, eq(customer.id, id))
@@ -40,12 +46,13 @@ export class CustomerRepository {
 
   /**
    * Step 15b account closure: the row stays (bookings name it) without phone, name or e-mail, inactive, every session
-   * ended; the phone may sign up again as a new account. null = no open account with this id (already closed).
+   * ended; the phone or the address may sign up again as a new account. null = no open account with this id (already
+   * closed).
    */
   async close(id: string, at: Date): Promise<CustomerRow | null> {
     const [row] = await this.q.update(
       customer,
-      { phone: null, phoneVerifiedAt: null, fullName: CLOSED_ACCOUNT_NAME, email: null, lastLoginAt: null, isActive: false, closedAt: at, sessionVersion: sql`${customer.sessionVersion} + 1`, updatedAt: at },
+      { phone: null, phoneVerifiedAt: null, fullName: CLOSED_ACCOUNT_NAME, email: null, emailVerifiedAt: null, lastLoginAt: null, isActive: false, closedAt: at, sessionVersion: sql`${customer.sessionVersion} + 1`, updatedAt: at },
       eq(customer.id, id),
       isNull(customer.closedAt),
     ).returning()

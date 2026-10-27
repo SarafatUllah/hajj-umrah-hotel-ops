@@ -2,11 +2,10 @@ import type { BookingStatus } from '@hajj/contracts/constants/booking'
 import type { ActorKind } from '@hajj/contracts/constants/principals'
 import type { BookingCancelledV1, BookingConfirmedV1, ConfirmedByKind } from '@hajj/contracts/events/domainEvents'
 import { newEvent } from '../../events/bus'
-import { isSmsEnabled, useSmsSender } from '../../notifications/sms'
 import { tenantRepos } from '../../repositories'
 import type { BookingRow } from '../../repositories/booking'
 import type { OrganizationScope } from '../../security/scope'
-import { findBookerPhone } from '../accounts'
+import { messageBooker, type BookerMessage } from './bookerMessages'
 
 type Db = Parameters<typeof tenantRepos>[0]
 
@@ -36,30 +35,37 @@ export function bookingCancelledEvent(row: BookingRow, previousStatus: BookingSt
   return newEvent<BookingCancelledV1>('booking.cancelled', 1, row.organizationId, { ...bookingFacts(row), previousStatus, cancelledBy: actorKindOf(actor) }, now)
 }
 
-/** Texts the booker of a booking event, when text messages are configured and the booker has a phone. */
-async function textBooker(tx: Db, scope: OrganizationScope, payload: BookingFacts, text: (hotelName: string) => string): Promise<void> {
-  if (!isSmsEnabled()) return
-  const phone = await findBookerPhone(tx, scope, payload)
-  if (!phone) return
+/**
+ * Tells the booker of a booking event, on their channel (D-P2-68: a text message, or an e-mail for a customer without a
+ * phone); a channel that is off is logged with the booking's number only.
+ */
+async function notifyBooker(tx: Db, scope: OrganizationScope, payload: BookingFacts, message: (hotelName: string) => BookerMessage): Promise<void> {
   const hotel = await tenantRepos(tx, scope).hotels.findById(payload.hotelId)
-  await useSmsSender().send({ to: phone, text: text(hotel?.name ?? 'the hotel') })
+  const delivery = await messageBooker(tx, scope, payload, message(hotel?.name ?? 'the hotel'))
+  if (typeof delivery === 'object') console.info(`[booker-message] booking ${payload.bookingNo}: not sent, ${delivery.channelOff} is not configured`)
 }
 
 /**
- * `booking.confirmed` → the booker learns it by text message when someone else confirmed it: a customer whose
- * request staff confirmed (v7 §7 REQUESTED), or an agency whose booking staff made on its behalf. A booker who
- * confirmed it themselves sees it already. Nothing is sent while text messages are not configured; a failed message
- * throws, so the job is retried.
+ * `booking.confirmed` → the booker learns it when someone else confirmed it: a customer whose request staff confirmed
+ * (v7 §7 REQUESTED), or an agency whose booking staff made on its behalf. A booker who confirmed it themselves sees it
+ * already. Nothing is sent while the booker's channel is not configured (logged); a failed message throws, so the
+ * job is retried.
  */
 export async function notifyBookingConfirmed(tx: Db, scope: OrganizationScope, event: BookingConfirmedV1): Promise<void> {
   const { payload } = event
   if (payload.confirmedBy !== 'staff') return
-  await textBooker(tx, scope, payload, hotel => `Booking ${payload.bookingNo} at ${hotel} is confirmed: ${payload.checkIn} to ${payload.checkOut}.`)
+  await notifyBooker(tx, scope, payload, hotel => ({
+    subject: `Booking ${payload.bookingNo} is confirmed`,
+    text: `Booking ${payload.bookingNo} at ${hotel} is confirmed: ${payload.checkIn} to ${payload.checkOut}.`,
+  }))
 }
 
-/** `booking.cancelled` → the booker learns it by text message when the hotel cancelled it (an agency releasing its own hold knows). */
+/** `booking.cancelled` → the booker learns it when the hotel cancelled it (an agency releasing its own hold knows). */
 export async function notifyBookingCancelled(tx: Db, scope: OrganizationScope, event: BookingCancelledV1): Promise<void> {
   const { payload } = event
   if (payload.cancelledBy !== 'staff') return
-  await textBooker(tx, scope, payload, hotel => `Booking ${payload.bookingNo} at ${hotel} (${payload.checkIn} to ${payload.checkOut}) was cancelled by the hotel.`)
+  await notifyBooker(tx, scope, payload, hotel => ({
+    subject: `Booking ${payload.bookingNo} was cancelled`,
+    text: `Booking ${payload.bookingNo} at ${hotel} (${payload.checkIn} to ${payload.checkOut}) was cancelled by the hotel.`,
+  }))
 }

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { eq, sql, TransactionRollbackError } from 'drizzle-orm'
-import { agency, agencyQuota, agencyUser, allocationRule, booking, bookingChange, bookingGuestDetail, bookingPriceLine, bookingRoom, bookingSetting, customer, documentAsset, extraBedPolicy, guestStay, hotelTask, passportScan, piiAccessLog, pilgrim, priceQuote, rate } from '@hajj/db/schema'
+import { agency, agencyQuota, agencyUser, allocationRule, booking, bookingChange, bookingGuestDetail, bookingPriceLine, bookingRoom, bookingSetting, customer, documentAsset, extraBedPolicy, guestStay, hotelTask, otpChallenge, passportScan, piiAccessLog, pilgrim, priceQuote, rate } from '@hajj/db/schema'
 import { extractPgError } from '../../../server/errors/dbErrors'
 import type { OrganizationScope } from '../../../server/security/scope'
 import { makeAgency, makeBooking, makeBookingRoom, makeCustomer, makeGuest, makeHotelWithRooms, makeStay } from '../../support/bookingFixtures'
@@ -471,6 +471,28 @@ describe('row checks of the account and settings tables', () => {
     const otherHotelBooking = await makeBooking(db, scope, second.hotel.id, { agencyId: agencyA.id })
     expect(await failure(db.insert(hotelTask).values({ organizationId: org, hotelId: hotel.id, roomId: rooms[0]!.id, bookingId: otherHotelBooking.id, kind: 'EXTRA_BED_SETUP', dueDate: '2027-06-01' }))).toMatchObject({ code: FOREIGN_KEY, constraint: 'hotel_task_booking_fk' })
     expect(await db.select().from(agency).where(eq(agency.organizationId, org))).toHaveLength(2)
+  })
+
+  it('D-P2-68: a customer signs in with a phone or a verified e-mail (stored lower-case, unique when verified); a code goes to exactly one', async () => {
+    const { scope } = await setup()
+    const org = scope.organizationId
+    const now = new Date()
+    expect(await failure(db.insert(customer).values({ organizationId: org, fullName: 'C', email: 'c@example.com' }))).toMatchObject({ code: CHECK, constraint: 'customer_closed_check' })
+    expect(await failure(db.insert(customer).values({ organizationId: org, fullName: 'C', email: 'C@Example.com', emailVerifiedAt: now }))).toMatchObject({ constraint: 'customer_email_check' })
+    expect(await failure(db.insert(customer).values({ organizationId: org, fullName: 'C', email: ' c@example.com', emailVerifiedAt: now }))).toMatchObject({ constraint: 'customer_email_check' })
+    expect(await failure(db.insert(customer).values({ organizationId: org, fullName: 'C', email: 'no-at-sign', emailVerifiedAt: now }))).toMatchObject({ constraint: 'customer_email_check' })
+    expect(await failure(db.insert(customer).values({ organizationId: org, fullName: 'C', phone: '+966501234567', emailVerifiedAt: now }))).toMatchObject({ constraint: 'customer_email_verified_check' })
+    await db.insert(customer).values({ organizationId: org, fullName: 'C', email: 'c@example.com', emailVerifiedAt: now })
+    expect(await failure(db.insert(customer).values({ organizationId: org, fullName: 'D', email: 'c@example.com', emailVerifiedAt: now }))).toMatchObject({ code: UNIQUE, constraint: 'customer_org_verified_email_unique' })
+    // An unverified copy is contact data only; a closed account keeps neither identity nor any e-mail.
+    await db.insert(customer).values({ organizationId: org, fullName: 'E', phone: '+966501234568', email: 'c@example.com' })
+    expect(await failure(db.insert(customer).values({ organizationId: org, fullName: 'Closed account', email: 'old@example.com', isActive: false, closedAt: now }))).toMatchObject({ constraint: 'customer_closed_check' })
+
+    const code = { organizationId: org, codeHash: 'a'.repeat(64), expiresAt: now }
+    expect(await failure(db.insert(otpChallenge).values(code))).toMatchObject({ constraint: 'otp_challenge_destination_check' })
+    expect(await failure(db.insert(otpChallenge).values({ ...code, phone: '+966501234567', email: 'c@example.com' }))).toMatchObject({ constraint: 'otp_challenge_destination_check' })
+    expect(await failure(db.insert(otpChallenge).values({ ...code, email: 'C@example.com' }))).toMatchObject({ constraint: 'otp_challenge_email_check' })
+    await db.insert(otpChallenge).values({ ...code, email: 'c@example.com' })
   })
 })
 

@@ -11,10 +11,11 @@ const PROJECT_ROOT = fileURLToPath(new URL('../../../', import.meta.url))
 const LISTENING_RE = /Listening on (https?:\/\/\S+)/
 
 /**
- * A free TCP port. Nitro treats `PORT=0` as "unset" (falls back to 3000), so extra servers get an explicit
- * port picked by the OS here instead (a tiny race window between closing the probe and the server binding is accepted).
+ * A free TCP port. Nitro treats `PORT=0` as "unset" (falls back to 3000), so every test server — the harness's own
+ * included — gets an explicit port picked by the OS here instead (a tiny race window between closing the probe and
+ * the server binding is accepted).
  */
-async function freePort(): Promise<number> {
+export async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createServer()
     probe.once('error', reject)
@@ -27,6 +28,8 @@ async function freePort(): Promise<number> {
 
 export interface ExtraServer {
   baseUrl: string
+  /** Everything the server has written to stdout and stderr so far (e.g. a message of a `log` driver). */
+  output: () => string
   stop: () => Promise<void>
 }
 
@@ -44,6 +47,10 @@ export async function startExtraServer(extraEnv: Record<string, string>): Promis
     env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: storageDir, ...extraEnv },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  let output = ''
+  const collect = (chunk: Buffer) => { output += chunk.toString('utf8') }
+  child.stdout.on('data', collect)
+  child.stderr.on('data', collect)
   const stop = async () => {
     if (child.exitCode === null && child.signalCode === null) {
       const exited = new Promise<void>(resolve => child.once('exit', () => resolve()))
@@ -58,7 +65,7 @@ export async function startExtraServer(extraEnv: Record<string, string>): Promis
   }
   try {
     const baseUrl = await waitForListening(child)
-    return { baseUrl, stop }
+    return { baseUrl, output: () => output, stop }
   }
   catch (error) {
     await stop()

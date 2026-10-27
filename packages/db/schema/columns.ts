@@ -23,3 +23,12 @@ export function sqlList(values: readonly string[]): SQL {
 export function oneOf(column: AnyPgColumn, values: readonly string[]): SQL {
   return sql`${column} in ${sqlList(values)}`
 }
+
+/**
+ * An e-mail address as the API stores it (`normalizeEmail`, D-P2-68), for a CHECK constraint: null, or trimmed,
+ * lower-case, at most 254 characters, one `@` with text on both sides. Lower-case storage is what makes a plain
+ * unique index on it case-insensitive.
+ */
+export function normalizedEmail(column: AnyPgColumn): SQL {
+  return sql`${column} is null or (${column} = lower(btrim(${column})) and char_length(${column}) <= 254 and ${column} ~ '^[^@\\s]+@[^@\\s]+$')`
+}

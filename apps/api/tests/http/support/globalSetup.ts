@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { freePort } from './spawnServer'
 
 declare module 'vitest' {
   export interface ProvidedContext {
@@ -24,7 +25,8 @@ const SHUTDOWN_GRACE_MS = 5_000
 /**
  * Builds the production Nitro artifact once (skippable for local iteration — see
  * HTTP_TEST_SKIP_BUILD in package.json's `test:http` script docs / README), boots it as a real child
- * process bound to an OS-assigned free port (`PORT=0`), waits for `GET /api/health` to answer, and
+ * process bound to a free port the OS picked (`freePort`: Nitro reads `PORT=0` as 3000, which another
+ * local server may hold — the boot then never listens), waits for `GET /api/health` to answer, and
  * hands the discovered base URL to every test file via Vitest's `provide`/`inject`. Teardown always
  * runs (even if a test throws) and kills the exact child PID it spawned — see the orphan-process
  * check in the Task 8 report for proof no server survives a run.
@@ -53,11 +55,12 @@ export default async function setup({ provide }: { provide: <T extends 'httpTest
   }
 }
 
-function startServer(storageDir: string): Promise<{ child: ChildProcessWithoutNullStreams, baseUrl: string }> {
+async function startServer(storageDir: string): Promise<{ child: ChildProcessWithoutNullStreams, baseUrl: string }> {
+  const port = await freePort()
   return new Promise((resolve, reject) => {
     const child = spawn('node', ['.output/server/index.mjs'], {
       cwd: PROJECT_ROOT,
-      env: { ...process.env, PORT: '0', HOST: '127.0.0.1', STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: storageDir },
+      env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', STORAGE_DRIVER: 'local', STORAGE_LOCAL_DIR: storageDir },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
 

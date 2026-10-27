@@ -1,9 +1,8 @@
 import { addDays, type IsoDate, todayInTimezone } from '@hajj/contracts/utils/dates'
-import { isSmsEnabled, useSmsSender } from '../../notifications/sms'
 import { bookingOrgRepos } from '../../repositories'
 import type { DetailsReminderRow } from '../../repositories/booking'
 import type { OrganizationScope } from '../../security/scope'
-import { findBookerPhone } from '../accounts'
+import { canMessageBookers, messageBooker, type BookerChannelSetting, type BookerDelivery } from './bookerMessages'
 import { loadBookingSettings } from './bookingSettingsService'
 import { sweepOrganizations } from './sweep'
 
@@ -20,41 +19,45 @@ export function reminderText(booking: { bookingNo: string, checkIn: IsoDate }, p
 
 /**
  * Daily (v7 §15 `detailsReminderDays`, 7 by default; 0 turns it off): a confirmed booking checking in within that
- * many days with pilgrims' details still missing is reminded once, by text message to the agency's or customer's
- * phone (both always have one; a booking whose booker is gone is marked and skipped). Sent first, marked after: a
- * failed send is tried again the next day while the check-in is still ahead, and the run pages past failures so they
- * never hold up the others. Days are UTC: the job runs at 06:00 UTC, the same date as in Saudi Arabia (UTC+3).
- * Nothing is attempted while text messages are not configured.
+ * many days with pilgrims' details still missing is reminded once, on the booker's channel (D-P2-68): a text message
+ * to the agency's or customer's phone, else an e-mail to the customer's verified address (a booking whose booker is
+ * gone is marked and skipped). Sent first, marked after: a failed send, or one whose channel is not configured yet, is
+ * tried again the next day while the check-in is still ahead, and the run pages past them so they never hold up the
+ * others; the ones waiting for a channel are logged as one line per organization and run, not one per booking. Days
+ * are UTC: the job runs at 06:00 UTC, the same date as in Saudi Arabia (UTC+3). Nothing is attempted while neither text
+ * messages nor e-mail are configured.
  */
 export async function sendDetailsReminders(db: Db, scopes: readonly OrganizationScope[], now: Date): Promise<number> {
-  if (!isSmsEnabled()) return 0
+  if (!canMessageBookers()) return 0
   const today = todayInTimezone('UTC', now)
   return sweepOrganizations('details-reminder', scopes, async (scope) => {
     const { detailsReminderDays } = await loadBookingSettings(db, scope)
     if (detailsReminderDays === 0) return 0
     const records = bookingOrgRepos(db, scope).records
     let sent = 0
+    const waiting = new Map<BookerChannelSetting, number>()
     let after: { checkIn: IsoDate, id: string } | undefined
     for (let seen = 0; seen < MAX_REMINDERS_PER_RUN;) {
       const page = await records.dueForDetailsReminder(today, addDays(today, detailsReminderDays), REMINDER_PAGE, after)
       for (const due of page) {
-        if (await remind(db, scope, due, now)) sent += 1
+        const delivery = await remind(db, scope, due, now)
+        if (delivery === 'sent') sent += 1
+        else if (typeof delivery === 'object') waiting.set(delivery.channelOff, (waiting.get(delivery.channelOff) ?? 0) + 1)
       }
       if (page.length < REMINDER_PAGE) break
       seen += page.length
       after = { checkIn: page.at(-1)!.booking.checkIn, id: page.at(-1)!.booking.id }
     }
+    if (waiting.size > 0) console.info(`[details-reminder] organization ${scope.organizationId}: ${[...waiting].map(([setting, count]) => `${count} booking(s) not reminded, ${setting} is not configured`).join('; ')}`)
     return sent
   })
 }
 
-/** One booking's reminder: true when a message went out. Marked once sent, or when there is nobody to send it to. */
-async function remind(db: Db, scope: OrganizationScope, { booking, pending, slots }: DetailsReminderRow, now: Date): Promise<boolean> {
-  const phone = await findBookerPhone(db, scope, booking)
-  const delivered = phone
-    ? await useSmsSender().send({ to: phone, text: reminderText(booking, pending, slots) })
-      .then(() => true, (error: unknown) => { console.error(`[details-reminder] booking ${booking.id} not reminded:`, error instanceof Error ? error.message : error); return false })
-    : false
-  if (delivered || !phone) await bookingOrgRepos(db, scope).records.markDetailsReminded(booking.id, now)
-  return delivered
+/** One booking's reminder: how it went. Marked once sent, or when there is nobody to send it to. */
+async function remind(db: Db, scope: OrganizationScope, { booking, pending, slots }: DetailsReminderRow, now: Date): Promise<BookerDelivery | 'failed'> {
+  const message = { subject: `Booking ${booking.bookingNo}: pilgrims' details needed`, text: reminderText(booking, pending, slots) }
+  const delivery: BookerDelivery | 'failed' = await messageBooker(db, scope, booking, message)
+    .catch((error: unknown) => { console.error(`[details-reminder] booking ${booking.id} not reminded:`, error instanceof Error ? error.message : error); return 'failed' as const })
+  if (delivery === 'sent' || delivery === 'no-contact') await bookingOrgRepos(db, scope).records.markDetailsReminded(booking.id, now)
+  return delivery
 }

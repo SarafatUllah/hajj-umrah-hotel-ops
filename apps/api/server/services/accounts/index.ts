@@ -7,4 +7,5 @@ export { changeAgencyPassword, getAgencyMe, loginAgencyUser, registerAgency, typ
 export type { AgencyDto, AgencyUserDto } from './agencyDto'
 export { closeCustomerRecord, getCustomerMe, isCustomerOpen, requestCustomerOtp, signOutEverywhere, verifyCustomerOtp, type CustomerMe, type CustomerSessionUser, type OtpChallengeIssued } from './customerAuthService'
 export { findAgencyBrief, findAgencyNames, type AgencyBrief } from './agencyLookup'
-export { findBookerPhone, type BookerRef } from './contactLookup'
+export { findBookerContact, type BookerContact, type BookerRef } from './contactLookup'
+export { verifiedEmailOf } from '../../domain/accounts/customerRules'

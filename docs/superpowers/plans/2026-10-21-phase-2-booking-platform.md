@@ -40,6 +40,7 @@ Branch: `dev` (every step is reviewed, verified with `pnpm verify` and committed
 | 16 | Frontends: `packages/ui`, `apps/ops-console`, `apps/agency-portal`, `apps/public-site` | 16a shared layer + public site done; 16b agency portal done; 16c ops console foundation done; 16d inventory pages and room calendar done; 16e front office: bookings done; 16f occupancy, front desk, housekeeping done; 16g quotes, agencies done; 16h booking settings, booking rules done |
 | 17 | Final review (code, security, database, architecture) and docs | done: 17a data protection, database, security; 17c agency passwords; 17d shared layer, typed contracts; 17e bookings on the room calendar; 17f docs; 17g pull request review (D-P2-66) |
 | 18 | Free MVP hosting: Vercel + Supabase (D-P2-67) | done: 18a S3-compatible storage driver; 18b 4 MB uploads, photos shrunk in the browser; 18c worker works every queue, polling interval; 18d `vercel.json`, worker image, deploy guide; 18e review: job tick instead of a daemon, database TLS, guide corrections; 18f the files on Cloudflare R2; 18g pre-deploy review fixes |
+| 19 | Customer sign-in by e-mail or phone (D-P2-68) | done: 19a e-mail sender and settings; 19b data model, service, API, booking messages; 19c public site; 19d review fixes; 19e docs |
 
 ## Local environment note
 
@@ -914,6 +915,57 @@ suites were run against a local PostgreSQL 16 on 5434 with `DATABASE_URL` export
   instance (no heartbeat per function); Node 22 pinned in each app's `engines` and the pinned pnpm through
   `ENABLE_EXPERIMENTAL_COREPACK=1`; a second, smaller try (2200 px) for photos still over 4 MB; the Daemon reasoning
   and stale lines in the docs.
+- **D-P2-68 (accounts) Customers sign in by e-mail or phone.** Pilgrims book from anywhere, the SMS path reaches
+  Saudi numbers only (`SMS_ALLOWED_CALLING_CODES`) and the deployment has no SMS provider: the customer now chooses
+  e-mail or phone and the one-time code goes there; the phone path is unchanged (D-P2-27). `POST
+  /api/customer/auth/otp/request` takes `phone` or `email`, exactly one (the shared schema: an address is trimmed,
+  lower-cased, at most 254 characters and checked); `…/otp/verify` is unchanged (the challenge knows where its code
+  went). A sent code answers 202 whatever the address; no provider is 503 `EMAIL_UNAVAILABLE`. The e-mail says only
+  the code, its 5 minutes and the site's name (the name in `EMAIL_FROM`, else the organization's), in English like
+  the SMS. **Sender** (`server/notifications/email.ts`, like the SMS one): `EMAIL_DRIVER=disabled` (default) | `log`
+  (development only, the address masked) | `smtp` (nodemailer 10.1.7, pinned exactly: no dependencies, its own types,
+  and every published advisory fixed from 10.1.4; implicit TLS on 465 — Gmail with an app password — or STARTTLS
+  required on any other port, the certificate checked, 10 s timeouts) | `resend` (`POST https://api.resend.com/emails`
+  with fetch and the bearer key, no redirects, 10 s; it delivers only from a domain verified in Resend). Failures are
+  logged with codes only (`EAUTH 535`, `Resend answered 403 (validation_error)`), never the message, the address or a
+  secret. Startup refuses: `log` outside development; `smtp`/`resend` without their settings (named, not echoed);
+  `smtp`/`resend` outside development without `CAPTCHA_DRIVER=turnstile` (as for the SMS webhook: an inbox flooded,
+  the sender's quota and reputation spent). **Data** (migration 0022): `customer.email_verified_at`; `customer.email`
+  stays optional contact data unless verified, always stored normalized (`customer_email_check`); a verified address
+  is unique per organization (partial unique index `customer_org_verified_email_unique`; lower-case storage makes it
+  case-insensitive); `customer_closed_check` now reads: an open account has a phone (stored only once proven) or a
+  verified e-mail, a closed one neither and no e-mail at all — closure clears both, so the address may sign up again;
+  `otp_challenge` holds a phone or an e-mail, exactly one (`otp_challenge_destination_check`), with a partial index
+  for an address's open codes. The migration lower-cases existing contact e-mails and clears a malformed one (no code
+  path ever wrote one). **No linking**: an e-mail account and a phone account are separate customers; nothing proves
+  they are the same person, and matching on an unproven value would hand one account to whoever controls the other
+  channel. The code offers no way to add a second identity to an account; one would need the signed-in customer to
+  prove the new phone or address with a code first (open). D-P2-27b holds for the inbox: whoever controls it holds
+  the account, and closing it needs a fresh code there. **Abuse limits**, as for phones: one code per address per
+  minute, 3 per 15 minutes, 5 a day from one client address and 30 a day in all (`otpEmailResendCooldown`,
+  `otpRequestPerEmail`, `otpRequestPerEmailFromAddressDay`, `otpRequestPerEmailDayTotal`: one sender cannot bomb an
+  inbox, a botnet stays at 30 a day, and shutting the owner out for the rest of the day takes 30 solved bot checks
+  from at least 6 client addresses — a 10-a-day total, tried first, let one stranger do it with 10), an address's
+  aliases counting as the address (`emailLimitSubject`: a `+tag` dropped, and Gmail's dots — only a rate-limit
+  subject, never an identity), 10 checks per address and client address an hour and 30 in all (`otpVerifyPerEmail`, `otpVerifyPerEmailTotal`), the
+  per-client-address limits shared with phones plus 20 e-mailed codes per client address an hour and 40 a day
+  (`otpEmailRequestPerIp`, `otpEmailRequestPerIpDay`: each below the budget of its window, so one client address
+  rotating throwaway addresses cannot spend either budget alone), the bot check, and an organization e-mail budget of
+  `EMAIL_HOURLY_LIMIT` (100) and `EMAIL_DAILY_LIMIT` (300: Gmail sends to about 500 recipients a day, and the booking
+  messages, not counted here, need room; Resend's free plan sends 100 a day). A failed send is not refunded (as for
+  SMS). **Booking messages** reach a booker on
+  one channel: a phone by text message (every agency, phone customers), else a customer's verified address by
+  e-mail; a channel that is not configured skips the message with a log line naming the booking only — the details
+  reminder instead logs one line per organization and run with how many bookings wait for which setting, and leaves
+  them unmarked to try again the next day; a closed account gets nothing (the reminder is marked).
+  **Public site**: the sign-in page asks "e-mail or phone" (e-mail first), checks an address with the shared schema
+  before sending, and on 503 offers the other method; the account page shows the address and/or the number, and the
+  closing step-up sends its code to the customer's own phone, else their address, and closes only if that code signed
+  the same account in. A security review of the change found nothing critical or high; it led to the alias counting,
+  the per-client-address e-mail limits, the same-account check and a sender name without backslashes; a second review
+  added the daily caps per client address and per mailbox, the lower daily budget and the reminder's summary line. Also: the HTTP
+  test harness boots its server on a free port (`PORT=0` meant 3000). Open: e-mails in Arabic; agencies messaged by
+  e-mail; adding a second sign-in identity; a failed send still counts against the limits (as for SMS).
 - **D-P2-53 (demo) Booking demo data.** The demo seed adds the booking platform's data: rates for every hotel's room
   types over 540 days from the anchor date (public per person and per room; agency default 8 % lower; a price level
   per hotel) and one approved agency (Al-Noor Travels) with a portal user sharing the demo password — same ids on

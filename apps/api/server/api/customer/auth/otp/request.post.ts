@@ -4,7 +4,10 @@ import { requestCustomerOtp } from '../../../../services/accounts'
 import { defineApiHandler } from '../../../../utils/apiHandler'
 import { clientIp } from '../../../../utils/clientIp'
 
-/** Public site: texts a sign-in code. 202 whatever the phone; 503 SMS_UNAVAILABLE while no SMS gateway is configured. */
+/**
+ * Public site: sends a sign-in code to a phone (SMS) or an e-mail address (D-P2-68). 202 whatever the destination;
+ * 503 SMS_UNAVAILABLE / EMAIL_UNAVAILABLE while that channel has no provider.
+ */
 export default defineApiHandler({
   body: otpRequestSchema,
   handler: async ({ event, body }) => {

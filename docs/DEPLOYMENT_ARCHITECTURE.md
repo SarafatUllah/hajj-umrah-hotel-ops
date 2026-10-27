@@ -23,8 +23,13 @@ flowchart LR
         CRON["Cron<br/>pg_cron + pg_net"]
     end
 
-    subgraph Cloudflare["Cloudflare R2 — Asia-Pacific"]
-        B[("Private bucket<br/>hotel-files")]
+    subgraph Cloudflare["Cloudflare"]
+        B[("R2 private bucket<br/>hotel-files — Asia-Pacific")]
+        T["Turnstile<br/>bot check"]
+    end
+
+    subgraph Google["Google"]
+        G["Gmail SMTP<br/>smtp.gmail.com:465"]
     end
 
     V -->|HTTPS| R
@@ -34,6 +39,8 @@ flowchart LR
     S & A & O -->|"/api/… over a private binding"| API
     API -->|"TLS, certificate checked<br/>session pooler :5432"| PG
     API -->|"S3 API over HTTPS<br/>bucket-only key"| B
+    API -->|"sign-in codes, SMTP over TLS<br/>app password"| G
+    API -->|"token check over HTTPS"| T
     CRON -->|"every 5 min<br/>POST /api/jobs/tick + secret"| R
     R -->|"/api/jobs/tick"| API
 ```
@@ -43,6 +50,8 @@ flowchart LR
 | **Vercel** | Runs the code: the three websites and the API, HTTPS addresses, builds on every push | 4 h of active CPU a month; non-commercial use only |
 | **Supabase** | Stores the data (PostgreSQL) and runs the 5-minute job timer (Cron) | 500 MB database, 5 GB of data out a month, no backups |
 | **Cloudflare R2** | Stores the files: hotel documents and passport photos | 10 GB, downloads free |
+| **Cloudflare Turnstile** | The bot check before a sign-in code is sent | free |
+| **Gmail** | Sends customers' sign-in codes, and booking messages to customers who sign in by e-mail (SMTP with an app password) | about 500 recipients a day |
 | **GitHub** (`sumoncse19/hajj-umrah`) | Holds the code; a push to `main` deploys | — |
 
 Not used: Redis (PostgreSQL does its work, §8), Supabase Auth and its Data API (the app has its own sign-in; the Data
@@ -132,7 +141,7 @@ referrer policy), on the API and on the three websites.
 |---|---|---|
 | Hotel staff | ops console | email + password (Argon2 hashes); a two-factor code once set up (`STAFF_2FA_ENFORCEMENT=required-roles` makes it mandatory for the chosen roles — off in the demo, required in production) |
 | Agency users | agency portal | email + password |
-| Customers | public site | a code by text message — **off** until an SMS provider is connected |
+| Customers | public site | a one-time code by **e-mail** (sent from the Gmail account) or by text message — texts **off** until an SMS provider is connected; an e-mail account and a phone account are separate customers |
 | Demo visitors | ops console, agency portal | demo sign-in buttons (`APP_ENV=demo`, `DEMO_SIGN_IN_ENABLED=true`) |
 
 A session is an **encrypted cookie** (`nuxt-auth-utils`, sealed with `NUXT_SESSION_PASSWORD`), set for the one address
@@ -254,12 +263,12 @@ one (`missed: 'once'`; every scheduled job is a safe-to-repeat sweep).
 | `booking.hold-expiry` | every tick | marks holds that ran out EXPIRED and releases their quotes |
 | `booking.quote-expiry` | hourly at :05 | expires quotes that were not taken up |
 | `booking.passport-read` | the tick after an upload | reads the photo; no reader is configured, so it goes to manual review |
-| `booking.details-reminder` | 06:00 (12:00 Dhaka) | texts bookers whose pilgrims' details are missing near check-in — SMS off: nothing sent |
+| `booking.details-reminder` | 06:00 (12:00 Dhaka) | reminds bookers whose pilgrims' details are missing near check-in: e-mail to customers who sign in by e-mail; a text to agencies and phone customers — SMS off: those wait (logged) |
 | `booking.guest-data-retention` | 02:15 | erases pilgrims' details the set number of months after their stay's check-out |
 | `booking.passport-retention` | 02:30 | deletes passport images past their retention, and discarded ones |
 | `security.cleanup` | 03:17 (run at 03:20) | drops rate-limit counters and sign-in codes long past their window or expiry |
 | `events.receipt-prune` | 03:45 | prunes the records of handled events |
-| `notify-booker` | after staff confirm or cancel a booking | texts the booker — SMS off: nothing sent |
+| `notify-booker` | after staff confirm or cancel a booking | tells the booker: by e-mail if they sign in by e-mail, else by text — SMS off: no text (logged) |
 
 The tick's secret lives in Vercel (`JOBS_TICK_SECRET`) and in Supabase's cron table (readable by its administrators
 only). An always-on worker (`Dockerfile.worker`, as a Vercel Daemon or on a server) can replace the tick without code
@@ -269,14 +278,14 @@ changes; on the free plan a Daemon has only 5 active CPU-hours a month and is a 
 
 | Concern | How it is handled |
 |---|---|
-| Traffic | HTTPS for visitors (Vercel); TLS with a checked certificate to the database; HTTPS to R2 |
+| Traffic | HTTPS for visitors (Vercel); TLS with a checked certificate to the database and to Gmail's SMTP server; HTTPS to R2 and Turnstile |
 | The API's exposure | private service, reached only through the websites' bindings; the tick path needs a secret |
 | Forged requests | origin check against `ALLOWED_ORIGINS` on every request that changes something |
 | Sessions | encrypted, secure cookies per address; no server-side session store |
 | Passwords | Argon2 hashes; staff two-factor |
 | Personal data | field encryption, encrypted passport photos, keyed lookup hashes, access log |
 | Files | private bucket, key limited to it, no public links, permission checked on every download |
-| Abuse | rate limits counted in PostgreSQL (`rate_limit_bucket`) and shared by every running copy: sign-in (per address, per account), two-factor attempts, sign-in codes, agency registration, quotes, holds, searches, the public catalogue, passport uploads and views, personal-data reveals |
+| Abuse | rate limits counted in PostgreSQL (`rate_limit_bucket`) and shared by every running copy: sign-in (per address, per account), two-factor attempts, sign-in codes (per phone or e-mail address — its aliases counted as one — per visitor address, and the organization's hourly and daily e-mail budget, behind the Turnstile check), agency registration, quotes, holds, searches, the public catalogue, passport uploads and views, personal-data reveals |
 | Browser hardening | security headers on the API and the websites (no framing, HSTS, referrer policy) |
 | Database exposure | Supabase's Data API turned off: its tables are not published on the web |
 | Secrets | only in Vercel's Production settings (previews get none), generated with `openssl` |
@@ -299,6 +308,7 @@ start, naming the setting, when one is missing or wrong. Values are in `docs/DEP
 | Requests | `ALLOWED_ORIGINS`, `TRUST_PROXY`, `TRUST_VISITOR_HEADER`, `NUXT_API_PROXY_TRUST_PROXY` (`NUXT_API_PROXY_TARGET` comes from the binding) |
 | Jobs | `JOBS_MODE=send`, `JOBS_POOL_MAX`, `JOBS_TICK_SECRET` |
 | Files | `STORAGE_DRIVER=s3`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` |
+| Customer sign-in | `EMAIL_DRIVER=smtp`, `SMTP_HOST=smtp.gmail.com`, `SMTP_PORT=465`, `SMTP_USER`, `SMTP_PASSWORD` (a Google app password), `EMAIL_FROM`, optional `EMAIL_HOURLY_LIMIT`/`EMAIL_DAILY_LIMIT`; the bot check `CAPTCHA_DRIVER=turnstile`, `CAPTCHA_SECRET`, `NUXT_PUBLIC_TURNSTILE_SITE_KEY` (required with e-mail); later `EMAIL_DRIVER=resend` + `RESEND_API_KEY` |
 
 ## 10. Deploying a change
 
@@ -323,7 +333,8 @@ flowchart LR
 | Uploads | at most 4 MB (photos are shrunk in the browser; a larger PDF must be made smaller) |
 | Backups | none automatic: `pg_dump` and a bucket copy by hand (`docs/DEPLOY_VERCEL.md`, "Backups") |
 | Supabase | a project idle for a week is paused (restore it from the dashboard); PostgreSQL 17 (tests run on 16) |
-| Text messages | not connected: customer sign-in, booking messages and reminders are off |
+| Text messages | not connected: phone sign-in, and texts to agencies and phone customers (booking messages, reminders), are off |
+| E-mail | one Gmail account: about 500 recipients a day; the API caps sign-in codes at 100 an hour and 300 a day (`EMAIL_HOURLY_LIMIT`, `EMAIL_DAILY_LIMIT`), one visitor's address at 20 an hour and 40 a day (5 a day to one mailbox) and one mailbox at 30 a day in all, leaving room for booking messages; a domain of your own moves it to Resend (`docs/DEPLOY_VERCEL.md` step 5.4; its free plan sends 100 a day) |
 | Passport reading | no reader configured: every photo goes to manual review (keep `PASSPORT_OCR=none`: the pass runs inside a function) |
 | Demo access | anyone who has the addresses can use the demo sign-in: share them only with those who need them |
 | Data | demo data only — where pilgrims' data may be stored is still an open client question |
@@ -336,4 +347,4 @@ Nothing in the code is tied to these providers:
 - **Supabase Pro**: daily backups and point-in-time recovery.
 - **A server or another host**: the API (`node .output/server/index.mjs`), the worker (`Dockerfile.worker`), any
   PostgreSQL with TLS, and R2 as it is (or a lasting disk with `STORAGE_DRIVER=local`).
-- **Production settings** (`APP_ENV=production`, staff two-factor, an SMS provider, Turnstile): `docs/DEPLOY_CHECKLIST.md`.
+- **Production settings** (`APP_ENV=production`, staff two-factor, an e-mail sender, an SMS provider, Turnstile): `docs/DEPLOY_CHECKLIST.md`.

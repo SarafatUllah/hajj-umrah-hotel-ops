@@ -58,8 +58,10 @@ change `regions` in `vercel.json` and create the Supabase project and the bucket
 - **No automatic backups** of the database on Supabase's free plan, nor of the files on R2 (see "Backups"). A Supabase
   project with no activity for a week is paused (open its dashboard and press Restore).
 - **Server logs are kept for one hour** on Vercel's free plan.
-- **Customers cannot sign in on the public site** (it texts a code; no SMS provider is connected): use the demo
-  sign-in on the console and the portal.
+- **Customers sign in on the public site by e-mail** once step 5.4 is done: a code sent from a Gmail account, which
+  sends to about 500 recipients a day. **Text messages are not connected**: the phone option answers that texts cannot
+  be sent right now, and agencies get no text messages. Staff and agencies use the demo sign-in on the console and the
+  portal.
 - Supabase runs **PostgreSQL 17**; the test suites run on 16 (nothing in the schema depends on the difference).
 
 ## 1. Supabase: the database and the scheduler
@@ -183,7 +185,60 @@ encrypts without checking the certificate — use it only if verifying cannot be
    slash): when you pick other names, change it and redeploy — a form sent from an address not on it is refused
    (`CSRF_ORIGIN_MISMATCH`). `JOBS_MODE=send`: the API functions only enqueue; the tick works the jobs. Do **not** set
    `NUXT_API_PROXY_TARGET` (Vercel fills it in from the binding) or `NUXT_SESSION_COOKIE_SECURE` (secure by default).
-4. Deploy.
+4. **Customer sign-in by e-mail (Gmail).** Customers sign in on the public site with a code sent to their e-mail
+   address (or, once an SMS provider is connected, to their phone). The codes go out through a Gmail account over
+   SMTP; e-mailing them outside development also needs the Cloudflare Turnstile bot check (the API refuses to start
+   without it: a stranger could otherwise flood inboxes from your account).
+
+   1. **An app password.** Use the Gmail account the e-mails should come from — best one made for this, not a
+      personal mailbox: an app password opens the account's mail (sending and reading), so it is a secret like a
+      password. Google Account → Security → turn on **2-Step Verification** (app passwords need it) → **App
+      passwords** (`myaccount.google.com/apppasswords`) → name it `hajj-umrah` → Create. Copy the 16 letters
+      **without the spaces**; revoke it there to cut access. Gmail sends to about **500 recipients a day** per
+      account: the API's own budget for sign-in codes stays below (`EMAIL_DAILY_LIMIT=300`, `EMAIL_HOURLY_LIMIT=100`
+      by default), leaving room for the booking messages to customers who sign in by e-mail, which count against
+      Gmail's limit too. One client address gets at most 20 codes an hour and 40 a day (5 a day to one mailbox), one
+      mailbox 30 a day in all.
+   2. **The bot check.** Cloudflare dashboard → **Turnstile** → Add widget → name `hajj-umrah`, hostname
+      `hajj-umrah.vercel.app` (and your own domain later), mode **Managed** → Create. Copy the **site key** and the
+      **secret key**.
+   3. Add these to the Production variables (same rules as above: one line each, no quotes):
+
+      ```bash
+      EMAIL_DRIVER=smtp
+      SMTP_HOST=smtp.gmail.com
+      SMTP_PORT=465
+      SMTP_USER=<the Gmail address>
+      SMTP_PASSWORD=<the app password of 5.4.1: 16 letters, no spaces>
+      EMAIL_FROM=Hajj & Umrah Stays <the same Gmail address>
+      CAPTCHA_DRIVER=turnstile
+      CAPTCHA_SECRET=<the Turnstile secret key>
+      NUXT_PUBLIC_TURNSTILE_SITE_KEY=<the Turnstile site key>
+      ```
+
+      Port 465 is TLS from the first byte; the API checks Gmail's certificate and never sends in clear text. The name
+      in `EMAIL_FROM` is what the inbox shows and the site name the e-mail gives; keep its address the Gmail address
+      itself (Gmail replaces any other sender with the account's own address unless it is a "Send mail as" alias you
+      set up in Gmail).
+
+   **Later, with your own domain: Resend.** Gmail is fine for a demo. For more volume and a sender on your own domain,
+   use [Resend](https://resend.com): add the domain (Domains → Add, then the DNS records it lists, until it shows
+   *Verified*), create an API key with **Sending access**, then replace the `SMTP_*` lines with
+
+   ```bash
+   EMAIL_DRIVER=resend
+   RESEND_API_KEY=<the key>
+   EMAIL_FROM=Hajj & Umrah Stays <bookings@your-domain.com>
+   ```
+
+   and redeploy, with `EMAIL_HOURLY_LIMIT` / `EMAIL_DAILY_LIMIT` set to your Resend plan: **Resend's free plan sends 100
+   e-mails a day**, booking messages included, so there set them well below it (e.g. `EMAIL_HOURLY_LIMIT=30`,
+   `EMAIL_DAILY_LIMIT=70`; keep them above the per-client-address caps of 20 an hour and 40 a day, or one visitor could
+   spend the budget alone). **Do not switch before the
+   domain is verified:** without it Resend sends only from its test address and only to your own Resend account's
+   e-mail — every customer's code would fail (503 `EMAIL_UNAVAILABLE`; the log says `Resend answered 403
+   (validation_error)`).
+5. Deploy.
 
 ## 6. The three addresses
 
@@ -247,6 +302,10 @@ secret, run `select cron.unschedule('hajj-jobs-tick');` and schedule it again.
    address, so every visitor would share one limit: check that `TRUST_VISITOR_HEADER` and
    `NUXT_API_PROXY_TRUST_PROXY` are `true` in Production and that the latest deployment has them. (An IPv6 visitor
    counts by the first four groups of the address: `2001:db8:85a3:8d3::/64` for `2001:db8:85a3:8d3:…`.)
+6. Customer sign-in: on the public site, Sign in → E-mail → an address you can read → complete the check → "E-mail me
+   a code". The code arrives within a minute (look in the spam folder the first time) from the name and address of
+   `EMAIL_FROM`; entering it with a name creates the account, and Account shows the address. The Gmail account's Sent
+   folder shows the message too.
 
 ## Updating
 
@@ -289,6 +348,10 @@ AWS_ACCESS_KEY_ID=<S3_ACCESS_KEY_ID> AWS_SECRET_ACCESS_KEY=<S3_SECRET_ACCESS_KEY
 | `DATABASE_SSL_CA must be a whole PEM certificate` | The certificate lost its lines: paste the one-line form of step 5 (the awk command). |
 | Every visitor is refused "too many attempts" at once | They share one rate limit: step 8.5 (`TRUST_VISITOR_HEADER`, `NUXT_API_PROXY_TRUST_PROXY`). |
 | Upload refused as too large | The file is over 4 MB (a PDF cannot be shrunk by the app). |
+| The API refuses to start: `CAPTCHA_DRIVER must be turnstile when sign-in codes are e-mailed` | E-mail sign-in needs the bot check: step 5.4.2 (`CAPTCHA_DRIVER`, `CAPTCHA_SECRET`, `NUXT_PUBLIC_TURNSTILE_SITE_KEY`). |
+| Sign-in says e-mails cannot be sent right now | The function log names the cause: `[email] delivery failed: EAUTH 535` = the app password is wrong, revoked or pasted with its spaces (step 5.4.1); `ETIMEDOUT`/`ECONNECTION` = `SMTP_HOST`/`SMTP_PORT`; `Resend answered 403 (validation_error)` = the Resend domain is not verified yet. |
+| Sign-in says "Please complete the check" for everyone | The Turnstile widget does not list this address (Cloudflare → Turnstile → the widget's hostnames), or the site key and the secret are from different widgets. |
+| "Too many attempts" at sign-in | One address gets a code a minute, 3 in 15 minutes and 30 a day (5 a day from one visitor's address); one visitor's address 20 an hour and 40 a day; past `EMAIL_HOURLY_LIMIT`/`EMAIL_DAILY_LIMIT` the log warns `reached its otp-email-org-… e-mail budget`. |
 
 ## Moving to a proper server later
 
@@ -311,4 +374,4 @@ and remove the Supabase schedule (`select cron.unschedule('hajj-jobs-tick');`). 
 API (`node .output/server/index.mjs`, `JOBS_MODE=light`) and the worker (`Dockerfile.worker`, heavy queues by
 default), keep `STORAGE_DRIVER=s3` (the R2 bucket stays where it is) or move the files to a lasting disk with
 `STORAGE_DRIVER=local`, and `DATABASE_SSL` for a remote database; move the data with `pg_dump`/`pg_restore`.
-`docs/DEPLOY_CHECKLIST.md` lists the production settings (`APP_ENV=production`, staff 2FA, SMS, Turnstile).
+`docs/DEPLOY_CHECKLIST.md` lists the production settings (`APP_ENV=production`, staff 2FA, e-mail, SMS, Turnstile).

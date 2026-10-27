@@ -389,6 +389,73 @@ describe('getEnv: Phase 2a security settings', () => {
     expect(getEnv().SMS_DRIVER).toBe('webhook')
   })
 
+  it('e-mail: disabled by default; log only in development; each sending driver needs its settings, named but never echoed', () => {
+    expect(getEnv()).toMatchObject({ EMAIL_DRIVER: 'disabled', SMTP_PORT: 465, EMAIL_HOURLY_LIMIT: 100, EMAIL_DAILY_LIMIT: 300 })
+    expect(getEnv().EMAIL_FROM).toBeUndefined()
+    resetEnvCache()
+    Object.assign(process.env, { APP_ENV: 'staging', EMAIL_DRIVER: 'log' })
+    expect(() => getEnv()).toThrow(/EMAIL_DRIVER=log is allowed only with APP_ENV=development/)
+    resetEnvCache()
+    Object.assign(process.env, { APP_ENV: 'development', EMAIL_DRIVER: 'smtp', SMTP_PASSWORD: 'app-password-secret' })
+    for (const missing of ['SMTP_HOST', 'SMTP_USER', 'EMAIL_FROM']) expect(() => getEnv(), missing).toThrow(new RegExp(`${missing} is required with EMAIL_DRIVER=smtp`))
+    expect(() => getEnv()).not.toThrow(/SMTP_PASSWORD is required|app-password-secret/)
+    resetEnvCache()
+    Object.assign(process.env, { SMTP_HOST: 'smtp.gmail.com', SMTP_USER: 'stays@gmail.com', EMAIL_FROM: 'Hajj & Umrah Stays <stays@gmail.com>' })
+    expect(getEnv()).toMatchObject({ EMAIL_DRIVER: 'smtp', SMTP_HOST: 'smtp.gmail.com', SMTP_PORT: 465, SMTP_USER: 'stays@gmail.com', EMAIL_FROM: { name: 'Hajj & Umrah Stays', address: 'stays@gmail.com' } })
+    resetEnvCache()
+    process.env.SMTP_PORT = '70000'
+    expect(() => getEnv()).toThrow(/SMTP_PORT must be a port number/)
+    resetEnvCache()
+    Object.assign(process.env, { SMTP_PORT: '587', SMTP_PASSWORD: '' })
+    expect(() => getEnv()).toThrow(/SMTP_PASSWORD/)
+    resetEnvCache()
+    Object.assign(process.env, { EMAIL_DRIVER: 'resend', SMTP_PASSWORD: 'app-password-secret' })
+    expect(() => getEnv()).toThrow(/RESEND_API_KEY is required with EMAIL_DRIVER=resend/)
+    resetEnvCache()
+    process.env.RESEND_API_KEY = 're_secret_key'
+    expect(getEnv()).toMatchObject({ EMAIL_DRIVER: 'resend', SMTP_PORT: 587 })
+    resetEnvCache()
+    process.env.EMAIL_DRIVER = 'sendgrid'
+    expect(() => getEnv()).toThrow(/EMAIL_DRIVER must be disabled, log, smtp or resend/)
+  })
+
+  it('EMAIL_FROM is an address or "Name <address>"; anything else is refused', () => {
+    for (const [value, parsed] of [
+      ['stays@example.com', { name: null, address: 'stays@example.com' }],
+      ['Hajj & Umrah Stays <stays@example.com>', { name: 'Hajj & Umrah Stays', address: 'stays@example.com' }],
+      [' "Hajj & Umrah Stays"  <stays@example.com> ', { name: 'Hajj & Umrah Stays', address: 'stays@example.com' }],
+      ['<stays@example.com>', { name: null, address: 'stays@example.com' }],
+    ] as const) {
+      resetEnvCache()
+      process.env.EMAIL_FROM = value
+      expect(getEnv().EMAIL_FROM, value).toEqual(parsed)
+    }
+    for (const value of ['', 'Hajj Stays', 'Stays <not-an-address>', 'a@example.com, b@example.com', 'Stays "x" <stays@example.com>', 'Stays <stays@example.com', 'Stays\\ <stays@example.com>']) {
+      resetEnvCache()
+      process.env.EMAIL_FROM = value
+      expect(() => getEnv(), value).toThrow(/EMAIL_FROM must be an address or "Name <address>"/)
+    }
+  })
+
+  it('e-mailing sign-in codes outside development needs the bot check, as texting them does; the e-mail budget is per hour and per day', () => {
+    const gmail = { EMAIL_DRIVER: 'smtp', SMTP_HOST: 'smtp.gmail.com', SMTP_USER: 'stays@gmail.com', SMTP_PASSWORD: 'app-password-secret', EMAIL_FROM: 'stays@gmail.com' }
+    for (const appEnv of ['demo', 'staging']) {
+      resetEnvCache()
+      Object.assign(process.env, gmail, { APP_ENV: appEnv })
+      expect(() => getEnv(), appEnv).toThrow(/CAPTCHA_DRIVER must be turnstile when sign-in codes are e-mailed outside APP_ENV=development/)
+      expect(() => getEnv(), appEnv).not.toThrow(/app-password-secret/)
+    }
+    resetEnvCache()
+    Object.assign(process.env, { EMAIL_DRIVER: 'resend', RESEND_API_KEY: 're_secret_key' })
+    expect(() => getEnv()).toThrow(/CAPTCHA_DRIVER must be turnstile when sign-in codes are e-mailed/)
+    resetEnvCache()
+    Object.assign(process.env, gmail, { CAPTCHA_DRIVER: 'turnstile', CAPTCHA_SECRET: 'turnstile-secret', EMAIL_HOURLY_LIMIT: '50', EMAIL_DAILY_LIMIT: '450' })
+    expect(getEnv()).toMatchObject({ APP_ENV: 'staging', EMAIL_DRIVER: 'smtp', EMAIL_HOURLY_LIMIT: 50, EMAIL_DAILY_LIMIT: 450 })
+    resetEnvCache()
+    process.env.EMAIL_DAILY_LIMIT = '0'
+    expect(() => getEnv()).toThrow(/EMAIL_DAILY_LIMIT/)
+  })
+
   it('refuses the example session password outside development, and a cookie without Secure in production', () => {
     Object.assign(process.env, REQUIRED_VARS, { APP_ENV: 'staging', NUXT_SESSION_PASSWORD: 'change-this-to-a-random-32-plus-character-secret' })
     expect(() => getEnv()).toThrow(/NUXT_SESSION_PASSWORD is still the example value/)
